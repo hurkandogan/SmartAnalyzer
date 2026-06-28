@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { runPortfolioSync } from '../jobs/portfolioSync.js';
 import { runDailyStockAnalysis } from '../jobs/dailyStockAnalysis.js';
 import { runCurrencyUpdate } from '../jobs/currencyUpdate.js';
+import { runDataMiner } from '../jobs/dataMiner.js';
 import { logger } from '../utils/logger.js';
 
 export const jobRoutes = new Hono();
@@ -34,13 +35,39 @@ function wrapJob(name, fn) {
 }
 
 jobRoutes.post('/portfolio-sync', wrapJob('portfolio-sync', runPortfolioSync));
+jobRoutes.get('/portfolio-sync', wrapJob('portfolio-sync', runPortfolioSync));
+
 jobRoutes.post(
   '/stock-analysis',
   wrapJob('stock-analysis', runDailyStockAnalysis),
 );
+jobRoutes.get(
+  '/stock-analysis',
+  wrapJob('stock-analysis', runDailyStockAnalysis),
+);
+
 jobRoutes.post(
   '/currency-update',
   wrapJob('currency-update', runCurrencyUpdate),
+);
+jobRoutes.get(
+  '/currency-update',
+  wrapJob('currency-update', runCurrencyUpdate),
+);
+
+jobRoutes.post(
+  '/data-miner',
+  wrapJob('data-miner', runDataMiner),
+);
+jobRoutes.get(
+  '/data-miner',
+  wrapJob('data-miner', runDataMiner),
+);
+
+// Fallback compatibility path
+jobRoutes.post(
+  '/candle-miner',
+  wrapJob('candle-miner', runDataMiner),
 );
 
 jobRoutes.get('/status', (c) => {

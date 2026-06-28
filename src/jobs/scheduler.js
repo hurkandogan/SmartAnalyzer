@@ -22,18 +22,9 @@ export function startScheduler() {
     }
   });
 
-  // ── Daily Stock Analysis: weekdays at 07:00 AM ──
-  // Adjust cron expression to your server timezone
-  cron.schedule('0 7 * * 1-5', async () => {
-    logger.info('[CRON] Daily Stock Analysis triggered');
-    try {
-      await dbLogger('daily-stock-analysis', 'info', 'Daily Stock Analysis triggered');
-      await runDailyStockAnalysis();
-      await dbLogger('daily-stock-analysis', 'success', 'Daily Stock Analysis completed successfully');
-    } catch (error) {
-      await dbLogger('daily-stock-analysis', 'error', `Daily Stock Analysis failed: ${error.message}`);
-    }
-  });
+  // ── Daily Stock Analysis ──
+  // Note: This is no longer scheduled via cron.
+  // It is chained automatically after the Data Miner finishes.
 
   // ── Currency Update: daily at 08:00 ──
   cron.schedule('0 8 * * *', async () => {

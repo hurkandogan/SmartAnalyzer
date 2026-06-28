@@ -126,7 +126,7 @@ export default function TransactionManager() {
 
       {/* STAT CARDS */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="stats bg-base-100 border-base-200 border shadow">
+        <div className="stats bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow">
           <div className="stat">
             <div className="stat-figure text-success">
               <FiArrowUpCircle size={32} />
@@ -139,7 +139,7 @@ export default function TransactionManager() {
           </div>
         </div>
 
-        <div className="stats bg-base-100 border-base-200 border shadow">
+        <div className="stats bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow">
           <div className="stat">
             <div className="stat-figure text-error">
               <FiArrowDownCircle size={32} />
@@ -152,7 +152,7 @@ export default function TransactionManager() {
           </div>
         </div>
 
-        <div className="stats bg-base-100 border-base-200 border shadow">
+        <div className="stats bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow">
           <div className="stat">
             <div className="stat-figure text-primary">
               <FiDollarSign size={32} />
@@ -167,9 +167,9 @@ export default function TransactionManager() {
       </div>
 
       {/* LISTE */}
-      <div className="card bg-base-100 border-base-200 border shadow-xl">
+      <div className="card bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow-xl">
         <div className="overflow-x-auto">
-          <table className="table-zebra table">
+          <table className="table">
             <thead>
               <tr>
                 <th>Type</th>

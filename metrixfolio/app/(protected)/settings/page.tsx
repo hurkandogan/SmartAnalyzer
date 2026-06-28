@@ -21,7 +21,7 @@ export default function SettingsPage() {
         />
         <div
           role="tabpanel"
-          className="tab-content bg-base-100 border-base-300 rounded-box p-6"
+          className="tab-content bg-base-100/50 backdrop-blur-md border-base-content/5 border rounded-box p-6"
         >
           <CategoryManager />
         </div>
@@ -35,7 +35,7 @@ export default function SettingsPage() {
         />
         <div
           role="tabpanel"
-          className="tab-content bg-base-100 border-base-300 rounded-box p-6"
+          className="tab-content bg-base-100/50 backdrop-blur-md border-base-content/5 border rounded-box p-6"
         >
           <div className="mb-4">
             <h2 className="text-xl font-bold">Connections</h2>

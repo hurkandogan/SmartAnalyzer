@@ -126,8 +126,8 @@ export default function CategoryManager() {
       <div
         className={`flex flex-wrap items-end gap-4 rounded-lg border-2 p-4 transition-colors ${
           editingCategory
-            ? 'bg-warning/10 border-warning'
-            : 'bg-base-200 border-transparent'
+            ? 'bg-warning/10 backdrop-blur-md border-warning'
+            : 'bg-base-200/50 backdrop-blur-md border-transparent'
         }`}
       >
         {editingCategory && (
@@ -228,10 +228,10 @@ export default function CategoryManager() {
         {categories.map((cat: Category & { color?: string }) => (
           <div
             key={cat.id}
-            className={`card bg-base-100 border shadow-sm transition-all hover:shadow-md ${
+            className={`card bg-base-100/50 backdrop-blur-md border shadow-sm transition-all hover:shadow-md ${
               editingCategory?.id === cat.id
                 ? 'ring-warning ring-2'
-                : 'border-base-300'
+                : 'border-base-content/5'
             }`}
             style={{ borderLeft: `4px solid ${cat.color || 'transparent'}` }}
           >

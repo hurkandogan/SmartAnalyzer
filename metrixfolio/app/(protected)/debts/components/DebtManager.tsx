@@ -105,7 +105,7 @@ export default function DebtManager() {
 
       {/* STAT CARDS */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-1">
-        <div className="stats bg-base-100 border-base-200 border shadow">
+        <div className="stats bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow">
           <div className="stat">
             <div className="stat-figure text-error">
               <FiDollarSign size={32} />
@@ -120,9 +120,9 @@ export default function DebtManager() {
       </div>
 
       {/* LISTE */}
-      <div className="card bg-base-100 border-base-200 border shadow-xl">
+      <div className="card bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow-xl">
         <div className="overflow-x-auto">
-          <table className="table-zebra table">
+          <table className="table">
             <thead>
               <tr>
                 <th>Name</th>

@@ -2,9 +2,29 @@
   "project_name": "Metrixfolio_v3",
   "architecture": "hierarchical_multi_agent",
   "subagents": {
-    "python_data_service": {
-      "path": "./python_data_service",
-      "runtime": "python3"
+    "nodejs_backend": {
+      "path": "./src",
+      "runtime": "node",
+      "port": 3500,
+      "description": "Hono NodeJS backend containing the cron scheduler and Firestore writer."
+    },
+    "python_bridge_service": {
+      "path": "./python",
+      "runtime": "python3",
+      "port": 8000,
+      "description": "FastAPI service interfacing with IBKR and scraping Yahoo Finance."
+    },
+    "metrixfolio_client": {
+      "path": "./metrixfolio",
+      "runtime": "nextjs",
+      "port": 3000,
+      "description": "Next.js dashboard web application."
+    },
+    "legacy_react_client": {
+      "path": "./client",
+      "runtime": "vite",
+      "port": 5173,
+      "description": "Legacy React client application served by the NodeJS backend."
     }
   }
 }

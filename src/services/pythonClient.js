@@ -63,6 +63,17 @@ class PythonClientService {
     }
   }
 
+  async analyzeTicker(symbol) {
+    try {
+      const res = await fetch(`${PYTHON_SERVICE_URL}/api/analyze-ticker?symbol=${encodeURIComponent(symbol)}`);
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      logger.error(`[PythonClient] Failed to analyze ticker ${symbol}: ${err.message}`);
+      return null;
+    }
+  }
+
   async postLog(level, source, message, details = null) {
     try {
       const payload = { level, source, message };

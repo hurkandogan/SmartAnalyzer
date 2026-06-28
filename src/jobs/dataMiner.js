@@ -22,22 +22,23 @@ export async function runDataMiner() {
     }
     
     await dbLogger(source, 'info', `Found ${symbols.length} symbols to mine. Starting process...`);
-
+ 
     // 2. Process each symbol sequentially to avoid hitting rate limits
     let successCount = 0;
     let errorCount = 0;
-
+ 
     for (let i = 0; i < symbols.length; i++) {
       const symbol = symbols[i];
       
       try {
         await dbLogger(source, 'info', `Mining ticker [${i + 1}/${symbols.length}]: ${symbol}`);
         
-        // Call Python service to handle IBKR/Yahoo scraping and DB insertion
+        // Call Python service to handle IBKR/Yahoo scraping and DB insertion (No Firestore logic here)
         const result = await pythonClient.mineTicker(symbol);
         
         if (result && result.status === 'success') {
           successCount++;
+          await dbLogger(source, 'info', `✓ Mined and saved to local DB for ${symbol}`);
         } else {
           errorCount++;
           await dbLogger(source, 'error', `Failed to mine ${symbol}`, result?.messages || 'Unknown error');
@@ -54,6 +55,15 @@ export async function runDataMiner() {
     }
 
     await dbLogger(source, 'success', `Miner completed. Success: ${successCount}, Errors: ${errorCount}`);
+    
+    // 4. Schedule Stock Analysis to run 10 minutes later
+    await dbLogger(source, 'info', 'Scheduling Stock Analysis to run in 10 minutes...');
+    setTimeout(() => {
+      import('./dailyStockAnalysis.js').then(module => {
+        module.runDailyStockAnalysis().catch(err => console.error("Chained Stock Analysis failed:", err));
+      });
+    }, 10 * 60 * 1000); // 10 minutes
+    
   } catch (error) {
     await dbLogger(source, 'error', `Fatal error in data miner: ${error.message}`);
   }

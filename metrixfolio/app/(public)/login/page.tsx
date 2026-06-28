@@ -42,8 +42,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="bg-base-200 flex min-h-screen items-center justify-center">
-      <div className="card bg-base-100 w-full max-w-sm shrink-0 shadow-2xl">
+    <div className="flex min-h-screen items-center justify-center bg-transparent">
+      <div className="card bg-base-100/60 backdrop-blur-md border border-base-content/5 w-full max-w-sm shrink-0 shadow-2xl">
         <form className="card-body" onSubmit={handleLogin}>
           <h1 className="text-center text-2xl font-bold">Metrixfolio Login</h1>
 

@@ -94,7 +94,7 @@ export default function ConnectionsManager() {
   return (
     <div className="space-y-4">
       {/* IBKR Accordion */}
-      <div className="border border-base-300 rounded-box bg-base-100 overflow-hidden">
+      <div className="border border-base-content/5 rounded-box bg-base-100/50 backdrop-blur-md overflow-hidden">
         <button
           type="button"
           className="w-full flex items-center gap-3 px-5 py-4 text-base font-semibold text-left hover:bg-base-200/50 transition-colors"

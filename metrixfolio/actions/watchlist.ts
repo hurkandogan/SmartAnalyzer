@@ -236,6 +236,64 @@ export async function getAnalysesAction(
       week52_low: d.week52_low ?? null,
       rsi: d.rsi ?? null,
       iv: d.iv ?? null,
+      cross_signal: d.cross_signal ?? null,
     };
   });
+}
+
+export interface HotTickerInfo {
+  symbol: string;
+  rsi: number | null;
+  iv: number | null;
+  last_price: number | null;
+  is_hot: boolean;
+  cross_signal?: "GC" | "DC" | "GC_COMING" | "DC_COMING" | null;
+}
+
+export async function getHotTickersAction(): Promise<HotTickerInfo[]> {
+  try {
+    const watchlist = await getWatchlistAction();
+    if (!watchlist || watchlist.length === 0) return [];
+
+    const promises = watchlist.map(async (item) => {
+      try {
+        const analyses = await getAnalysesAction(item.symbol, 1);
+        if (analyses && analyses.length > 0) {
+          const latest = analyses[0];
+          // Define HOT condition: RSI <= 40 (Oversold/Low RSI) OR IV >= 45% (High IV) OR any cross signal
+          const hasCross = !!latest.cross_signal;
+          const isHot =
+            hasCross ||
+            (latest.rsi != null && latest.rsi <= 40) ||
+            (latest.iv != null && latest.iv >= 45);
+
+          return {
+            symbol: item.symbol,
+            rsi: latest.rsi,
+            iv: latest.iv,
+            last_price: latest.last_price,
+            cross_signal: latest.cross_signal,
+            is_hot: isHot,
+          };
+        }
+      } catch (err) {
+        console.error(`Error loading analysis for ${item.symbol}:`, err);
+      }
+      return null;
+    });
+
+    const resolved = await Promise.all(promises);
+    return resolved.filter((r): r is HotTickerInfo => r !== null);
+  } catch (error) {
+    console.error('Error in getHotTickersAction:', error);
+    return [];
+  }
+}
+
+
+export async function checkWatchlistAction(symbol: string): Promise<boolean> {
+  if (!symbol) return false;
+  const upperSymbol = symbol.toUpperCase().trim();
+  const doc = await adminDb.collection(WATCHLIST_COLLECTION).doc(upperSymbol).get();
+  return doc.exists;
 }

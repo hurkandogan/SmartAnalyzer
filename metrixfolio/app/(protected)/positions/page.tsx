@@ -219,8 +219,19 @@ export default function PositionsPage() {
     }).format(num);
   };
 
-  const inboxAssets = assets.filter((a) => a.category_id === 'uncategorized');
-  const portfolioAssets = assets.filter(
+  const enrichedAssets = assets.map(asset => {
+    const mult = asset.multiplier || 1;
+    const computedPnl = (asset.current_price - asset.avg_cost) * asset.amount * mult;
+    const computedValue = asset.current_price * asset.amount * mult;
+    return {
+      ...asset,
+      unrealized_pnl: computedPnl,
+      market_value: computedValue
+    };
+  });
+
+  const inboxAssets = enrichedAssets.filter((a) => a.category_id === 'uncategorized');
+  const portfolioAssets = enrichedAssets.filter(
     (a) => a.category_id !== 'uncategorized',
   );
 
@@ -538,7 +549,7 @@ export default function PositionsPage() {
 
       {/* Uncategorized Section */}
       {currentTab === 'OPEN' && inboxAssets.length > 0 && (
-        <div className="card bg-warning/10 border-warning/20 border shadow-sm">
+        <div className="card bg-warning/10 backdrop-blur-md border-warning/20 border shadow-sm">
           <div className="card-body">
             <h2 className="card-title text-warning flex items-center gap-2">
               <FiAlertCircle /> Uncategorized Assets ({inboxAssets.length})
@@ -546,8 +557,8 @@ export default function PositionsPage() {
             <p className="mb-4 text-sm opacity-80">
               Assign these to a category to include them in your strategy.
             </p>
-            <div className="bg-base-100 overflow-x-auto rounded-lg">
-              <table className="table-zebra table">
+            <div className="bg-transparent overflow-x-auto rounded-lg">
+              <table className="table">
                 <thead>
                   <tr>
                     <th>Source</th>
@@ -599,9 +610,9 @@ export default function PositionsPage() {
       )}
 
       {/* Portfolio/Closed Section */}
-      <div className="card bg-base-100 border-base-300 border shadow-xl">
+      <div className="card bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow-xl">
         <div className="card-body p-0">
-          <div className="border-base-200 flex items-center justify-between border-b p-6">
+          <div className="border-base-content/5 flex items-center justify-between border-b p-6">
             <h2 className="card-title flex items-center gap-2">
               {currentTab === 'OPEN' ? (
                 <>

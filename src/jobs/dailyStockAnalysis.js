@@ -1,15 +1,13 @@
 import { pythonClient } from '../services/pythonClient.js';
 import {
   getWatchlist,
-  updateWatchlistItem,
   addStockAnalysis,
-  setStockData,
-  getDb
+  addWatchlistComment
 } from '../services/firebase.js';
 import { logger } from '../utils/logger.js';
 
 export async function runDailyStockAnalysis() {
-  logger.info('── Daily Stock Analysis started via Python service ──');
+  logger.info('── Daily Stock Analysis started via local Postgres analysis ──');
 
   let watchlist = [];
   try {
@@ -23,51 +21,46 @@ export async function runDailyStockAnalysis() {
     return { success: true, successCount: 0, failCount: 0, total: 0 };
   }
 
-  const today = new Date().toISOString().slice(0, 10);
   let successCount = 0;
   let failCount = 0;
 
-  // ── Step 1: Iterate over watchlist, delay 20s, call dailySync ──
+  // ── Step 1: Iterate over watchlist, call analyzeTicker ──
   for (const item of watchlist) {
     const symbol = item.symbol || item.id;
     if (!symbol) continue;
 
     try {
-      const needsDetails = !item.name || !item.industry || !item.exchange || !item.currency;
-      if (needsDetails) {
-        logger.info(`[Analysis] ${symbol} missing details — fetching from Python service`);
-        const details = await pythonClient.getContractDetails(symbol, 'STK', item.currency || 'USD');
-        if (details) {
-          const patch = {
-            name: details.longName || symbol,
-            industry: details.industry || '',
-            exchange: details.exchange || '',
-            currency: details.currency || 'USD',
-            category: details.category || ''
-          };
-          await updateWatchlistItem(symbol, patch);
-        }
-      }
-
-      logger.info(`[Analysis] Triggering PostgreSQL sync for ${symbol}...`);
-      const syncResult = await pythonClient.dailySync(symbol);
+      logger.info(`[Analysis] Analyzing ${symbol} via local DB...`);
+      const syncResult = await pythonClient.analyzeTicker(symbol);
       
       if (syncResult && syncResult.status === 'success') {
         successCount++;
-        logger.info(`[Analysis] ✓ ${symbol} sync completed: ${syncResult.messages.join(', ')}`);
+        
+        if (syncResult.fundamentals && syncResult.fundamentals.date) {
+          await addStockAnalysis(symbol, syncResult.fundamentals.date, syncResult.fundamentals);
+          logger.info(`[Analysis] ✓ Saved analytics to Firestore for ${symbol} on date ${syncResult.fundamentals.date}`);
+        }
+        
+        if (syncResult.comments) {
+          await addWatchlistComment(symbol, "Metrixfolio_AI_Insight", {
+            author_name: "Metrixfolio",
+            comment: syncResult.comments,
+            created_at: new Date().toISOString()
+          });
+          logger.info(`[Analysis] ✓ Saved AI insight from Metrixfolio for ${symbol}`);
+        }
       } else {
         failCount++;
-        logger.warn(`[Analysis] ✗ ${symbol} sync failed: ${syncResult ? syncResult.messages.join(', ') : 'No response'}`);
+        logger.warn(`[Analysis] ✗ ${symbol} analysis failed: ${syncResult ? syncResult.message || syncResult.error : 'No response'}`);
       }
 
     } catch (err) {
       failCount++;
-      logger.error(`[Analysis] ✗ Error syncing ${symbol}: ${err.message}`);
+      logger.error(`[Analysis] ✗ Error analyzing ${symbol}: ${err.message}`);
     }
 
-    // Wait 20 seconds before the next ticker to avoid IBKR rate limits
-    logger.info(`[Analysis] Waiting 20 seconds before next ticker...`);
-    await new Promise(resolve => setTimeout(resolve, 20000));
+    // Short wait, local DB is fast
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
   logger.info(`── Daily Stock Analysis done: ${successCount} ok, ${failCount} failed ──`);

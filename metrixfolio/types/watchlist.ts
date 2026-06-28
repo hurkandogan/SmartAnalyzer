@@ -53,4 +53,5 @@ export interface StockAnalysis {
   week52_low: number | null;
   rsi: number | null;
   iv: number | null;
+  cross_signal?: "GC" | "DC" | "GC_COMING" | "DC_COMING" | null;
 }

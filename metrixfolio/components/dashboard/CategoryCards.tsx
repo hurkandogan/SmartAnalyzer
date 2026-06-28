@@ -134,13 +134,13 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-                <div className="bg-base-200 rounded-lg p-3">
+                <div className="bg-base-200/50 backdrop-blur-sm rounded-lg p-3 border border-base-content/5">
                   <div className="opacity-60">Current Value</div>
                   <div className="text-xl font-bold">
                     {formatCurrency(selectedCategory.value)}
                   </div>
                 </div>
-                <div className="bg-base-200 rounded-lg p-3">
+                <div className="bg-base-200/50 backdrop-blur-sm rounded-lg p-3 border border-base-content/5">
                   <div className="opacity-60">Allocation</div>
                   <div className="text-xl font-bold">
                     {selectedCategory.actual_percentage.toFixed(2)}%
@@ -234,7 +234,7 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
             return (
               <div
                 key={cat.id}
-                className="card bg-warning/5 border-warning relative overflow-hidden border shadow-md transition-all hover:shadow-lg"
+                className="card bg-warning/10 backdrop-blur-md border-warning/30 relative overflow-hidden border shadow-md transition-all hover:shadow-lg"
               >
                 <div className="text-warning/10 absolute -top-6 -right-6">
                   <FiAlertTriangle size={120} />
@@ -264,8 +264,8 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
             <div
               key={cat.id}
               onClick={() => handleCardClick(cat)}
-              className="card bg-base-100 cursor-pointer border-2 shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md"
-              style={{ borderColor: cat.color || 'transparent' }}
+              className="card bg-base-100/50 backdrop-blur-md cursor-pointer border-2 shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md"
+              style={{ borderColor: cat.color ? `${cat.color}40` : 'transparent' }}
             >
               <div className="card-body p-5">
                 <div className="mb-2">

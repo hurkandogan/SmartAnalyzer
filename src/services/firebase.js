@@ -127,3 +127,12 @@ export async function getWatchlistSymbols() {
   const snap = await db.collection('watchlist').get();
   return snap.docs.map((d) => d.id);
 }
+
+export async function addWatchlistComment(symbol, commentId, data) {
+  await db
+    .collection('watchlist')
+    .doc(symbol)
+    .collection('comments')
+    .doc(commentId)
+    .set({ ...data, updated_at: FieldValue.serverTimestamp() }, { merge: true });
+}

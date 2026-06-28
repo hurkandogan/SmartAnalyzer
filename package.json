@@ -8,6 +8,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "dev:client": "cd client && npm run dev",
+    "dev:metrixfolio": "cd metrixfolio && npm run dev",
+    "dev:python": "cd python && uv run python main.py",
     "build:client": "cd client && npm run build"
   },
   "engines": {

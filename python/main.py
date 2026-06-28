@@ -164,11 +164,14 @@ async def get_price(symbol: str, currency: str = "USD", exchange: str = "SMART",
     try:
         snapshot = await ibkr_service.get_snapshot(symbol, sec_type=sec_type, currency=currency, exchange=exchange, con_id=con_id)
         if snapshot and snapshot.get("lastPrice") is not None:
-            price_data = {
-                "symbol": symbol,
-                "price": snapshot["lastPrice"],
-                "source": "IBKR"
-            }
+            import math
+            last_price = snapshot["lastPrice"]
+            if not (isinstance(last_price, float) and math.isnan(last_price)):
+                price_data = {
+                    "symbol": symbol,
+                    "price": last_price,
+                    "source": "IBKR"
+                }
     except Exception as e:
         logger.warning(f"Failed to get price from IBKR for {symbol}: {e}")
         
@@ -194,11 +197,14 @@ async def get_price(symbol: str, currency: str = "USD", exchange: str = "SMART",
                     info = info_de
                     
             if info and info.get("last_price") is not None:
-                price_data = {
-                    "symbol": symbol,
-                    "price": info["last_price"],
-                    "source": "Yahoo"
-                }
+                import math
+                last_price = info["last_price"]
+                if not (isinstance(last_price, float) and math.isnan(last_price)):
+                    price_data = {
+                        "symbol": symbol,
+                        "price": last_price,
+                        "source": "Yahoo"
+                    }
         except Exception as e:
             logger.error(f"Failed fallback price check for {symbol}: {e}")
             
@@ -396,10 +402,90 @@ async def mine_ticker(request: MineTickerRequest, db: Session = Depends(get_db))
     sync_service = get_sync_service()
     try:
         result = await sync_service.sync_daily_data(request.symbol, db)
+        # We drop fundamentals from the response to save network/memory overhead
+        # because the NodeJS DataMiner job no longer processes them.
+        result.pop("fundamentals", None)
         return result
     except Exception as e:
         logger.error(f"Failed to mine ticker {request.symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/analyze-ticker")
+async def analyze_ticker(symbol: str, db: Session = Depends(get_db)):
+    """
+    Reads the latest data from DB (NO external scraping), computes advanced analytics,
+    predicts crosses, generates AI comments, and returns a StockAnalysis dict.
+    """
+    from database.models import Candle, Fundamental
+    
+    symbol = symbol.upper()
+    
+    # 1. Get recent candles
+    candles = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.date.desc()).limit(250).all()
+    if not candles:
+        raise HTTPException(status_code=404, detail=f"No candles found for {symbol}. Run data miner first.")
+        
+    candles.reverse() # chronological
+    closes = [c.close for c in candles]
+    latest_candle = candles[-1]
+    
+    # 2. Get latest fundamentals
+    fund_record = db.query(Fundamental).filter(Fundamental.symbol == symbol).order_by(Fundamental.date.desc()).first()
+    if not fund_record:
+        raise HTTPException(status_code=404, detail=f"No fundamentals found for {symbol}.")
+        
+    # 3. Compute analytics
+    crosses = analytics_service.detect_crosses(closes)
+    
+    # Pack fundamentals dictionary
+    fund_dict = {
+        "pe": fund_record.pe,
+        "forward_pe": fund_record.forward_pe,
+        "peg": fund_record.peg,
+        "ev_to_revenue": fund_record.ev_to_revenue,
+        "roic": fund_record.roic,
+        "roe": fund_record.roe,
+        "rsi": fund_record.rsi,
+        "avg_volume": fund_record.avg_volume,
+        "rvol": fund_record.rvol,
+        "cash_burn_rate": fund_record.cash_burn_rate,
+        "cash_runway": fund_record.cash_runway,
+        "revenue_growth": fund_record.revenue_growth_yoy,
+        "short_ratio": fund_record.short_interest_pct,
+        "iv": fund_record.iv,
+        "de_ratio": None # We need to ensure de_ratio is fetched somewhere, but it's not in DB schema yet. It might be missing.
+    }
+    
+    # Determine cross_signal for UI
+    cross_signal = None
+    if crosses["golden_cross"]: cross_signal = "GC"
+    elif crosses["death_cross"]: cross_signal = "DC"
+    elif crosses["gc_coming"]: cross_signal = "GC_COMING"
+    elif crosses["dc_coming"]: cross_signal = "DC_COMING"
+    
+    # 4. Generate Insights
+    insights_html = analytics_service.generate_insights(fund_dict, crosses)
+    
+    # 5. Build response that looks like what NodeJS expects for `StockAnalysis`
+    response_data = {
+        "status": "success",
+        "symbol": symbol,
+        "date": latest_candle.date.strftime("%Y-%m-%d"),
+        "fundamentals": {
+            "date": latest_candle.date.strftime("%Y-%m-%d"),
+            "symbol": symbol,
+            "last_price": latest_candle.close,
+            "volume": latest_candle.volume,
+            "pe": fund_record.pe,
+            "forward_pe": fund_record.forward_pe,
+            "rsi": fund_record.rsi,
+            "rvol": fund_record.rvol,
+            "cross_signal": cross_signal
+        },
+        "comments": insights_html if insights_html else None
+    }
+    
+    return response_data
 
 if __name__ == "__main__":
     import uvicorn

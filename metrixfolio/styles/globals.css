@@ -1,2 +1,67 @@
 @import 'tailwindcss';
 @plugin 'daisyui';
+
+/* Base Layout Settings */
+body {
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-color: transparent !important;
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+/* SSR / Default Fallback (Dark Theme) */
+:root {
+  background-color: #060608 !important;
+  color: #f3f4f6;
+  --blob-left: rgba(79, 70, 229, 0.15);  /* Indigo-600 at 15% */
+  --blob-right: rgba(147, 51, 234, 0.15); /* Purple-600 at 15% */
+}
+
+/* Light Theme Variables & Styles */
+html[data-theme="light"] {
+  background-color: #fafafa !important;
+  color: #1f2937;
+  --blob-left: rgba(99, 102, 241, 0.12); /* Indigo-500 at 12% */
+  --blob-right: rgba(168, 85, 247, 0.12); /* Purple-500 at 12% */
+}
+
+/* Dark Theme Variables & Styles */
+html[data-theme="dark"] {
+  background-color: #060608 !important;
+  color: #f3f4f6;
+  --blob-left: rgba(79, 70, 229, 0.15);  /* Indigo-600 at 15% */
+  --blob-right: rgba(147, 51, 234, 0.15); /* Purple-600 at 15% */
+}
+
+/* Background Blobs */
+.bg-blob-left {
+  background-color: var(--blob-left);
+  transition: background-color 0.5s ease;
+}
+
+.bg-blob-right {
+  background-color: var(--blob-right);
+  transition: background-color 0.5s ease;
+}
+
+/* Ticker Marquee Animation in Tailwind v4 Theme */
+@theme {
+  --animate-marquee: marquee 40s linear infinite;
+
+  @keyframes marquee {
+    0% {
+      transform: translate3d(0, 0, 0);
+    }
+    100% {
+      transform: translate3d(-33.3333%, 0, 0);
+    }
+  }
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+
+

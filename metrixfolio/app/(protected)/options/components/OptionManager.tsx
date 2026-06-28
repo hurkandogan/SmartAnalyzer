@@ -337,7 +337,7 @@ export default function OptionManager() {
       </div>
 
       <div className="flex justify-center">
-        <div className="join bg-base-100 border-base-200 border">
+        <div className="join bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow-sm">
           <button
             className={`join-item btn btn-sm px-6 ${filter === 'ALL' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => setFilter('ALL')}
@@ -360,7 +360,7 @@ export default function OptionManager() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="stats bg-base-100 border-base-200 border shadow">
+        <div className="stats bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow">
           <div className="stat">
             <div className="stat-figure text-primary">
               <FiDollarSign size={32} />
@@ -371,7 +371,7 @@ export default function OptionManager() {
             </div>
           </div>
         </div>
-        <div className="stats bg-base-100 border-base-200 border shadow">
+        <div className="stats bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow">
           <div className="stat">
             <div className="stat-figure text-secondary">
               {stats.totalPnL >= 0 ? (
@@ -392,7 +392,7 @@ export default function OptionManager() {
         </div>
       </div>
 
-      <div className="card bg-base-100 border-base-200 border shadow-xl">
+      <div className="card bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow-xl">
         <div className="overflow-x-auto">
           <table className="table">
             <thead>

@@ -117,28 +117,52 @@ class SyncService:
             
             for c in candles:
                 candle_date = datetime.strptime(c["date"], "%Y-%m-%d").date()
-                if latest_candle and candle_date <= latest_candle.date:
+                if latest_candle and candle_date < latest_candle.date:
                     continue
+                
+                is_today = latest_candle and candle_date == latest_candle.date
+                if is_today:
+                    if closes_history:
+                        closes_history[-1] = c["close"]
+                    else:
+                        closes_history.append(c["close"])
+                else:
+                    closes_history.append(c["close"])
                     
-                closes_history.append(c["close"])
                 sma20 = self.analytics.compute_sma(closes_history, 20)
                 sma50 = self.analytics.compute_sma(closes_history, 50)
                 sma200 = self.analytics.compute_sma(closes_history, 200)
                 
-                db_candle = Candle(
-                    symbol=symbol,
-                    date=candle_date,
-                    open=c["open"],
-                    high=c["high"],
-                    low=c["low"],
-                    close=c["close"],
-                    volume=c["volume"],
-                    sma_20=sma20,
-                    sma_50=sma50,
-                    sma_200=sma200
-                )
-                db.add(db_candle)
-                new_candles_count += 1
+                if is_today:
+                    # Update existing candle in DB
+                    existing_candle = db.query(Candle).filter(
+                        Candle.symbol == symbol,
+                        Candle.date == candle_date
+                    ).first()
+                    if existing_candle:
+                        existing_candle.open = c["open"]
+                        existing_candle.high = c["high"]
+                        existing_candle.low = c["low"]
+                        existing_candle.close = c["close"]
+                        existing_candle.volume = c["volume"]
+                        existing_candle.sma_20 = sma20
+                        existing_candle.sma_50 = sma50
+                        existing_candle.sma_200 = sma200
+                else:
+                    db_candle = Candle(
+                        symbol=symbol,
+                        date=candle_date,
+                        open=c["open"],
+                        high=c["high"],
+                        low=c["low"],
+                        close=c["close"],
+                        volume=c["volume"],
+                        sma_20=sma20,
+                        sma_50=sma50,
+                        sma_200=sma200
+                    )
+                    db.add(db_candle)
+                    new_candles_count += 1
             db.commit()
             
         result["messages"].append(f"Inserted {new_candles_count} new candles.")
@@ -203,6 +227,61 @@ class SyncService:
             
             db.commit()
             result["messages"].append("Fundamentals updated.")
+            
+            # Compile fundamentals dict for Node.js to upload to Firestore
+            raw_fundamentals = {
+                "date": today.strftime("%Y-%m-%d"),
+                "symbol": symbol,
+                "last_price": fund_data.get("last_price"),
+                "close_price": fund_data.get("close_price"),
+                "open": fund_data.get("open"),
+                "high": fund_data.get("high"),
+                "low": fund_data.get("low"),
+                "volume": fund_data.get("volume"),
+                "avg_volume": fund_data.get("avg_volume"),
+                "market_cap": fund_data.get("market_cap"),
+                "beta": fund_data.get("beta"),
+                "pe": fund_data.get("pe"),
+                "forward_pe": fund_data.get("forward_pe"),
+                "eps": fund_data.get("eps"),
+                "forward_eps": fund_data.get("forward_eps"),
+                "peg": fund_data.get("peg"),
+                "ev_to_ebitda": fund_data.get("ev_to_ebitda"),
+                "ev_to_revenue": fund_data.get("ev_to_revenue"),
+                "dividend_yield": fund_data.get("dividend_yield"),
+                "payout_ratio": fund_data.get("payout_ratio"),
+                "profit_margin": fund_data.get("profit_margin") * 100 if fund_data.get("profit_margin") is not None else None,
+                "operating_margin": fund_data.get("operating_margin") * 100 if fund_data.get("operating_margin") is not None else None,
+                "gross_margin": fund_data.get("gross_margin") * 100 if fund_data.get("gross_margin") is not None else None,
+                "revenue_growth": fund_data.get("revenue_growth") * 100 if fund_data.get("revenue_growth") is not None else None,
+                "earnings_growth": fund_data.get("earnings_growth") * 100 if fund_data.get("earnings_growth") is not None else None,
+                "roe": fund_data.get("roe") * 100 if fund_data.get("roe") is not None else None,
+                "roa": fund_data.get("roa") * 100 if fund_data.get("roa") is not None else None,
+                "current_ratio": fund_data.get("current_ratio"),
+                "de_ratio": fund_data.get("de_ratio"),
+                "free_cashflow": fund_data.get("free_cashflow"),
+                "short_ratio": fund_data.get("short_ratio"),
+                "week52_high": fund_data.get("week52_high"),
+                "week52_low": fund_data.get("week52_low"),
+                "rsi": rsi,
+                "iv": fund_record.iv * 100 if fund_record.iv is not None else None,
+            }
+            
+            # Replace float('nan') or float('inf') or pd.isna values with None to prevent FastAPI serialization errors
+            import math
+            import pandas as pd
+            cleaned_fundamentals = {}
+            for k, v in raw_fundamentals.items():
+                if v is None:
+                    cleaned_fundamentals[k] = None
+                elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                    cleaned_fundamentals[k] = None
+                elif pd.isna(v):
+                    cleaned_fundamentals[k] = None
+                else:
+                    cleaned_fundamentals[k] = v
+                    
+            result["fundamentals"] = cleaned_fundamentals
         else:
             result["messages"].append("Failed to fetch fundamentals.")
             

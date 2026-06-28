@@ -26,10 +26,6 @@ export async function getAssetsAction(userId: string): Promise<Asset[]> {
       getExchangeRatesAction(),
     ]);
 
-    const converter = new CurrencyConverter(rates);
-    const convertToUsd = (amount: number, fromCurrency: string) =>
-      converter.convert(amount, fromCurrency, 'USD');
-
     const assets: Asset[] = assetsSnapshot.docs.map((doc) => {
       const data = doc.data();
       const symbol = data.symbol || '';
@@ -61,10 +57,10 @@ export async function getAssetsAction(userId: string): Promise<Asset[]> {
         symbol: symbol,
         name: data.name || '',
         amount: amount,
-        avg_cost: convertToUsd(avgCost, currency),
-        current_price: convertToUsd(currentPrice, currency),
-        market_value: convertToUsd(marketValue, currency),
-        unrealized_pnl: convertToUsd(unrealizedPnl, currency),
+        avg_cost: avgCost,
+        current_price: currentPrice,
+        market_value: marketValue,
+        unrealized_pnl: unrealizedPnl,
         currency: 'USD',
         source: data.source || 'MANUAL',
         category_id: data.category_id || 'uncategorized',
@@ -270,17 +266,6 @@ export async function getClosedAssetsAction(userId: string): Promise<ClosedAsset
       getExchangeRatesAction(),
     ]);
 
-    const rateMap = new Map<string, number>();
-    rates.forEach((r) => {
-      rateMap.set(`${r.from}_${r.to}`, r.rate);
-    });
-
-    const convertToUsd = (amount: number, fromCurrency: string) => {
-      if (fromCurrency === 'USD') return amount;
-      const key = `${fromCurrency}_USD`;
-      return rateMap.has(key) ? amount * rateMap.get(key)! : amount;
-    };
-
     return closedSnapshot.docs.map((doc) => {
       const data = doc.data();
       const currency = data.currency || 'USD';
@@ -289,10 +274,10 @@ export async function getClosedAssetsAction(userId: string): Promise<ClosedAsset
         symbol: data.symbol,
         name: data.name || '',
         amount: parseFloat(data.amount) || 0,
-        avg_cost: convertToUsd(parseFloat(data.avg_cost) || 0, currency),
-        current_price: convertToUsd(parseFloat(data.current_price) || 0, currency),
-        close_price: convertToUsd(parseFloat(data.close_price) || 0, currency),
-        realized_pnl: convertToUsd(parseFloat(data.realized_pnl) || 0, currency),
+        avg_cost: parseFloat(data.avg_cost) || 0,
+        current_price: parseFloat(data.current_price) || 0,
+        close_price: parseFloat(data.close_price) || 0,
+        realized_pnl: parseFloat(data.realized_pnl) || 0,
         unrealized_pnl: 0, // Not applicable for closed positions but required by type
         close_date: data.close_date,
         currency: 'USD',

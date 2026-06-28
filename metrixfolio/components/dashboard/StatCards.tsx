@@ -116,7 +116,7 @@ export const StatCards: React.FC<StatCardsProps> = ({
           : 'progress-success';
 
   return (
-    <div className="stats stats-vertical lg:stats-horizontal bg-base-100 w-full shadow lg:grid lg:grid-cols-4">
+    <div className="stats stats-vertical lg:stats-horizontal bg-base-100/50 backdrop-blur-md w-full shadow lg:grid lg:grid-cols-4">
       <div className="stat">
         <div className="stat-title font-semibold opacity-70">Total Balance</div>
         <div className="stat-value text-primary text-3xl font-extrabold tracking-tight lg:text-4xl">
@@ -124,12 +124,14 @@ export const StatCards: React.FC<StatCardsProps> = ({
         </div>
         <div className="stat-desc mt-1 flex w-full flex-row items-center justify-between font-medium">
           {renderDiff(totalValue, prevTotalValue)}
-          <span
-            className={`ml-auto flex items-center pl-2 text-sm font-semibold whitespace-nowrap ${netLiq >= 0 ? 'text-success' : 'text-error'}`}
-          >
-            Net Liq: {formatPercentage(netLiqPercentage)} |{' '}
-            {formatCurrency(netLiq)}
-          </span>
+          {totalDebtUsd > 0 && (
+            <span
+              className={`ml-auto flex items-center pl-2 text-sm font-semibold whitespace-nowrap ${netLiq >= 0 ? 'text-success' : 'text-error'}`}
+            >
+              Net Liq: {formatPercentage(netLiqPercentage)} |{' '}
+              {formatCurrency(netLiq)}
+            </span>
+          )}
         </div>
       </div>
 
