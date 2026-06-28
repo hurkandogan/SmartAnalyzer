@@ -385,12 +385,12 @@ async function syncFlexUser(userId, flexCreds, currencies) {
       if (!attrs || parseFloat(attrs.position) === 0) continue;
 
       const symbol = attrs.symbol;
-      const secType = attrs.secType;
+      const assetCategory = attrs.assetCategory || '';
       const qty = parseFloat(attrs.position) || 0;
       const multiplierNum = parseFloat(attrs.multiplier) || 1;
       const currency = attrs.currency || 'USD';
       
-      const isOption = secType === 'OPT';
+      const isOption = assetCategory === 'OPT';
       const localSymbol = symbol.replace(/\s+/g, '');
       const id = `FLEX_${localSymbol}`;
       seenIds.add(id);
@@ -483,7 +483,8 @@ async function writePortfolioHistory(userId) {
     const price = parseFloat(asset.current_price) || 0;
     const amount = parseFloat(asset.amount) || 0;
     const multiplier = parseFloat(asset.multiplier) || 1;
-    const mv = price * Math.abs(amount) * multiplier;
+    // For short positions or cash debt, we must keep amount negative so it subtracts from total market value
+    const mv = price * amount * multiplier;
     
     categories[catId].value += mv;
     totalMarketValue += mv;

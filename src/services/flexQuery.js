@@ -14,7 +14,7 @@ function requestData(url) {
 
 export async function fetchAndParseFlexQuery(token, queryId) {
   logger.info(`Sending Request for Flex Query ID: ${queryId}...`);
-  const reqUrl = `https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=${token}&q=${queryId}&v=3`;
+  const reqUrl = `https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest?t=${token}&q=${queryId}&v=3`;
   
   try {
     const res1 = await requestData(reqUrl);
@@ -31,7 +31,7 @@ export async function fetchAndParseFlexQuery(token, queryId) {
     await new Promise(resolve => setTimeout(resolve, 10000));
     
     logger.info(`Fetching Flex Statement...`);
-    const getUrl = `https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?q=${referenceCode}&t=${token}&v=3`;
+    const getUrl = `https://gdcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement?q=${referenceCode}&t=${token}&v=3`;
     
     const xmlData = await requestData(getUrl);
     
