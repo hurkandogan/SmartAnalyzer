@@ -10,6 +10,8 @@ export interface FamilyTransaction {
   amount: number;
   price: number;
   currency: string;
+  original_price?: number;
+  original_currency?: string;
   date: string;
   created_at: string;
 }

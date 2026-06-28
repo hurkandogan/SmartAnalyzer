@@ -478,8 +478,18 @@ async def analyze_ticker(symbol: str, db: Session = Depends(get_db)):
             "volume": latest_candle.volume,
             "pe": fund_record.pe,
             "forward_pe": fund_record.forward_pe,
+            "peg": fund_record.peg,
+            "ev_to_revenue": fund_record.ev_to_revenue,
+            "roic": fund_record.roic,
+            "roe": fund_record.roe,
             "rsi": fund_record.rsi,
+            "avg_volume": fund_record.avg_volume,
             "rvol": fund_record.rvol,
+            "cash_burn_rate": fund_record.cash_burn_rate,
+            "cash_runway": fund_record.cash_runway,
+            "revenue_growth_yoy": fund_record.revenue_growth_yoy,
+            "short_interest_pct": fund_record.short_interest_pct,
+            "iv": fund_record.iv,
             "cross_signal": cross_signal
         },
         "comments": insights_html if insights_html else None

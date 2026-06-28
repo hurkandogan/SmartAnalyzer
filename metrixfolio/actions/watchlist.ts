@@ -87,7 +87,7 @@ export async function getCommentsAction(
     const data = doc.data();
     return {
       id: doc.id,
-      text: data.text || '',
+      text: data.text || data.comment || '',
       author_id: data.author_id || '',
       author_name: data.author_name || '',
       created_at: data.created_at?.toDate?.()?.toISOString?.() || '',
@@ -255,7 +255,7 @@ export async function getHotTickersAction(): Promise<HotTickerInfo[]> {
     const watchlist = await getWatchlistAction();
     if (!watchlist || watchlist.length === 0) return [];
 
-    const promises = watchlist.map(async (item) => {
+    const promises = watchlist.map(async (item): Promise<HotTickerInfo | null> => {
       try {
         const analyses = await getAnalysesAction(item.symbol, 1);
         if (analyses && analyses.length > 0) {
