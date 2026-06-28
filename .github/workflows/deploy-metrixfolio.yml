@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'metrixfolio/**'
+      - '.github/workflows/deploy-metrixfolio.yml'
     branches:
       - main
       - master
