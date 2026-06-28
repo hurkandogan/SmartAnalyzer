@@ -18,7 +18,15 @@ from database.db import get_db
 load_dotenv(dotenv_path="../.env")
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO, 
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.FileHandler("logs/app.log"),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger("smart_analyser.main")
 
 app = FastAPI(title="SmartAnalyser Python Bridge", version="3.0.0")
@@ -88,12 +96,24 @@ async def get_portfolio():
     """
     Fetches raw portfolio positions & cash balances from IBKR and Kraken.
     """
+    logger.info("Starting portfolio sync: fetching from IBKR and Kraken...")
     # Fetch IBKR positions and cash
-    ibkr_positions = await ibkr_service.get_positions()
-    ibkr_cash = await ibkr_service.get_cash_balances()
+    try:
+        ibkr_positions = await ibkr_service.get_positions()
+        ibkr_cash = await ibkr_service.get_cash_balances()
+        logger.info(f"Successfully fetched {len(ibkr_positions) if ibkr_positions else 0} positions and cash balances from IBKR.")
+    except Exception as e:
+        logger.error(f"Error fetching IBKR portfolio: {e}")
+        ibkr_positions = []
+        ibkr_cash = {}
     
     # Fetch Kraken balances
-    kraken_holdings = await kraken_service.get_balances()
+    try:
+        kraken_holdings = await kraken_service.get_balances()
+        logger.info(f"Successfully fetched {len(kraken_holdings) if kraken_holdings else 0} asset balances from Kraken.")
+    except Exception as e:
+        logger.error(f"Error fetching Kraken balances: {e}")
+        kraken_holdings = {}
     
     return {
         "status": "success",
@@ -219,6 +239,7 @@ async def get_currencies(targets: str = "EUR,TRY,GBP,CHF"):
     Returns exchange rates for given currencies against USD.
     E.g. {"EUR": 1.08, "TRY": 0.03} means 1 EUR = 1.08 USD.
     """
+    logger.info(f"Fetching currency exchange rates for targets: {targets}")
     import yfinance as yf
     
     currencies = [c.strip() for c in targets.split(",")]
@@ -239,6 +260,7 @@ async def get_currencies(targets: str = "EUR,TRY,GBP,CHF"):
         except Exception as e:
             logger.error(f"Error fetching currency {c}: {e}")
             
+    logger.info(f"Currency rates fetched successfully: {rates}")
     return rates
 
 @app.get("/api/daily-sync")
@@ -261,10 +283,12 @@ async def analyze_watchlist(request: AnalyzeRequest):
     - If adjustment is found, triggers full history fetch for that ticker.
     - Computes RSI, SMA20/50/200, and cross detection.
     """
+    logger.info(f"Starting stock analysis for {len(request.symbols)} symbols: {request.symbols}")
     results = {}
     split_checked = False
     
     for symbol in request.symbols:
+        logger.info(f"[Analysis] Processing {symbol}...")
         # Fetch historical daily data (1 year)
         # Try IBKR first, fallback to Yahoo
         candles = await ibkr_service.get_historical_candles(symbol)
@@ -312,7 +336,9 @@ async def analyze_watchlist(request: AnalyzeRequest):
             # Return candles only if history update is required
             "candles": candles if needs_history_update else None
         }
+        logger.info(f"[Analysis] Finished processing {symbol}. Source: {source}, Needs Update: {needs_history_update}")
         
+    logger.info("Stock analysis completed for all requested symbols.")
     return results
 
 @app.get("/api/ticker-data")
@@ -399,12 +425,14 @@ async def get_logs(source: Optional[str] = None, level: Optional[str] = None, li
 @app.post("/api/mine-ticker")
 async def mine_ticker(request: MineTickerRequest, db: Session = Depends(get_db)):
     """Sync historical candles and fundamentals for a specific ticker"""
+    logger.info(f"Starting data miner sync for ticker: {request.symbol}")
     sync_service = get_sync_service()
     try:
         result = await sync_service.sync_daily_data(request.symbol, db)
         # We drop fundamentals from the response to save network/memory overhead
         # because the NodeJS DataMiner job no longer processes them.
         result.pop("fundamentals", None)
+        logger.info(f"Data miner sync completed successfully for {request.symbol}")
         return result
     except Exception as e:
         logger.error(f"Failed to mine ticker {request.symbol}: {e}")
@@ -416,6 +444,7 @@ async def analyze_ticker(symbol: str, db: Session = Depends(get_db)):
     Reads the latest data from DB (NO external scraping), computes advanced analytics,
     predicts crosses, generates AI comments, and returns a StockAnalysis dict.
     """
+    logger.info(f"Analyzing {symbol} using local database...")
     from database.models import Candle, Fundamental
     
     symbol = symbol.upper()
@@ -423,6 +452,7 @@ async def analyze_ticker(symbol: str, db: Session = Depends(get_db)):
     # 1. Get recent candles
     candles = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.date.desc()).limit(250).all()
     if not candles:
+        logger.error(f"No candles found for {symbol} in DB.")
         raise HTTPException(status_code=404, detail=f"No candles found for {symbol}. Run data miner first.")
         
     candles.reverse() # chronological
@@ -432,8 +462,10 @@ async def analyze_ticker(symbol: str, db: Session = Depends(get_db)):
     # 2. Get latest fundamentals
     fund_record = db.query(Fundamental).filter(Fundamental.symbol == symbol).order_by(Fundamental.date.desc()).first()
     if not fund_record:
+        logger.error(f"No fundamentals found for {symbol} in DB.")
         raise HTTPException(status_code=404, detail=f"No fundamentals found for {symbol}.")
         
+    logger.info(f"Found {len(candles)} candles and fundamentals for {symbol}. Computing crosses and generating AI insights...")
     # 3. Compute analytics
     crosses = analytics_service.detect_crosses(closes)
     
@@ -487,7 +519,7 @@ async def analyze_ticker(symbol: str, db: Session = Depends(get_db)):
             "rvol": fund_record.rvol,
             "cash_burn_rate": fund_record.cash_burn_rate,
             "cash_runway": fund_record.cash_runway,
-            "revenue_growth_yoy": fund_record.revenue_growth_yoy,
+            "revenue_growth": fund_record.revenue_growth_yoy,
             "short_interest_pct": fund_record.short_interest_pct,
             "iv": fund_record.iv,
             "cross_signal": cross_signal

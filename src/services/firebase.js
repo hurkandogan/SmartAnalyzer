@@ -31,6 +31,11 @@ export async function getAllUserIds() {
   return refs.map((ref) => ref.id);
 }
 
+export async function getUserFlexCredentials(userId) {
+  const doc = await db.collection('users').doc(userId).collection('config').doc('ibkr').get();
+  return doc.exists ? doc.data() : null;
+}
+
 // ── Assets ────────────────────────────────────────────────────
 export async function getUserAssets(userId) {
   const snap = await db

@@ -5,7 +5,9 @@ import {
   setUserAsset,
   deleteUserAsset,
   getAllUserIds,
+  getUserFlexCredentials,
 } from '../services/firebase.js';
+import { fetchAndParseFlexQuery } from '../services/flexQuery.js';
 import { logger } from '../utils/logger.js';
 
 const priceCache = new Map();
@@ -289,26 +291,30 @@ async function syncOtherUsers(currencies) {
   const userIds = allUserIds.filter((id) => id !== config.FIREBASE_USER_ID);
 
   for (const userId of userIds) {
-    logger.info(`[Users] Syncing prices for user ${userId} via Python Client`);
-    const assets = await getUserAssets(userId);
+    logger.info(`[Users] Syncing prices for user ${userId}`);
+    const flexCreds = await getUserFlexCredentials(userId);
 
-    for (const asset of assets) {
-      if (!asset.symbol) continue;
-
-      try {
-        if (asset.type === 'CASH') {
-          const currentPrice = currencies[asset.currency || 'USD'] || 1.0;
-          await setUserAsset(userId, asset.id, { current_price: String(currentPrice) });
-          continue;
+    if (flexCreds && flexCreds.flex_token && flexCreds.flex_query_id) {
+      await syncFlexUser(userId, flexCreds, currencies);
+    } else {
+      // Legacy manual sync for users without flex queries
+      const assets = await getUserAssets(userId);
+      for (const asset of assets) {
+        if (!asset.symbol) continue;
+        try {
+          if (asset.type === 'CASH') {
+            const currentPrice = currencies[asset.currency || 'USD'] || 1.0;
+            await setUserAsset(userId, asset.id, { current_price: String(currentPrice) });
+            continue;
+          }
+          const isCrypto = asset.type === 'CRYPTO';
+          const price = await fetchPrice(asset.symbol, asset.currency || 'USD', asset.exchange || 'SMART', isCrypto ? 'CRYPTO' : 'STK', 0, currencies);
+          if (price && price > 0) {
+            await setUserAsset(userId, asset.id, { current_price: String(price) });
+          }
+        } catch (err) {
+          logger.warn(`[Users] ${asset.id} for ${userId}: ${err.message}`);
         }
-
-        const isCrypto = asset.type === 'CRYPTO';
-        const price = await fetchPrice(asset.symbol, asset.currency || 'USD', asset.exchange || 'SMART', isCrypto ? 'CRYPTO' : 'STK', 0, currencies);
-        if (price && price > 0) {
-          await setUserAsset(userId, asset.id, { current_price: String(price) });
-        }
-      } catch (err) {
-        logger.warn(`[Users] ${asset.id} for ${userId}: ${err.message}`);
       }
     }
 
@@ -317,6 +323,147 @@ async function syncOtherUsers(currencies) {
     } catch (err) {
       logger.error(`[Users] History for ${userId} failed: ${err.message}`);
     }
+  }
+}
+
+async function syncFlexUser(userId, flexCreds, currencies) {
+  logger.info(`[Flex] Syncing user ${userId} via IBKR Flex Query`);
+  try {
+    const statement = await fetchAndParseFlexQuery(flexCreds.flex_token, flexCreds.flex_query_id);
+    const existingAssets = await getUserAssets(userId);
+    const existingMap = new Map(existingAssets.map((a) => [a.id, a]));
+    const seenIds = new Set();
+
+    // Sum up all cash lines to a single USD position
+    let totalCashUsd = 0;
+    
+    // Some XML nodes can be arrays or single objects. Ensure array.
+    const toArray = (obj) => {
+      if (!obj) return [];
+      return Array.isArray(obj) ? obj : [obj];
+    };
+
+    const cashReports = toArray(statement?.CashReport?.CashReportCurrency);
+    for (const cash of cashReports) {
+      if (cash.$.currency === 'BASE_SUMMARY') continue; // We will sum it up ourselves to USD
+      
+      const val = parseFloat(cash.$.endingCash) || 0;
+      const cur = cash.$.currency || 'USD';
+      
+      // Convert to USD and add to total
+      const rateToUsd = currencies[cur] || 1;
+      totalCashUsd += val * rateToUsd;
+    }
+
+    if (totalCashUsd !== 0) {
+      const cashId = `FLEX_CASH_USD`;
+      seenIds.add(cashId);
+      
+      await setUserAsset(userId, cashId, {
+        id: cashId,
+        symbol: 'USD',
+        name: 'USD Cash',
+        amount: String(totalCashUsd),
+        avg_cost: '1',
+        current_price: '1',
+        cost_basis_money: String(totalCashUsd),
+        realized_pnl: '0',
+        multiplier: '1',
+        currency: 'USD',
+        source: 'FLEX',
+        type: 'CASH',
+        category_id: 'cash',
+        industry: 'Cash',
+        sector: 'Cash',
+        is_active: true,
+      });
+    }
+
+    const openPositions = toArray(statement?.OpenPositions?.OpenPosition);
+    for (const pos of openPositions) {
+      const attrs = pos.$;
+      if (!attrs || parseFloat(attrs.position) === 0) continue;
+
+      const symbol = attrs.symbol;
+      const secType = attrs.secType;
+      const qty = parseFloat(attrs.position) || 0;
+      const multiplierNum = parseFloat(attrs.multiplier) || 1;
+      const currency = attrs.currency || 'USD';
+      
+      const isOption = secType === 'OPT';
+      const localSymbol = symbol.replace(/\s+/g, '');
+      const id = `FLEX_${localSymbol}`;
+      seenIds.add(id);
+
+      // Flex cost basis is usually total money, but attributes.costBasisPrice is per share.
+      let perShareCost = parseFloat(attrs.costBasisPrice) || 0;
+      // Convert cost to USD if needed (assuming costBasisPrice is in local currency)
+      if (currency !== 'USD') {
+         perShareCost = perShareCost * (currencies[currency] || 1);
+      }
+      
+      const costBasisUsd = perShareCost * Math.abs(qty) * multiplierNum;
+
+      let currentPriceUsd = 0;
+      let markPrice = parseFloat(attrs.markPrice) || 0;
+
+      if (isOption) {
+        // For options, take exactly from XML
+        currentPriceUsd = markPrice;
+        if (currency !== 'USD') {
+          currentPriceUsd = currentPriceUsd * (currencies[currency] || 1);
+        }
+      } else {
+        // For stocks, fetch from cache to get LIVE price
+        const cachedPrice = await fetchPrice(symbol, currency, 'SMART', 'STK', 0, currencies);
+        if (cachedPrice && cachedPrice > 0) {
+          currentPriceUsd = cachedPrice;
+        } else {
+          // Fallback to XML price
+          currentPriceUsd = markPrice;
+          if (currency !== 'USD') {
+            currentPriceUsd = currentPriceUsd * (currencies[currency] || 1);
+          }
+        }
+      }
+
+      const valueUsd = currentPriceUsd * qty * multiplierNum;
+
+      const newAsset = {
+        id,
+        symbol: symbol,
+        name: symbol,
+        amount: String(qty),
+        avg_cost: String(perShareCost),
+        cost_basis_money: String(qty < 0 ? -costBasisUsd : costBasisUsd),
+        currency: 'USD',
+        current_price: String(currentPriceUsd),
+        value: String(valueUsd),
+        realized_pnl: '0',
+        multiplier: String(multiplierNum),
+        source: 'FLEX',
+        type: isOption ? 'OPTION' : 'ASSET',
+        is_active: true,
+      };
+
+      if (!existingMap.has(id)) {
+        if (isOption) {
+          newAsset.category_id = 'adventure'; // default options category
+        }
+      }
+
+      await setUserAsset(userId, id, newAsset);
+    }
+
+    // Delete stale FLEX assets
+    for (const asset of existingAssets) {
+      if (asset.source === 'FLEX' && !seenIds.has(asset.id)) {
+        logger.info(`[Flex] Deleting stale FLEX asset: ${asset.id}`);
+        await deleteUserAsset(userId, asset.id);
+      }
+    }
+  } catch (err) {
+    logger.error(`[Flex] Failed to sync ${userId}: ${err.message}`);
   }
 }
 
