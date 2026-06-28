@@ -1,0 +1,21 @@
+[project]
+name = "python"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.18.5",
+    "fastapi>=0.138.1",
+    "httpx>=0.28.1",
+    "ib-insync>=0.9.86",
+    "nest-asyncio>=1.6.0",
+    "numpy>=2.5.0",
+    "pandas>=3.0.3",
+    "psycopg2-binary>=2.9.12",
+    "pytest>=9.1.1",
+    "python-dotenv>=1.2.2",
+    "sqlalchemy>=2.0.51",
+    "uvicorn>=0.49.0",
+    "yfinance>=1.4.1",
+]

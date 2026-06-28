@@ -1,0 +1,10 @@
+{
+  "project_name": "Metrixfolio_v3",
+  "architecture": "hierarchical_multi_agent",
+  "subagents": {
+    "python_data_service": {
+      "path": "./python_data_service",
+      "runtime": "python3"
+    }
+  }
+}

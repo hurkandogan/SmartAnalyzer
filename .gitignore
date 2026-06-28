@@ -1,0 +1,50 @@
+# General
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+logs/
+.DS_Store
+*.pem
+
+# Firebase / Secrets
+serviceAccountKey.json
+.firebase/
+
+# Next.js (Metrixfolio)
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# React Vite (client)
+dist/
+dist-ssr/
+
+# Python
+__pycache__/
+*.py[oc]
+build/
+wheels/
+*.egg-info
+.venv/
+
+# Editor / IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Package Managers
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
