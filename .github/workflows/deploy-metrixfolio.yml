@@ -50,4 +50,17 @@ jobs:
       - name: Deploy metrixfolio to App Hosting
         run: |
           cd metrixfolio
-          npx -y firebase-tools deploy --project=${{ secrets.GCP_PROJECT_ID }} --only apphosting:metrixfolio
+          success=false
+          for i in {1..3}; do
+            echo "Attempt $i of 3: Deploying to Firebase App Hosting..."
+            if npx -y firebase-tools deploy --project=${{ secrets.GCP_PROJECT_ID }} --only apphosting:metrixfolio; then
+              success=true
+              break
+            fi
+            echo "Warning: Attempt $i failed with a transient error. Retrying in 20 seconds..."
+            sleep 20
+          done
+          if [ "$success" = false ]; then
+            echo "Error: Deployment failed after 3 attempts."
+            exit 1
+          fi
