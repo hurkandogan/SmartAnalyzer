@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime, date
 from typing import List, Dict, Any, Optional
+import math
+import yfinance as yf
 from sqlalchemy.orm import Session
 from sqlalchemy import delete
 
@@ -11,11 +13,126 @@ from services.analytics import AnalyticsService
 
 logger = logging.getLogger("smart_analyser.sync")
 
+def erf(x):
+    a1 =  0.254829592
+    a2 = -0.284496736
+    a3 =  1.421413741
+    a4 = -1.453152027
+    a5 =  1.061405429
+    p  =  0.3275911
+    sign = 1
+    if x < 0:
+        sign = -1
+    x = abs(x)
+    t = 1.0/(1.0 + p*x)
+    y = 1.0 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t*math.exp(-x*x)
+    return sign*y
+
+def normal_cdf(x):
+    return 0.5 * (1.0 + erf(x / math.sqrt(2.0)))
+
+def black_scholes_call(S, K, t, r, sigma):
+    if sigma <= 0 or t <= 0:
+        return max(0.0, S - K * math.exp(-r * t))
+    d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * t) / (sigma * math.sqrt(t))
+    d2 = d1 - sigma * math.sqrt(t)
+    return S * normal_cdf(d1) - K * math.exp(-r * t) * normal_cdf(d2)
+
+def black_scholes_put(S, K, t, r, sigma):
+    if sigma <= 0 or t <= 0:
+        return max(0.0, K * math.exp(-r * t) - S)
+    d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * t) / (sigma * math.sqrt(t))
+    d2 = d1 - sigma * math.sqrt(t)
+    return K * math.exp(-r * t) * normal_cdf(-d2) - S * normal_cdf(-d1)
+
+def find_implied_volatility(market_price, S, K, t, r, is_call=True):
+    low = 0.0001
+    high = 5.0
+    for _ in range(100):
+        mid = (low + high) / 2
+        price = black_scholes_call(S, K, t, r, mid) if is_call else black_scholes_put(S, K, t, r, mid)
+        if price < market_price:
+            low = mid
+        else:
+            high = mid
+        if abs(high - low) < 0.0001:
+            break
+    return mid
+
 class SyncService:
     def __init__(self, ibkr: IBKRService, yahoo: YahooService, analytics: AnalyticsService):
         self.ibkr = ibkr
         self.yahoo = yahoo
         self.analytics = analytics
+
+    def calculate_yfinance_iv(self, symbol: str) -> Optional[float]:
+        try:
+            ticker = yf.Ticker(symbol)
+            options = ticker.options
+            if not options:
+                return None
+                
+            fast_info = ticker.fast_info
+            last_price = fast_info.get('lastPrice', None)
+            if not last_price:
+                hist = ticker.history(period="1d")
+                if not hist.empty:
+                    last_price = hist['Close'].iloc[-1]
+                    
+            if not last_price:
+                return None
+                
+            today = date.today()
+            best_exp = None
+            min_diff = 9999
+            
+            for exp_str in options:
+                try:
+                    exp_date = datetime.strptime(exp_str, "%Y-%m-%d").date()
+                    diff = abs((exp_date - today).days - 30)
+                    if diff < min_diff:
+                        min_diff = diff
+                        best_exp = exp_str
+                except Exception:
+                    continue
+                    
+            if not best_exp:
+                best_exp = options[0]
+                
+            exp_date = datetime.strptime(best_exp, "%Y-%m-%d").date()
+            t = max(0.001, (exp_date - today).days / 365.0)
+            
+            opt_chain = ticker.option_chain(best_exp)
+            calls = opt_chain.calls
+            puts = opt_chain.puts
+            
+            calls['strike_diff'] = (calls['strike'] - last_price).abs()
+            calls = calls[calls['lastPrice'] > 0.01]
+            
+            puts['strike_diff'] = (puts['strike'] - last_price).abs()
+            puts = puts[puts['lastPrice'] > 0.01]
+            
+            call_iv = None
+            put_iv = None
+            r = 0.05
+            
+            if not calls.empty:
+                atm_call = calls.sort_values(by='strike_diff').iloc[0]
+                call_iv = find_implied_volatility(atm_call['lastPrice'], last_price, atm_call['strike'], t, r, is_call=True)
+                
+            if not puts.empty:
+                atm_put = puts.sort_values(by='strike_diff').iloc[0]
+                put_iv = find_implied_volatility(atm_put['lastPrice'], last_price, atm_put['strike'], t, r, is_call=False)
+                
+            if call_iv is not None and put_iv is not None:
+                return (call_iv + put_iv) / 2
+            elif call_iv is not None:
+                return call_iv
+            elif put_iv is not None:
+                return put_iv
+        except Exception as e:
+            logger.error(f"Error calculating yfinance IV for {symbol}: {e}")
+        return None
 
     async def sync_daily_data(self, symbol: str, db: Session) -> Dict[str, Any]:
         """
@@ -217,8 +334,16 @@ class SyncService:
             
             # Get IV from IBKR snapshot if possible
             snapshot = await self.ibkr.get_snapshot(symbol)
+            iv_val = None
             if snapshot and snapshot.get("iv"):
-                fund_record.iv = snapshot.get("iv")
+                iv_val = snapshot.get("iv")
+                
+            if iv_val is None:
+                logger.info(f"IBKR IV not available for {symbol}. Calculating from yfinance option chain...")
+                iv_val = self.calculate_yfinance_iv(symbol)
+                
+            if iv_val is not None:
+                fund_record.iv = iv_val
                 
             fund_record.cash_burn_rate = burn_rate
             fund_record.cash_runway = runway

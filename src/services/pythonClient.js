@@ -153,6 +153,38 @@ class PythonClientService {
       return [];
     }
   }
+
+  async scanAndAlert(watchlist, portfolios, forceRisk = false) {
+    try {
+      const res = await fetch(`${PYTHON_SERVICE_URL}/api/scan-and-alert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ watchlist, portfolios, force_risk: forceRisk })
+      });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      logger.error(`[PythonClient] Failed to run scanAndAlert: ${err.message}`);
+      return null;
+    }
+  }
+
+  async triggerMarketWeather() {
+    try {
+      const res = await fetch(`${PYTHON_SERVICE_URL}/api/market-weather`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`HTTP ${res.status}: ${errText}`);
+      }
+      return await res.json();
+    } catch (err) {
+      logger.error(`[PythonClient] Failed to trigger market weather: ${err.message}`);
+      throw err;
+    }
+  }
 }
 
 export const pythonClient = new PythonClientService();

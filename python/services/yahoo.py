@@ -138,3 +138,27 @@ class YahooService:
         except Exception as e:
             logger.error(f"Error fetching Yahoo historical data for {symbol}: {e}")
             return []
+
+    def get_ticker_news(self, symbol: str) -> List[Dict[str, Any]]:
+        try:
+            ticker = yf.Ticker(symbol)
+            return ticker.news or []
+        except Exception as e:
+            logger.error(f"Error fetching news for {symbol}: {e}")
+            return []
+
+    def get_earnings_date(self, symbol: str) -> Optional[str]:
+        try:
+            ticker = yf.Ticker(symbol)
+            calendar = ticker.calendar
+            if calendar and "Earnings Date" in calendar:
+                dates = calendar["Earnings Date"]
+                if dates and len(dates) > 0:
+                    d = dates[0]
+                    if hasattr(d, "strftime"):
+                        return d.strftime("%Y-%m-%d")
+                    return str(d)
+        except Exception as e:
+            logger.warning(f"Error fetching earnings date for {symbol}: {e}")
+        return None
+

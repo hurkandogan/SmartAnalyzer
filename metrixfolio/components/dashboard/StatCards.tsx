@@ -96,9 +96,10 @@ export const StatCards: React.FC<StatCardsProps> = ({
     const color = isPos ? 'text-success' : 'text-error';
     const Icon = isPos ? FiArrowUp : FiArrowDown;
 
+    const pct = prev !== 0 ? (diff / prev) * 100 : 0;
     return (
       <span className={`flex items-center gap-1 text-sm font-bold ${color}`}>
-        <Icon /> {formatCurrency(Math.abs(diff))}
+        <Icon /> {formatCurrency(Math.abs(diff))} ({isPos ? '+' : ''}{pct.toFixed(2)}%)
       </span>
     );
   };
@@ -122,15 +123,15 @@ export const StatCards: React.FC<StatCardsProps> = ({
         <div className="stat-value text-primary text-3xl font-extrabold tracking-tight lg:text-4xl">
           {formatCurrency(totalValue)}
         </div>
-        <div className="stat-desc mt-1 flex w-full flex-row items-center justify-between font-medium">
-          {renderDiff(totalValue, prevTotalValue)}
+        <div className="stat-desc mt-1.5 flex flex-col gap-1 w-full font-medium">
+          <div>{renderDiff(totalValue, prevTotalValue)}</div>
           {totalDebtUsd > 0 && (
-            <span
-              className={`ml-auto flex items-center pl-2 text-sm font-semibold whitespace-nowrap ${netLiq >= 0 ? 'text-success' : 'text-error'}`}
+            <div
+              className={`flex items-center text-xs font-semibold whitespace-nowrap ${netLiq >= 0 ? 'text-success' : 'text-error'}`}
             >
               Net Liq: {formatPercentage(netLiqPercentage)} |{' '}
               {formatCurrency(netLiq)}
-            </span>
+            </div>
           )}
         </div>
       </div>

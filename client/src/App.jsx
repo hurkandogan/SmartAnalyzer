@@ -4,8 +4,10 @@ import SearchBar from './components/SearchBar';
 import TickerModal from './components/TickerModal';
 import JobPanel from './components/JobPanel';
 import LogTerminal from './components/LogTerminal';
+import PortfolioDashboard from './components/PortfolioDashboard';
 
 function App() {
+  const [activeTab, setActiveTab] = useState('portfolio'); // 'search' or 'portfolio'
   const [connection, setConnection] = useState({ connected: false });
   const [tickerData, setTickerData] = useState(null);
   const [loadingSearch, setLoadingSearch] = useState(false);
@@ -69,7 +71,29 @@ function App() {
           </p>
         </div>
 
-        <SearchBar onSearch={handleSearch} isLoading={loadingSearch} />
+        {/* Tabs */}
+        <div className="flex space-x-4 mb-8 justify-center">
+          <button 
+            onClick={() => setActiveTab('portfolio')}
+            className={`px-6 py-2.5 rounded-full font-bold text-sm tracking-wide transition-all ${
+              activeTab === 'portfolio' 
+                ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 border border-indigo-400'
+                : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white border border-white/5'
+            }`}
+          >
+            Portfolio & Rules
+          </button>
+          <button 
+            onClick={() => setActiveTab('search')}
+            className={`px-6 py-2.5 rounded-full font-bold text-sm tracking-wide transition-all ${
+              activeTab === 'search' 
+                ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/25 border border-purple-400'
+                : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white border border-white/5'
+            }`}
+          >
+            Terminal & Scanner
+          </button>
+        </div>
 
         {error && (
           <div className="text-rose-400 bg-rose-500/10 px-6 py-3 rounded-xl border border-rose-500/20 mb-8 font-medium">
@@ -77,11 +101,18 @@ function App() {
           </div>
         )}
 
-        {/* Jobs & Terminal */}
-        <div className="w-full max-w-5xl space-y-8 mt-12">
-          <JobPanel />
-          <LogTerminal />
-        </div>
+        {/* Dynamic View based on Tab */}
+        {activeTab === 'portfolio' ? (
+          <PortfolioDashboard />
+        ) : (
+          <div className="w-full max-w-5xl flex flex-col items-center">
+            <SearchBar onSearch={handleSearch} isLoading={loadingSearch} />
+            <div className="w-full space-y-8 mt-12">
+              <JobPanel />
+              <LogTerminal />
+            </div>
+          </div>
+        )}
 
       </main>
 

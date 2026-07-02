@@ -3,6 +3,7 @@ import { runCurrencyUpdate } from './currencyUpdate.js';
 import { runDailyStockAnalysis } from './dailyStockAnalysis.js';
 import { runPortfolioSync } from './portfolioSync.js';
 import { runDataMiner } from './dataMiner.js';
+import { runMarketWeather } from './marketWeather.js';
 import { logger, dbLogger } from '../utils/logger.js';
 
 /**
@@ -48,7 +49,17 @@ export function startScheduler() {
     }
   });
 
-  logger.info('Scheduler started — 4 jobs registered');
+  // ── Market Weather Forecast: 15:15 Mon-Fri (Pre-market TR/DE) ──
+  cron.schedule('15 15 * * 1-5', async () => {
+    logger.info('[CRON] Market Weather Forecast triggered');
+    try {
+      await runMarketWeather();
+    } catch (error) {
+      await dbLogger('market-weather', 'error', `Market Weather failed: ${error.message}`);
+    }
+  });
+
+  logger.info('Scheduler started — 5 jobs registered');
 }
 
-export { runPortfolioSync, runDailyStockAnalysis, runCurrencyUpdate, runDataMiner };
+export { runPortfolioSync, runDailyStockAnalysis, runCurrencyUpdate, runDataMiner, runMarketWeather };

@@ -6,6 +6,8 @@ import {
   deleteUserAsset,
   getAllUserIds,
   getUserFlexCredentials,
+  setUserIBKRSummary,
+  getDb,
 } from '../services/firebase.js';
 import { fetchAndParseFlexQuery } from '../services/flexQuery.js';
 import { logger } from '../utils/logger.js';
@@ -82,6 +84,7 @@ async function syncPrivateUser(currencies) {
   const ibkrSeenIds = new Set();
   const ibkrPositions = ibkr.positions || [];
   const ibkrConnected = ibkr.connected;
+  const openOptionsList = [];
 
   if (ibkrConnected && ibkr.positions !== null) {
     for (const pos of ibkrPositions) {
@@ -100,6 +103,8 @@ async function syncPrivateUser(currencies) {
       // Extract the true per-share average cost
       const multiplierNum = parseFloat(contract.multiplier || '1') || 1;
       const perShareAvgCost = isOption ? avgCost / multiplierNum : avgCost;
+
+
 
       // Fetch from IBKR portfolio directly!
       let price = pos.marketPrice;
@@ -122,6 +127,19 @@ async function syncPrivateUser(currencies) {
       }
       
       const currentPrice = price && price > 0 ? String(price) : existing?.current_price || '0';
+
+      if (isOption) {
+        openOptionsList.push({
+          symbol: contract.symbol,
+          strike: contract.strike,
+          right: contract.right,
+          expiry: contract.lastTradeDateOrContractMonth,
+          qty: qty,
+          perShareAvgCost: perShareAvgCost,
+          currentPrice: parseFloat(currentPrice) || 0,
+          greeks: pos.greeks
+        });
+      }
 
       if (existing) {
         const patch = {
@@ -156,6 +174,9 @@ async function syncPrivateUser(currencies) {
           source: 'IBKR',
           type: isOption ? 'OPTION' : 'ASSET',
           is_active: true,
+          strike: isOption ? String(contract.strike || '0') : null,
+          right: isOption ? contract.right : null,
+          expiry: isOption ? contract.lastTradeDateOrContractMonth : null,
         };
         await setUserAsset(userId, id, newAsset);
         logger.info(`[Private] New IBKR asset added: ${id}`);
@@ -164,41 +185,57 @@ async function syncPrivateUser(currencies) {
 
     // ── IBKR Cash Balances ───────────────────────────────────
     const cashBalances = ibkr.cash || {};
+    
+    // Save account values summary
+    const summary = {
+      netLiquidation: cashBalances.NetLiquidation || 0,
+      buyingPower: cashBalances.BuyingPower || 0,
+      excessLiquidity: cashBalances.ExcessLiquidity || 0
+    };
+    await setUserIBKRSummary(userId, summary);
+    logger.info(`[Private] Saved account summary for ${userId}: NetLiq=${summary.netLiquidation}, BuyingPower=${summary.buyingPower}, ExcessLiq=${summary.excessLiquidity}`);
+
+    // Sum up all cash lines to a single USD position
+    let totalCashUsd = 0;
     for (const [currency, balance] of Object.entries(cashBalances)) {
-      const id = `IBKR_${currency}`;
-      ibkrSeenIds.add(id);
-      const existing = firebaseMap.get(id);
-
-      const currentPrice = currencies[currency] || 1.0;
-      const costBasis = balance * currentPrice;
-
-      if (existing) {
-        await setUserAsset(userId, id, {
-          amount: String(balance),
-          cost_basis_money: String(costBasis),
-          current_price: String(currentPrice),
-          is_active: true,
-        });
-      } else {
-        await setUserAsset(userId, id, {
-          id,
-          symbol: currency,
-          name: `${currency} Cash`,
-          amount: String(balance),
-          avg_cost: String(currentPrice),
-          current_price: String(currentPrice),
-          cost_basis_money: String(costBasis),
-          realized_pnl: '0',
-          multiplier: '1',
-          currency,
-          source: 'IBKR',
-          type: 'CASH',
-          category_id: 'cash',
-          industry: 'Cash',
-          sector: 'Cash',
-          is_active: true,
-        });
+      if (['NetLiquidation', 'BuyingPower', 'ExcessLiquidity'].includes(currency)) {
+        continue;
       }
+      const rateToUsd = currencies[currency] || 1.0;
+      totalCashUsd += balance * rateToUsd;
+    }
+
+    const cashId = `IBKR_USD`;
+    ibkrSeenIds.add(cashId);
+    const existing = firebaseMap.get(cashId);
+    const costBasis = totalCashUsd;
+
+    if (existing) {
+      await setUserAsset(userId, cashId, {
+        amount: String(totalCashUsd),
+        cost_basis_money: String(costBasis),
+        current_price: '1',
+        is_active: true,
+      });
+    } else {
+      await setUserAsset(userId, cashId, {
+        id: cashId,
+        symbol: 'USD',
+        name: 'USD Cash',
+        amount: String(totalCashUsd),
+        avg_cost: '1',
+        current_price: '1',
+        cost_basis_money: String(costBasis),
+        realized_pnl: '0',
+        multiplier: '1',
+        currency: 'USD',
+        source: 'IBKR',
+        type: 'CASH',
+        category_id: 'cash',
+        industry: 'Cash',
+        sector: 'Cash',
+        is_active: true,
+      });
     }
 
     // Deletes stale IBKR assets
@@ -211,6 +248,9 @@ async function syncPrivateUser(currencies) {
         }
       }
     }
+
+    // Auto-sync options positions to manual tracker
+    await autoSyncOptionsToTracker(userId, openOptionsList, 'IBKR TWS');
   }
 
   // ── Kraken Balances ────────────────────────────────────────
@@ -343,6 +383,21 @@ async function syncFlexUser(userId, flexCreds, currencies) {
       return Array.isArray(obj) ? obj : [obj];
     };
 
+    // Save account summary (Flex Query)
+    const acctInfo = statement?.AccountInformation?.$;
+    if (acctInfo) {
+      const netLiquidation = parseFloat(acctInfo.netLiquidation) || 0;
+      const buyingPower = parseFloat(acctInfo.buyingPower) || 0;
+      const excessLiquidity = parseFloat(acctInfo.excessLiquidity) || 0;
+      
+      await setUserIBKRSummary(userId, {
+        netLiquidation,
+        buyingPower,
+        excessLiquidity
+      });
+      logger.info(`[Flex] Saved account summary for ${userId}: NetLiq=${netLiquidation}, BuyingPower=${buyingPower}, ExcessLiq=${excessLiquidity}`);
+    }
+
     const cashReports = toArray(statement?.CashReport?.CashReportCurrency);
     for (const cash of cashReports) {
       if (cash.$.currency === 'BASE_SUMMARY') continue; // We will sum it up ourselves to USD
@@ -380,6 +435,8 @@ async function syncFlexUser(userId, flexCreds, currencies) {
     }
 
     const openPositions = toArray(statement?.OpenPositions?.OpenPosition);
+    const openOptionsList = [];
+
     for (const pos of openPositions) {
       const attrs = pos.$;
       if (!attrs || parseFloat(attrs.position) === 0) continue;
@@ -444,7 +501,23 @@ async function syncFlexUser(userId, flexCreds, currencies) {
         source: 'FLEX',
         type: isOption ? 'OPTION' : 'ASSET',
         is_active: true,
+        strike: isOption ? String(attrs.strike || '0') : null,
+        right: isOption ? attrs.putCall : null,
+        expiry: isOption ? attrs.expiry : null,
       };
+
+      if (isOption) {
+        openOptionsList.push({
+          symbol: symbol,
+          strike: attrs.strike || '0',
+          right: attrs.putCall,
+          expiry: attrs.expiry,
+          qty: qty,
+          perShareAvgCost: perShareCost,
+          currentPrice: currentPriceUsd,
+          greeks: null
+        });
+      }
 
       if (!existingMap.has(id)) {
         if (isOption) {
@@ -462,6 +535,9 @@ async function syncFlexUser(userId, flexCreds, currencies) {
         await deleteUserAsset(userId, asset.id);
       }
     }
+
+    // Auto-sync options positions to manual tracker
+    await autoSyncOptionsToTracker(userId, openOptionsList, 'IBKR Flex Query');
   } catch (err) {
     logger.error(`[Flex] Failed to sync ${userId}: ${err.message}`);
   }
@@ -527,4 +603,103 @@ function getCategoryName(catId) {
     other: 'Other',
   };
   return names[catId] || catId;
+}
+
+async function autoSyncOptionsToTracker(userId, openOptionsList, source) {
+  try {
+    const db = getDb();
+    const snap = await db.collection('users').doc(userId).collection('options').get();
+    const existingTrackerOptions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    for (const opt of openOptionsList) {
+      let expiryIso = opt.expiry;
+      if (expiryIso && !expiryIso.includes('-')) {
+        const y = expiryIso.slice(0, 4);
+        const m = expiryIso.slice(4, 6);
+        const d = expiryIso.slice(6, 8);
+        expiryIso = `${y}-${m}-${d}`;
+      }
+      
+      const parsedStrike = parseFloat(opt.strike) || 0;
+      const absoluteQty = Math.abs(opt.qty);
+      const isShort = opt.qty < 0;
+      
+      let optionType = '';
+      if (isShort) {
+        optionType = opt.right === 'P' ? 'SELL_PUT' : 'SELL_CALL';
+      } else {
+        optionType = opt.right === 'P' ? 'BUY_PUT' : 'BUY_CALL';
+      }
+
+      const foundMatch = existingTrackerOptions.find(o => {
+        const isClosed = !!o.buy_date && !!o.sell_date;
+        return !isClosed &&
+               o.symbol === opt.symbol &&
+               parseFloat(o.strike_price) === parsedStrike &&
+               o.expiry_date === expiryIso &&
+               o.type === optionType;
+      });
+
+      if (foundMatch) {
+        const patch = {};
+        if (opt.greeks) {
+          patch.delta = opt.greeks.delta || null;
+          patch.theta = opt.greeks.theta || null;
+          patch.vega = opt.greeks.vega || null;
+          patch.iv = opt.greeks.iv || null;
+        }
+        if (opt.currentPrice !== undefined && opt.currentPrice !== null) {
+          patch.current_price = opt.currentPrice;
+        }
+        
+        if (foundMatch.quantity !== absoluteQty) {
+          patch.quantity = absoluteQty;
+        }
+        
+        if (Object.keys(patch).length > 0) {
+          await db.collection('users').doc(userId).collection('options').doc(foundMatch.id).update(patch);
+          logger.info(`[AutoOptions] Updated Greeks/Qty/Price for tracked option ${foundMatch.id} (${opt.symbol})`);
+        }
+      } else {
+        const docRef = db.collection('users').doc(userId).collection('options').doc();
+        
+        const toDisplayDate = (iso) => {
+          if (!iso) return '';
+          const [y, m, d] = iso.split('-');
+          return `${d}.${m}.${y}`;
+        };
+
+        const newOptionDoc = {
+          id: docRef.id,
+          symbol: opt.symbol,
+          type: optionType,
+          quantity: absoluteQty,
+          buy_date: isShort ? null : todayStr,
+          sell_date: isShort ? todayStr : null,
+          buy_price: isShort ? null : opt.perShareAvgCost,
+          sell_price: isShort ? opt.perShareAvgCost : null,
+          strike_price: parsedStrike,
+          expiry_date: expiryIso,
+          target: `${parsedStrike}$ / ${toDisplayDate(expiryIso)}`,
+          note: `Auto-added from ${source}`,
+          created_at: Date.now(),
+          current_price: opt.currentPrice || null,
+        };
+
+        if (opt.greeks) {
+          newOptionDoc.delta = opt.greeks.delta || null;
+          newOptionDoc.theta = opt.greeks.theta || null;
+          newOptionDoc.vega = opt.greeks.vega || null;
+          newOptionDoc.iv = opt.greeks.iv || null;
+        }
+
+        await docRef.set(newOptionDoc);
+        logger.info(`[AutoOptions] Auto-added new option to tracker: ${docRef.id} (${opt.symbol} ${parsedStrike} ${optionType})`);
+      }
+    }
+  } catch (error) {
+    logger.error(`[AutoOptions] Error auto-syncing options for user ${userId}: ${error.message}`);
+  }
 }

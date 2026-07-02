@@ -51,56 +51,89 @@ export const TickerMarquee = () => {
       {/* Scrolling Track */}
       <div className="w-full overflow-hidden whitespace-nowrap">
         <div className="animate-marquee inline-flex items-center gap-6 pr-6">
-          {marqueeItems.map((item, idx) => (
-            <div
-              key={`${item.symbol}-${idx}`}
-              className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold transition-all duration-200 ${
-                item.is_hot
-                  ? 'bg-rose-500/10 border border-rose-500/20 text-rose-500 dark:text-rose-400 shadow-sm shadow-rose-500/5'
-                  : 'bg-base-200/50 border border-base-content/5 text-base-content/75 hover:bg-base-200 hover:border-base-content/10'
-              }`}
-            >
-              {item.is_hot ? (
-                <span className="flex items-center gap-1">
-                  <span className="animate-pulse">🔥</span>
-                  <span className="tracking-tight font-black">{item.symbol}</span>
+          {marqueeItems.map((item, idx) => {
+            const rsi = item.rsi;
+            const iv = item.iv;
+            
+            let badgeStyle = 'bg-base-200/50 border border-base-content/5 text-base-content/75 hover:bg-base-200 hover:border-base-content/10';
+            let indicatorLabel = null;
+            
+            if (rsi != null && iv != null) {
+              if (rsi <= 42 && iv >= 35) {
+                badgeStyle = 'bg-success/10 border border-success/30 text-success hover:bg-success/15 hover:border-success/40 shadow-sm shadow-success/5';
+                indicatorLabel = (
+                  <span className="text-[9px] font-black bg-success text-white px-1.5 py-0.5 rounded-md tracking-wider">
+                    🔥 SELL PUT
+                  </span>
+                );
+              } else if (rsi >= 58 && iv <= 25) {
+                badgeStyle = 'bg-base-300/40 border border-base-content/5 text-base-content/40 opacity-60 hover:opacity-80';
+                indicatorLabel = (
+                  <span className="text-[9px] font-medium bg-base-300 text-base-content/50 px-1.5 py-0.5 rounded-md tracking-wider">
+                    ❄️ SKIP
+                  </span>
+                );
+              } else {
+                badgeStyle = 'bg-warning/10 border border-warning/30 text-warning hover:bg-warning/15 hover:border-warning/40';
+                indicatorLabel = (
+                  <span className="text-[9px] font-bold bg-warning text-warning-content dark:bg-warning/20 px-1.5 py-0.5 rounded-md tracking-wider">
+                    ⚡ NEUTRAL
+                  </span>
+                );
+              }
+            } else if (item.is_hot) {
+              badgeStyle = 'bg-rose-500/10 border border-rose-500/20 text-rose-500 dark:text-rose-400 hover:bg-rose-500/15 shadow-sm shadow-rose-500/5';
+            }
+
+            return (
+              <div
+                key={`${item.symbol}-${idx}`}
+                className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold transition-all duration-200 ${badgeStyle}`}
+              >
+                {item.is_hot ? (
+                  <span className="flex items-center gap-1">
+                    <span className="animate-pulse">🔥</span>
+                    <span className="tracking-tight font-black">{item.symbol}</span>
+                  </span>
+                ) : (
+                  <span className="font-bold text-base-content">{item.symbol}</span>
+                )}
+
+                <span className="opacity-80">
+                  {item.last_price ? `$${item.last_price.toFixed(2)}` : '—'}
                 </span>
-              ) : (
-                <span className="font-bold text-base-content">{item.symbol}</span>
-              )}
 
-              <span className="opacity-80">
-                {item.last_price ? `$${item.last_price.toFixed(2)}` : '—'}
-              </span>
+                <div className="flex items-center gap-1.5 text-[10px] opacity-60">
+                  <span>RSI: {rsi != null ? rsi.toFixed(0) : '—'}</span>
+                  <span>•</span>
+                  <span>IV: {iv != null ? `${iv.toFixed(0)}%` : '—'}</span>
+                </div>
 
-              <div className="flex items-center gap-1.5 text-[10px] opacity-60">
-                <span>RSI: {item.rsi != null ? item.rsi.toFixed(0) : '—'}</span>
-                <span>•</span>
-                <span>IV: {item.iv != null ? `${item.iv.toFixed(0)}%` : '—'}</span>
+                {item.cross_signal && (
+                  <span className={`text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-md tracking-wider flex items-center gap-1
+                    ${item.cross_signal === 'GC' ? 'bg-amber-500 text-white dark:bg-amber-500/20 dark:text-amber-400' :
+                      item.cross_signal === 'DC' ? 'bg-red-600 text-white dark:bg-red-600/20 dark:text-red-400' :
+                      item.cross_signal === 'GC_COMING' ? 'bg-yellow-500 text-white dark:bg-yellow-500/20 dark:text-yellow-400' :
+                      'bg-orange-600 text-white dark:bg-orange-600/20 dark:text-orange-400'
+                    }`}
+                  >
+                    {item.cross_signal === 'GC' && <span>🪙 GC</span>}
+                    {item.cross_signal === 'GC_COMING' && <span>🪙⏳ GC Coming</span>}
+                    {item.cross_signal === 'DC' && <span>☠️ DC</span>}
+                    {item.cross_signal === 'DC_COMING' && <span>📉⏳ DC Coming</span>}
+                  </span>
+                )}
+
+                {indicatorLabel}
+
+                {item.is_hot && !item.cross_signal && !indicatorLabel && (
+                  <span className="text-[9px] font-extrabold uppercase bg-rose-500 text-white dark:bg-rose-500/20 dark:text-rose-400 px-1.5 py-0.5 rounded-md tracking-wider">
+                    HOT
+                  </span>
+                )}
               </div>
-
-              {item.cross_signal && (
-                <span className={`text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-md tracking-wider flex items-center gap-1
-                  ${item.cross_signal === 'GC' ? 'bg-amber-500 text-white dark:bg-amber-500/20 dark:text-amber-400' :
-                    item.cross_signal === 'DC' ? 'bg-red-600 text-white dark:bg-red-600/20 dark:text-red-400' :
-                    item.cross_signal === 'GC_COMING' ? 'bg-yellow-500 text-white dark:bg-yellow-500/20 dark:text-yellow-400' :
-                    'bg-orange-600 text-white dark:bg-orange-600/20 dark:text-orange-400'
-                  }`}
-                >
-                  {item.cross_signal === 'GC' && <span>🪙 GC</span>}
-                  {item.cross_signal === 'GC_COMING' && <span>🪙⏳ GC Coming</span>}
-                  {item.cross_signal === 'DC' && <span>☠️ DC</span>}
-                  {item.cross_signal === 'DC_COMING' && <span>📉⏳ DC Coming</span>}
-                </span>
-              )}
-
-              {item.is_hot && !item.cross_signal && (
-                <span className="text-[9px] font-extrabold uppercase bg-rose-500 text-white dark:bg-rose-500/20 dark:text-rose-400 px-1.5 py-0.5 rounded-md tracking-wider">
-                  HOT
-                </span>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

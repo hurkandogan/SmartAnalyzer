@@ -23,23 +23,41 @@ portfolioRoutes.get('/all', async (c) => {
 
       return {
         symbol: contract.symbol || '',
-        localSymbol: contract.localSymbol || '',
         secType: contract.secType || '',
         currency: contract.currency || '',
         exchange: contract.exchange || '',
-        position: p.position || p.pos,
+        strike: contract.strike || 0,
+        right: contract.right || '',
+        lastTradeDate: contract.lastTradeDateOrContractMonth || '',
+        position: p.position || 0,
         avgCost,
-        currentPrice: p.price || null,
+        currentPrice: p.marketPrice || p.price || null,
         multiplier: contract.multiplier || '1',
+        unrealizedPNL: p.unrealizedPNL || 0,
+        marketValue: p.marketValue || 0,
+        greeks: p.greeks || null,
+        beta: p.beta || 1.0
       };
     });
+
+    // Normalize Cash/NetLiquidation
+    const cash = ibkr.cash || {};
+    const totalCash = cash['USD'] || 0;
+    const netLiquidation = cash['NetLiquidation'] || 0;
+    const buyingPower = cash['BuyingPower'] || 0;
+    const excessLiquidity = cash['ExcessLiquidity'] || 0;
 
     return c.json({
       success: true,
       connected: ibkr.connected,
       positions: mappedPositions,
       positionCount: mappedPositions.length,
-      cash: ibkr.cash || {},
+      cash: {
+        totalCashValue: totalCash,
+        netLiquidation: netLiquidation,
+        buyingPower: buyingPower,
+        excessLiquidity: excessLiquidity
+      },
       crypto: kraken.balances || {}
     });
   } catch (error) {

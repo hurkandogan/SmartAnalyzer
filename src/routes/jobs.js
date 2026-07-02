@@ -3,6 +3,7 @@ import { runPortfolioSync } from '../jobs/portfolioSync.js';
 import { runDailyStockAnalysis } from '../jobs/dailyStockAnalysis.js';
 import { runCurrencyUpdate } from '../jobs/currencyUpdate.js';
 import { runDataMiner } from '../jobs/dataMiner.js';
+import { runMarketWeather } from '../jobs/marketWeather.js';
 import { logger } from '../utils/logger.js';
 
 export const jobRoutes = new Hono();
@@ -68,6 +69,15 @@ jobRoutes.get(
 jobRoutes.post(
   '/candle-miner',
   wrapJob('candle-miner', runDataMiner),
+);
+
+jobRoutes.post(
+  '/market-weather',
+  wrapJob('market-weather', runMarketWeather),
+);
+jobRoutes.get(
+  '/market-weather',
+  wrapJob('market-weather', runMarketWeather),
 );
 
 jobRoutes.get('/status', (c) => {

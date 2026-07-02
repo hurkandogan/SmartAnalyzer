@@ -13,5 +13,14 @@ export interface OptionPosition {
   target: string;
   note: string;
   created_at: number;
+
+  // New fields
+  strike_price?: number | null;
+  expiry_date?: string | null;
+  delta?: number | null;
+  theta?: number | null;
+  vega?: number | null;
+  iv?: number | null;
+  current_price?: number | null;
 }
 

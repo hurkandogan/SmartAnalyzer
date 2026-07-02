@@ -18,6 +18,10 @@ export interface Asset {
   original_currency?: string;
   original_avg_cost?: number;
   original_current_price?: number;
+  strike?: string;
+  right?: string;
+  expiry?: string;
+  type?: string;
 }
 
 export interface ClosedAsset extends Asset {

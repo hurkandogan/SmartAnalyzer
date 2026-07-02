@@ -283,16 +283,21 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
                     {formatCurrency(cat.value)}
                   </span>
                   {prevAlloc && (
-                    <div
-                      className={`flex items-center text-xs font-bold ${isProfit ? 'text-success' : 'text-error'} mt-1`}
-                    >
-                      {isProfit ? (
-                        <FiArrowUp className="mr-1" />
-                      ) : (
-                        <FiArrowDown className="mr-1" />
-                      )}
-                      {formatCurrency(Math.abs(dailyPnl))}
-                    </div>
+                    (() => {
+                      const pct = prevAlloc.value !== 0 ? (dailyPnl / Math.abs(prevAlloc.value)) * 100 : 0;
+                      return (
+                        <div
+                          className={`flex items-center text-xs font-bold ${isProfit ? 'text-success' : 'text-error'} mt-1`}
+                        >
+                          {isProfit ? (
+                            <FiArrowUp className="mr-1" />
+                          ) : (
+                            <FiArrowDown className="mr-1" />
+                          )}
+                          {formatCurrency(Math.abs(dailyPnl))} ({isProfit ? '+' : ''}{pct.toFixed(2)}%)
+                        </div>
+                      );
+                    })()
                   )}
                 </div>
 

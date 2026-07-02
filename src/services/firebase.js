@@ -36,6 +36,18 @@ export async function getUserFlexCredentials(userId) {
   return doc.exists ? doc.data() : null;
 }
 
+export async function setUserIBKRSummary(userId, summary) {
+  await db
+    .collection('users')
+    .doc(userId)
+    .collection('config')
+    .doc('ibkr_summary')
+    .set({
+      ...summary,
+      updated_at: FieldValue.serverTimestamp()
+    }, { merge: true });
+}
+
 // ── Assets ────────────────────────────────────────────────────
 export async function getUserAssets(userId) {
   const snap = await db
@@ -140,4 +152,14 @@ export async function addWatchlistComment(symbol, commentId, data) {
     .collection('comments')
     .doc(commentId)
     .set({ ...data, updated_at: FieldValue.serverTimestamp() }, { merge: true });
+}
+
+export async function getUserTelegramConfig(userId) {
+  const doc = await db.collection('users').doc(userId).collection('config').doc('telegram').get();
+  return doc.exists ? doc.data() : null;
+}
+
+export async function getUserProfile(userId) {
+  const doc = await db.collection('users').doc(userId).get();
+  return doc.exists ? doc.data() : null;
 }

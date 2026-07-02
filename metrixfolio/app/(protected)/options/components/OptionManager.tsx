@@ -86,6 +86,22 @@ const calcPnl = (opt: OptionPosition) => {
   return (sellPrice - buyPrice) * qty * OPTION_CONTRACT_SIZE;
 };
 
+const calculateDTE = (expiryStr?: string | null) => {
+  if (!expiryStr) return null;
+  const parts = expiryStr.split('-');
+  if (parts.length !== 3) return null;
+  const expiryDate = new Date(
+    parseInt(parts[0]),
+    parseInt(parts[1]) - 1,
+    parseInt(parts[2])
+  );
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffTime = expiryDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays;
+};
+
 export default function OptionManager() {
   const { user } = useAuth();
   const modalRef = useRef<HTMLDialogElement>(null);
@@ -110,6 +126,8 @@ export default function OptionManager() {
     sell_price: '',
     target: '',
     note: '',
+    strike_price: '',
+    expiry_date: '',
   });
 
   const loadOptions = async () => {
@@ -234,8 +252,10 @@ export default function OptionManager() {
         sell_date: opt.sell_date ? toDisplayDate(opt.sell_date) : '',
         buy_price: opt.buy_price?.toString() || '',
         sell_price: opt.sell_price?.toString() || '',
-        target: opt.target,
-        note: opt.note,
+        target: opt.target || '',
+        note: opt.note || '',
+        strike_price: opt.strike_price?.toString() || '',
+        expiry_date: opt.expiry_date ? toDisplayDate(opt.expiry_date) : '',
       });
     } else {
       setEditingId(null);
@@ -249,6 +269,8 @@ export default function OptionManager() {
         sell_price: '',
         target: '',
         note: '',
+        strike_price: '',
+        expiry_date: '',
       });
     }
     modalRef.current?.showModal();
@@ -278,8 +300,10 @@ export default function OptionManager() {
       sell_date: toIsoDate(formData.sell_date),
       buy_price: formData.buy_price ? parseFloat(formData.buy_price) : null,
       sell_price: formData.sell_price ? parseFloat(formData.sell_price) : null,
-      target: formData.target,
+      target: formData.target || (formData.strike_price && formData.expiry_date ? `${formData.strike_price}$ / ${formData.expiry_date}` : ''),
       note: formData.note,
+      strike_price: formData.strike_price ? parseFloat(formData.strike_price) : null,
+      expiry_date: toIsoDate(formData.expiry_date),
     };
 
     let res;
@@ -305,14 +329,37 @@ export default function OptionManager() {
   };
 
   const calculateChange = (opt: OptionPosition) => {
-    if (!isOptionClosed(opt)) return { abs: 0, percent: 0 };
+    const isClosed = isOptionClosed(opt);
+    
+    if (isClosed) {
+      const buyPrice = opt.buy_price ?? 0;
+      const abs = calcPnl(opt);
+      const percent =
+        buyPrice !== 0
+          ? (((opt.sell_price ?? 0) - buyPrice) / buyPrice) * 100
+          : 0;
+      return { abs, percent };
+    }
 
-    const buyPrice = opt.buy_price ?? 0;
-    const abs = calcPnl(opt);
-    const percent =
-      buyPrice !== 0
-        ? (((opt.sell_price ?? 0) - buyPrice) / buyPrice) * 100
-        : 0;
+    // Open Option PnL calculation
+    const curPrice = opt.current_price;
+    if (curPrice === undefined || curPrice === null) {
+      return { abs: 0, percent: 0 };
+    }
+
+    const qty = opt.quantity || 1;
+    let abs = 0;
+    let percent = 0;
+
+    if (opt.type.startsWith('SELL')) {
+      const sellPrice = opt.sell_price ?? 0;
+      abs = (sellPrice - curPrice) * qty * OPTION_CONTRACT_SIZE;
+      percent = sellPrice > 0 ? ((sellPrice - curPrice) / sellPrice) * 100 : 0;
+    } else {
+      const buyPrice = opt.buy_price ?? 0;
+      abs = (curPrice - buyPrice) * qty * OPTION_CONTRACT_SIZE;
+      percent = buyPrice > 0 ? ((curPrice - buyPrice) / buyPrice) * 100 : 0;
+    }
 
     return { abs, percent };
   };
@@ -418,9 +465,12 @@ export default function OptionManager() {
                 </th>
                 <th
                   className="cursor-pointer whitespace-nowrap select-none"
-                  onClick={() => handleSort('target')}
+                  onClick={() => handleSort('strike_price')}
                 >
-                  Target & Note {renderSortArrow('target')}
+                  Strike &amp; Expiry {renderSortArrow('strike_price')}
+                </th>
+                <th className="whitespace-nowrap select-none">
+                  Live Greeks
                 </th>
                 <th className="cursor-pointer text-right text-xs whitespace-nowrap select-none">
                   Prices (B/S)
@@ -497,15 +547,56 @@ export default function OptionManager() {
                     <td className="text-right font-mono text-sm">
                       {opt.quantity || 1}
                     </td>
-                    <td className="max-w-xs whitespace-normal">
+                    {/* Strike & Expiry / DTE */}
+                    <td>
                       <div className="flex flex-col">
-                        <span className="text-sm font-semibold">
-                          {opt.target}
-                        </span>
-                        <span className="text-xs italic opacity-60">
-                          {opt.note}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-semibold">
+                            {opt.strike_price ? `$${opt.strike_price}` : (opt.target || '-')}
+                          </span>
+                          {!isClosed && opt.expiry_date && (
+                            (() => {
+                              const dte = calculateDTE(opt.expiry_date);
+                              if (dte === null) return null;
+                              const badgeColor = dte <= 14 ? 'badge-error' : dte <= 21 ? 'badge-warning' : 'badge-success';
+                              return (
+                                <span className={`badge ${badgeColor} badge-xs font-bold font-mono h-4 min-h-4 px-1.5 inline-flex items-center justify-center leading-none`}>
+                                  {dte} DTE
+                                </span>
+                              );
+                            })()
+                          )}
+                        </div>
+                        {opt.expiry_date && (
+                          <span className="text-[10px] opacity-75">
+                            Exp: {toDisplayDate(opt.expiry_date)}
+                          </span>
+                        )}
+                        {opt.note && (
+                          <span className="text-[10px] italic opacity-50 truncate max-w-[150px]" title={opt.note}>
+                            {opt.note}
+                          </span>
+                        )}
                       </div>
+                    </td>
+
+                    {/* Live Greeks */}
+                    <td>
+                      {!isClosed && (opt.delta !== undefined && opt.delta !== null) ? (
+                        <div className="flex flex-col text-[11px] font-mono gap-0.5 leading-none">
+                          <span className={Math.abs(opt.delta) >= 0.5 ? 'text-error font-bold' : 'text-success'}>
+                            Δ: {opt.delta.toFixed(2)}
+                          </span>
+                          <span className="text-info">
+                            θ: {opt.theta ? opt.theta.toFixed(1) : '-'}
+                          </span>
+                          <span className="opacity-60 text-[10px]">
+                            IV: {opt.iv ? `${(opt.iv * 100).toFixed(0)}%` : '-'}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs opacity-40">-</span>
+                      )}
                     </td>
                     <td className="text-right font-mono text-sm">
                       <div className="flex flex-col">
@@ -540,9 +631,34 @@ export default function OptionManager() {
                           </span>
                         </div>
                       ) : (
-                        <span className="badge badge-ghost badge-sm text-xs italic">
-                          Open
-                        </span>
+                        <div className="flex flex-col items-end gap-1">
+                          {opt.current_price !== undefined && opt.current_price !== null ? (
+                            <>
+                              <span
+                                className={`font-semibold text-xs ${abs >= 0 ? 'text-success' : 'text-error'}`}
+                                title={`Current Price: $${opt.current_price}`}
+                              >
+                                {abs >= 0 ? '+' : ''}
+                                {usdFormatter.format(abs)}
+                              </span>
+                              <span
+                                className={`text-[10px] ${abs >= 0 ? 'text-success' : 'text-error'}`}
+                              >
+                                {abs >= 0 ? '+' : ''}
+                                {percent.toFixed(1)}%
+                              </span>
+                              {percent >= 50 && (
+                                <span className="badge badge-success badge-xs font-bold h-4 min-h-4 px-1.5 text-[9px] whitespace-nowrap animate-pulse inline-flex items-center justify-center leading-none">
+                                  Kâr Al (%{percent.toFixed(0)})
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="badge badge-ghost badge-sm text-xs italic">
+                              Open
+                            </span>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="text-right">
@@ -749,6 +865,60 @@ export default function OptionManager() {
                     setFormData({ ...formData, sell_price: e.target.value });
                 }}
               />
+            </div>
+
+            <div className="divider my-1 text-xs opacity-40">
+              Option Parameters
+            </div>
+
+            {/* Strike Price */}
+            <div className="flex items-center gap-4">
+              <label className="w-32 shrink-0 text-sm font-bold">
+                Strike Price
+              </label>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="input input-bordered flex-1 font-mono"
+                placeholder="0.00"
+                value={formData.strike_price}
+                onChange={(e) => {
+                  if (/^\d*\.?\d*$/.test(e.target.value))
+                    setFormData({ ...formData, strike_price: e.target.value });
+                }}
+              />
+            </div>
+
+            {/* Expiry Date */}
+            <div className="flex items-center gap-4">
+              <label className="w-32 shrink-0 text-sm font-bold">
+                Expiry Date
+              </label>
+              <div className="flex flex-1 gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  className="input input-bordered flex-1 font-mono"
+                  placeholder="DD.MM.YYYY"
+                  maxLength={10}
+                  value={formData.expiry_date}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      expiry_date: formatDateInput(e.target.value),
+                    })
+                  }
+                />
+                {formData.expiry_date && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm btn-square"
+                    onClick={() => setFormData({ ...formData, expiry_date: '' })}
+                  >
+                    <FiX />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Target */}

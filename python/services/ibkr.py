@@ -2,8 +2,11 @@ import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 from ib_insync import IB, Contract, Stock, Option, AccountValue, BarDataList
+import yfinance as yf
 
 logger = logging.getLogger("smart_analyser.ibkr")
+
+BETA_CACHE = {}
 
 class IBKRService:
     def __init__(self, host: str = "127.0.0.1", port: int = 7497, client_id: int = 1):
@@ -59,7 +62,36 @@ class IBKRService:
                 if v is None: return None
                 if isinstance(v, float) and math.isnan(v): return None
                 return v
+
+            # Pre-fetch Greeks for options
+            opt_contracts = []
+            for item in raw_portfolio:
+                if item.contract.secType == "OPT":
+                    # TWS requires an exchange for reqMktData, use SMART
+                    c = item.contract
+                    c.exchange = 'SMART'
+                    opt_contracts.append(c)
+
+            greeks_dict = {}
+            if opt_contracts:
+                self.ib.reqMarketDataType(3)  # Ensure delayed/realtime
+                mkt_data_subs = []
+                for c in opt_contracts:
+                    mkt_data_subs.append(self.ib.reqMktData(c, "106", False, False)) # False for snapshot since generic tick 106 doesn't support snapshot
+                await asyncio.sleep(1.5) # Give it time to fetch
                 
+                for i, c in enumerate(opt_contracts):
+                    ticker = mkt_data_subs[i]
+                    if ticker and ticker.modelGreeks:
+                        greeks_dict[c.conId] = {
+                            "delta": clean_nan(ticker.modelGreeks.delta),
+                            "gamma": clean_nan(ticker.modelGreeks.gamma),
+                            "theta": clean_nan(ticker.modelGreeks.theta),
+                            "vega": clean_nan(ticker.modelGreeks.vega),
+                            "iv": clean_nan(ticker.modelGreeks.impliedVol)
+                        }
+                    self.ib.cancelMktData(c)
+                        
             for item in raw_portfolio:
                 contract = item.contract
                 # Map to a clean dict
@@ -81,8 +113,28 @@ class IBKRService:
                     "marketPrice": clean_nan(item.marketPrice),
                     "marketValue": clean_nan(item.marketValue),
                     "unrealizedPNL": clean_nan(item.unrealizedPNL),
-                    "realizedPNL": clean_nan(item.realizedPNL)
+                    "realizedPNL": clean_nan(item.realizedPNL),
+                    "greeks": greeks_dict.get(contract.conId, None)
                 })
+
+            # Pre-fetch and attach Beta from Yahoo using asyncio.to_thread
+            unique_symbols = set([p["contract"]["symbol"] for p in positions])
+            missing_betas = [s for s in unique_symbols if s not in BETA_CACHE]
+            
+            def fetch_betas_sync(symbols):
+                for sym in symbols:
+                    try:
+                        ticker = yf.Ticker(sym)
+                        BETA_CACHE[sym] = ticker.info.get("beta") or 1.0
+                    except Exception:
+                        BETA_CACHE[sym] = 1.0 # fallback
+                        
+            if missing_betas:
+                await asyncio.to_thread(fetch_betas_sync, missing_betas)
+
+            for p in positions:
+                p["beta"] = BETA_CACHE.get(p["contract"]["symbol"], 1.0)
+                
             return positions
         except Exception as e:
             logger.error(f"Error fetching positions: {e}")
@@ -97,12 +149,15 @@ class IBKRService:
             # Get cash balance tag
             values = self.ib.accountValues()
             for val in values:
-                # CashBalance for BASE currency
-                if val.tag == "CashBalance" and val.currency == "BASE":
-                    try:
-                        balances["USD"] = float(val.value)
-                    except ValueError:
-                        pass
+                try:
+                    if val.tag in ["NetLiquidation", "BuyingPower", "ExcessLiquidity"]:
+                        if val.currency == "BASE" or val.currency == "USD":
+                            balances[val.tag] = float(val.value)
+                    elif val.tag == "CashBalance":
+                        if val.currency != "BASE":
+                            balances[val.currency] = float(val.value)
+                except ValueError:
+                    pass
             return balances
         except Exception as e:
             logger.error(f"Error fetching account summary/cash: {e}")

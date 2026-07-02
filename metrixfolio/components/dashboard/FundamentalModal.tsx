@@ -150,31 +150,18 @@ export const FundamentalModal: React.FC<FundamentalModalProps> = ({
               ) : (
                 <div className="flex flex-col flex-grow overflow-hidden h-full">
                   <div className="flex-grow overflow-y-auto space-y-2 pr-1 h-full">
-                    <SparklineRow label="Price" value={latest?.last_price} data={getSeries('last_price')} color="#3abff8" formatValue={(v) => `$${formatNumber(v)}`} />
-                    <SparklineRow label="Market Cap" value={latest?.market_cap} data={getSeries('market_cap')} color="#36d399" formatValue={formatNumber} />
-                    <SparklineRow label="P/E Ratio" value={latest?.pe} data={getSeries('pe')} color="#fbbd23" formatValue={(v) => typeof v === 'number' ? v.toFixed(2) : '-'} />
-                    <SparklineRow label="Forward P/E" value={latest?.forward_pe} data={getSeries('forward_pe')} color="#fbbd23" formatValue={(v) => typeof v === 'number' ? v.toFixed(2) : '-'} />
-                    <SparklineRow label="EPS" value={latest?.eps} data={getSeries('eps')} color="#f87272" formatValue={(v) => `$${formatNumber(v)}`} />
-                    <SparklineRow label="EV/EBITDA" value={latest?.ev_to_ebitda} data={getSeries('ev_to_ebitda')} color="#e879f9" formatValue={(v) => typeof v === 'number' ? v.toFixed(2) : '-'} />
-                    <SparklineRow label="Profit Margin" value={latest?.profit_margin} data={getSeries('profit_margin')} color="#2dd4bf" formatValue={formatPercent} />
-                    <SparklineRow label="Revenue Growth" value={latest?.revenue_growth} data={getSeries('revenue_growth')} color="#4ade80" formatValue={formatPercent} />
-                    <SparklineRow label="Dividend Yield" value={latest?.dividend_yield} data={getSeries('dividend_yield')} color="#60a5fa" formatValue={formatPercent} />
-                    <SparklineRow label="RSI" value={latest?.rsi} data={getSeries('rsi')} color="#c084fc" formatValue={(v) => typeof v === 'number' ? v.toFixed(2) : '-'} />
-                    <SparklineRow label="Implied Volatility (IV)" value={latest?.iv} data={getSeries('iv')} color="#fb923c" formatValue={formatPercent} />
+                    <SparklineRow label="Price" value={latest?.last_price} data={getSeries('last_price')} color="#3abff8" formatValue={(v) => `$${formatNumber(v)}`} timeline={timelineDates} />
+                    <SparklineRow label="Market Cap" value={latest?.market_cap} data={getSeries('market_cap')} color="#36d399" formatValue={formatNumber} timeline={timelineDates} />
+                    <SparklineRow label="P/E Ratio" value={latest?.pe} data={getSeries('pe')} color="#fbbd23" formatValue={(v) => typeof v === 'number' ? v.toFixed(2) : '-'} timeline={timelineDates} />
+                    <SparklineRow label="Forward P/E" value={latest?.forward_pe} data={getSeries('forward_pe')} color="#fbbd23" formatValue={(v) => typeof v === 'number' ? v.toFixed(2) : '-'} timeline={timelineDates} />
+                    <SparklineRow label="EPS" value={latest?.eps} data={getSeries('eps')} color="#f87272" formatValue={(v) => `$${formatNumber(v)}`} timeline={timelineDates} />
+                    <SparklineRow label="EV/EBITDA" value={latest?.ev_to_ebitda} data={getSeries('ev_to_ebitda')} color="#e879f9" formatValue={(v) => typeof v === 'number' ? v.toFixed(2) : '-'} timeline={timelineDates} />
+                    <SparklineRow label="Profit Margin" value={latest?.profit_margin} data={getSeries('profit_margin')} color="#2dd4bf" formatValue={formatPercent} timeline={timelineDates} />
+                    <SparklineRow label="Revenue Growth" value={latest?.revenue_growth} data={getSeries('revenue_growth')} color="#4ade80" formatValue={formatPercent} timeline={timelineDates} />
+                    <SparklineRow label="Dividend Yield" value={latest?.dividend_yield} data={getSeries('dividend_yield')} color="#60a5fa" formatValue={formatPercent} timeline={timelineDates} />
+                    <SparklineRow label="RSI" value={latest?.rsi} data={getSeries('rsi')} color="#c084fc" formatValue={(v) => typeof v === 'number' ? v.toFixed(2) : '-'} timeline={timelineDates} />
+                    <SparklineRow label="Implied Volatility (IV)" value={latest?.iv} data={getSeries('iv')} color="#fb923c" formatValue={formatPercent} timeline={timelineDates} />
                   </div>
-                  {timelineDates && (
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-base-300 dark:border-base-800 text-[10px] text-base-content/40 px-3 flex-shrink-0">
-                      <div className="w-1/4 flex-shrink-0 uppercase font-bold tracking-wider">
-                        Timeline
-                      </div>
-                      <div className="w-3/4 flex justify-between items-center px-4 relative">
-                        <div className="absolute left-2 right-2 top-1/2 -translate-y-1/2 h-0 border-t border-dashed border-base-content/10"></div>
-                        <span className="bg-base-100 z-10 px-1.5 py-0.5 rounded border border-base-content/5 shadow-sm font-medium">{timelineDates.start}</span>
-                        <span className="bg-base-100 z-10 px-1.5 py-0.5 rounded border border-base-content/5 shadow-sm font-medium">{timelineDates.mid}</span>
-                        <span className="bg-base-100 z-10 px-1.5 py-0.5 rounded border border-base-content/5 shadow-sm font-medium">{timelineDates.end}</span>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )
             )}

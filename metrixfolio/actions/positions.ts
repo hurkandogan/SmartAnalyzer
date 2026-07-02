@@ -69,6 +69,10 @@ export async function getAssetsAction(userId: string): Promise<Asset[]> {
         original_currency: currency,
         original_avg_cost: avgCost,
         original_current_price: currentPrice,
+        strike: data.strike || '',
+        right: data.right || '',
+        expiry: data.expiry || '',
+        type: type,
       };
     });
 

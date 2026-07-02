@@ -11,6 +11,7 @@ from services.yahoo import YahooService
 from services.kraken import KrakenService
 from services.analytics import AnalyticsService
 from services.sync import SyncService
+from services.macro import MacroService
 from sqlalchemy.orm import Session
 from database.db import get_db
 
@@ -521,13 +522,211 @@ async def analyze_ticker(symbol: str, db: Session = Depends(get_db)):
             "cash_runway": fund_record.cash_runway,
             "revenue_growth": fund_record.revenue_growth_yoy,
             "short_interest_pct": fund_record.short_interest_pct,
-            "iv": fund_record.iv,
+            "iv": fund_record.iv * 100 if fund_record.iv is not None else None,
             "cross_signal": cross_signal
         },
         "comments": insights_html if insights_html else None
     }
     
     return response_data
+
+from services.telegram import TelegramService
+from services.pdf_generator import generate_pdf_report, compute_atr
+from services.agent_analyst import generate_stock_analysis, generate_portfolio_risk_report, generate_market_weather
+from services.macro import MacroService
+import pandas as pd
+
+class ScanAlertRequest(BaseModel):
+    watchlist: List[str]
+    portfolios: Dict[str, Dict[str, Any]]
+    force_risk: Optional[bool] = False
+
+
+@app.post("/api/scan-and-alert")
+async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db)):
+    """
+    1. Scan watchlist and compute scores for technical signals.
+    2. Pick top 2 most active/interesting symbols.
+    3. Generate matplotlib charts, fetch Yahoo news, generate AI comments.
+    4. Compile ReportLab PDF and post it to Telegram public channel.
+    5. Perform risk analysis on all portfolios and send private reports.
+    """
+    logger.info("Starting Daily Event-Driven Scan & Alert Process...")
+    from database.models import Candle, Fundamental
+    
+    # ── Step 1: Scan and score watchlist ──
+    scored_symbols = []
+    for symbol in request.watchlist:
+        symbol = symbol.upper()
+        logger.info(f"[Scanner] Scanning {symbol}...")
+        
+        try:
+            candles = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.date.desc()).limit(250).all()
+            if not candles:
+                # Fallback to yahoo
+                candles_data = yahoo_service.get_historical_candles(symbol)
+            else:
+                candles.reverse()
+                candles_data = [
+                    {
+                        "date": c.date.strftime("%Y-%m-%d"),
+                        "open": c.open,
+                        "high": c.high,
+                        "low": c.low,
+                        "close": c.close,
+                        "volume": c.volume
+                    } for c in candles
+                ]
+                
+            if not candles_data or len(candles_data) < 20:
+                logger.warning(f"[Scanner] Not enough candle data for {symbol}. Skipping.")
+                continue
+                
+            closes = [c["close"] for c in candles_data]
+            rsi = analytics_service.compute_rsi(closes)
+            crosses = analytics_service.detect_crosses(closes)
+            
+            # Fetch latest fundamental record
+            fund = db.query(Fundamental).filter(Fundamental.symbol == symbol).order_by(Fundamental.date.desc()).first()
+            rvol = fund.rvol if fund else 1.0
+            iv = fund.iv if (fund and fund.iv) else 0.0
+            
+            # Scoring logic (Golden Cross, Extreme RSI, RVOL, etc.)
+            score = 0
+            if crosses["golden_cross"]: score += 12
+            elif crosses["gc_coming"]: score += 8
+            if crosses["death_cross"]: score += 6
+            elif crosses["dc_coming"]: score += 4
+            
+            if rsi is not None:
+                if rsi <= 32: score += 10
+                elif rsi >= 68: score += 8
+                
+            if rvol is not None and rvol >= 1.8:
+                score += 6
+                
+            scored_symbols.append({
+                "symbol": symbol,
+                "score": score,
+                "candles": candles_data,
+                "rsi": rsi,
+                "rvol": rvol,
+                "iv": iv,
+                "crosses": crosses,
+                "last_price": closes[-1]
+            })
+            logger.info(f"[Scanner] Scored {symbol}: {score}")
+        except Exception as e:
+            logger.error(f"[Scanner] Error scanning {symbol}: {e}")
+            
+    # Sort and pick top 2 that have a signal (score > 0)
+    scored_symbols.sort(key=lambda x: x["score"], reverse=True)
+    top_symbols = [s for s in scored_symbols if s["score"] > 0][:2]
+    
+    # ── Step 2: Generate PDF Reports and Send to Public Telegram ──
+    generated_pdfs = []
+    tele_pub = TelegramService()
+    
+    for item in top_symbols:
+        symbol = item["symbol"]
+        logger.info(f"[Scanner] Generating PDF Report for {symbol} (Score: {item['score']})...")
+        try:
+            # Fetch yfinance news and earnings date
+            news = yahoo_service.get_ticker_news(symbol)
+            earnings_date = yahoo_service.get_earnings_date(symbol)
+            closes = [c["close"] for c in item["candles"]]
+            df_candles = pd.DataFrame(item["candles"])
+            
+            # Technical stats
+            tech_data = {
+                "last_price": item["last_price"],
+                "rsi": item["rsi"],
+                "rvol": item["rvol"],
+                "atr": compute_atr(df_candles, 14),
+                "sma20": analytics_service.compute_sma(closes, 20),
+                "sma50": analytics_service.compute_sma(closes, 50),
+                "sma200": analytics_service.compute_sma(closes, 200),
+                "gc_coming": item["crosses"]["gc_coming"],
+                "dc_coming": item["crosses"]["dc_coming"],
+                "iv": item["iv"]
+            }
+            
+            # Generate AI Wall Street commentary
+            ai_comment = await generate_stock_analysis(symbol, tech_data, news)
+            
+            # Generate report
+            pdf_path = generate_pdf_report(symbol, item["candles"], iv_history=[], ai_comment=ai_comment, earnings_date=earnings_date)
+            generated_pdfs.append(pdf_path)
+            
+            # Send Document to Telegram
+            caption = f"📊 **{symbol} Günlük Analiz Raporu**\n\nSinyal gücü yüksek hissemizin detaylı analizi ektedir."
+            await tele_pub.send_document(pdf_path, caption=caption)
+            logger.info(f"[Scanner] Report sent for {symbol}")
+        except Exception as e:
+            logger.error(f"[Scanner] Failed to generate/send report for {symbol}: {e}")
+            
+    # ── Step 3: Run Portfolio Risk Analysis and Send Private Telegram ──
+    # ONLY run this on Monday (weekday() == 0) unless force_risk is True
+    from datetime import date as d_date
+    is_monday = d_date.today().weekday() == 0
+    if not is_monday and not request.force_risk:
+        logger.info("[Scanner] Today is not Monday. Skipping weekly portfolio risk analysis report.")
+    else:
+        for user_id, port_data in request.portfolios.items():
+            user_name = port_data.get("user_name", "Kullanıcı")
+            assets = port_data.get("assets", [])
+            
+            if not assets:
+                logger.info(f"[Scanner] No assets for {user_name}. Skipping risk report.")
+                continue
+                
+            logger.info(f"[Scanner] Generating Risk Report for {user_name}...")
+            try:
+                risk_comment = await generate_portfolio_risk_report(user_name, assets)
+                
+                # Determine correct Telegram bot keys
+                bot_token = port_data.get("telegram_bot_token") or os.getenv("TELEGRAM_PRIVATE_BOT_TOKEN")
+                chat_id = port_data.get("telegram_chat_id") or os.getenv("TELEGRAM_PRIVATE_CHAT_ID")
+                
+                tele_priv = TelegramService(bot_token=bot_token, chat_id=chat_id)
+                await tele_priv.send_message(risk_comment)
+                logger.info(f"[Scanner] Risk report sent to {chat_id} for {user_name}")
+            except Exception as e:
+                logger.error(f"[Scanner] Failed portfolio risk analysis for {user_name}: {e}")
+            
+    return {
+        "status": "success",
+        "processed_watchlist_count": len(scored_symbols),
+        "top_symbols_selected": [x["symbol"] for x in top_symbols],
+        "generated_reports_count": len(generated_pdfs)
+    }
+
+@app.post("/api/market-weather")
+async def api_market_weather():
+    """
+    Fetches macro data and generates an AI 'Market Weather' report, sending it to the public Telegram channel.
+    """
+    logger.info("[Weather] Triggering Market Weather Report...")
+    try:
+        # 1. Fetch Macro Data
+        macro_data = MacroService.get_market_weather_data()
+        
+        # 2. Generate AI Report
+        weather_report = await generate_market_weather(macro_data)
+        
+        # 3. Send to Telegram
+        tele_pub = TelegramService(
+            bot_token=os.getenv("TELEGRAM_PUBLIC_BOT_TOKEN"),
+            chat_id=os.getenv("TELEGRAM_PUBLIC_CHANNEL_ID")
+        )
+        await tele_pub.send_message(weather_report)
+        logger.info("[Weather] Market Weather Report successfully sent.")
+        
+        return {"status": "success", "message": "Market Weather report sent."}
+    except Exception as e:
+        logger.error(f"[Weather] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn

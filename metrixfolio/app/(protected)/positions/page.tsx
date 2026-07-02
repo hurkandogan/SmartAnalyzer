@@ -38,6 +38,18 @@ type SortKey =
   | 'market_value'
   | 'unrealized_pnl';
 
+const calculateDTE = (expiryStr: string) => {
+  if (!expiryStr) return null;
+  const cleaned = expiryStr.replace(/-/g, '');
+  if (cleaned.length !== 8) return null;
+  const year = parseInt(cleaned.substring(0, 4), 10);
+  const month = parseInt(cleaned.substring(4, 6), 10) - 1;
+  const day = parseInt(cleaned.substring(6, 8), 10);
+  const expiryDate = new Date(year, month, day);
+  const diffTime = expiryDate.getTime() - new Date().getTime();
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+};
+
 export default function PositionsPage() {
   const { user } = useAuth();
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -703,7 +715,19 @@ export default function PositionsPage() {
                         </span>
                       </td>
                       <td>
-                        <div className="font-bold">{asset.symbol}</div>
+                        <div className="font-bold">
+                          {asset.symbol}
+                          {asset.type === 'OPTION' && asset.expiry && (
+                            (() => {
+                              const dte = calculateDTE(asset.expiry);
+                              return dte !== null ? (
+                                <span className={`ml-2 badge badge-xs font-bold text-white ${dte <= 14 ? 'badge-error' : dte <= 21 ? 'badge-warning' : 'badge-success'}`}>
+                                  {dte} DTE
+                                </span>
+                              ) : null;
+                            })()
+                          )}
+                        </div>
                         <div className="text-xs opacity-50">{asset.name}</div>
                       </td>
                       <td>
