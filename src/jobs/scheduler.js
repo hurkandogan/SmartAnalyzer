@@ -4,6 +4,7 @@ import { runDailyStockAnalysis } from './dailyStockAnalysis.js';
 import { runPortfolioSync } from './portfolioSync.js';
 import { runDataMiner } from './dataMiner.js';
 import { runMarketWeather } from './marketWeather.js';
+import { runOptionsSignalsJob } from './optionsSignalsJob.js';
 import { logger, dbLogger } from '../utils/logger.js';
 
 /**
@@ -59,7 +60,27 @@ export function startScheduler() {
     }
   });
 
-  logger.info('Scheduler started — 5 jobs registered');
+  // ── Options Technical Signals: hourly Mon-Fri ──
+  cron.schedule('0 * * * 1-5', async () => {
+    logger.info('[CRON] Options Technical Signals triggered');
+    try {
+      await dbLogger('options-signals', 'info', 'Options Signals Scan triggered');
+      const res = await runOptionsSignalsJob();
+      if (res.success) {
+        if (res.skipped) {
+          await dbLogger('options-signals', 'info', 'Options Signals Scan skipped (market closed)');
+        } else {
+          await dbLogger('options-signals', 'success', `Options Signals Scan completed: ${res.signalCount} signals found`);
+        }
+      } else {
+        await dbLogger('options-signals', 'error', `Options Signals Scan failed: ${res.message || res.error}`);
+      }
+    } catch (error) {
+      await dbLogger('options-signals', 'error', `Options Signals Scan error: ${error.message}`);
+    }
+  });
+
+  logger.info('Scheduler started — 6 jobs registered');
 }
 
-export { runPortfolioSync, runDailyStockAnalysis, runCurrencyUpdate, runDataMiner, runMarketWeather };
+export { runPortfolioSync, runDailyStockAnalysis, runCurrencyUpdate, runDataMiner, runMarketWeather, runOptionsSignalsJob };

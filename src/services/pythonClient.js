@@ -154,17 +154,32 @@ class PythonClientService {
     }
   }
 
-  async scanAndAlert(watchlist, portfolios, forceRisk = false) {
+  async scanAndAlert(watchlist, portfolios, forceRisk = false, forceScan = false) {
     try {
       const res = await fetch(`${PYTHON_SERVICE_URL}/api/scan-and-alert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ watchlist, portfolios, force_risk: forceRisk })
+        body: JSON.stringify({ watchlist, portfolios, force_risk: forceRisk, force_scan: forceScan })
       });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       return await res.json();
     } catch (err) {
       logger.error(`[PythonClient] Failed to run scanAndAlert: ${err.message}`);
+      return null;
+    }
+  }
+
+  async getOptionsSignals(watchlist, sendTelegram = false) {
+    try {
+      const res = await fetch(`${PYTHON_SERVICE_URL}/api/options-signals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ watchlist, send_telegram: sendTelegram })
+      });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      logger.error(`[PythonClient] Failed to get options signals: ${err.message}`);
       return null;
     }
   }

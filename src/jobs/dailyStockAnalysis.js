@@ -10,7 +10,7 @@ import {
 } from '../services/firebase.js';
 import { logger } from '../utils/logger.js';
 
-export async function runDailyStockAnalysis(forceRisk = false) {
+export async function runDailyStockAnalysis(forceRisk = false, forceScan = false) {
   logger.info('── Daily Stock Analysis started via local Postgres analysis ──');
 
 
@@ -101,7 +101,7 @@ export async function runDailyStockAnalysis(forceRisk = false) {
     
     const symbols = watchlist.map(item => item.symbol || item.id);
     logger.info('[Analysis] Triggering Telegram Daily Scan and Alerts via Python...');
-    const scanRes = await pythonClient.scanAndAlert(symbols, portfolios, forceRisk);
+    const scanRes = await pythonClient.scanAndAlert(symbols, portfolios, forceRisk, forceScan);
     if (scanRes && scanRes.status === 'success') {
       logger.info(`[Analysis] ✓ Telegram Alerts completed. Selected: ${scanRes.top_symbols_selected.join(', ')}`);
     } else {

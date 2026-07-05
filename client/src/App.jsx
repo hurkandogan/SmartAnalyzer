@@ -5,9 +5,10 @@ import TickerModal from './components/TickerModal';
 import JobPanel from './components/JobPanel';
 import LogTerminal from './components/LogTerminal';
 import PortfolioDashboard from './components/PortfolioDashboard';
+import ScreenerAdmin from './components/ScreenerAdmin';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('portfolio'); // 'search' or 'portfolio'
+  const [activeTab, setActiveTab] = useState('portfolio'); // 'search', 'portfolio', or 'screener'
   const [connection, setConnection] = useState({ connected: false });
   const [tickerData, setTickerData] = useState(null);
   const [loadingSearch, setLoadingSearch] = useState(false);
@@ -93,6 +94,16 @@ function App() {
           >
             Terminal & Scanner
           </button>
+          <button 
+            onClick={() => setActiveTab('screener')}
+            className={`px-6 py-2.5 rounded-full font-bold text-sm tracking-wide transition-all ${
+              activeTab === 'screener' 
+                ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/25 border border-rose-400'
+                : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white border border-white/5'
+            }`}
+          >
+            Screener Admin
+          </button>
         </div>
 
         {error && (
@@ -104,6 +115,8 @@ function App() {
         {/* Dynamic View based on Tab */}
         {activeTab === 'portfolio' ? (
           <PortfolioDashboard />
+        ) : activeTab === 'screener' ? (
+          <ScreenerAdmin />
         ) : (
           <div className="w-full max-w-5xl flex flex-col items-center">
             <SearchBar onSearch={handleSearch} isLoading={loadingSearch} />

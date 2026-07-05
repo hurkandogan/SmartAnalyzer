@@ -9,6 +9,7 @@ import { startScheduler } from './jobs/scheduler.js';
 import { jobRoutes } from './routes/jobs.js';
 import { portfolioRoutes } from './routes/portfolio.js';
 import { watchlistRoutes } from './routes/watchlist.js';
+import { screenerRoutes } from './routes/screener.js';
 import { logger } from './utils/logger.js';
 import { pythonClient } from './services/pythonClient.js';
 
@@ -30,7 +31,7 @@ app.get('/api', async (c) => {
 app.route('/api/jobs', jobRoutes);
 app.route('/api/portfolio', portfolioRoutes);
 app.route('/api/watchlist', watchlistRoutes);
-
+app.route('/api/screener', screenerRoutes);
 
 app.get('/api/ticker-data', async (c) => {
   const symbol = c.req.query('symbol');

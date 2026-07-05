@@ -22,5 +22,7 @@ export interface OptionPosition {
   vega?: number | null;
   iv?: number | null;
   current_price?: number | null;
+  iv_rank?: number | null;
+  earnings_date?: string | null;
 }
 

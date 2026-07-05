@@ -54,8 +54,9 @@ class IBKRService:
         
         try:
             positions = []
-            # ib.portfolio() returns PortfolioItem which includes marketPrice
+            raw_positions = self.ib.positions()
             raw_portfolio = self.ib.portfolio()
+            portfolio_map = {item.contract.conId: item for item in raw_portfolio if item.contract}
             
             def clean_nan(v):
                 import math
@@ -63,12 +64,11 @@ class IBKRService:
                 if isinstance(v, float) and math.isnan(v): return None
                 return v
 
-            # Pre-fetch Greeks for options
+            # Pre-fetch Greeks for options in raw_positions
             opt_contracts = []
-            for item in raw_portfolio:
-                if item.contract.secType == "OPT":
-                    # TWS requires an exchange for reqMktData, use SMART
-                    c = item.contract
+            for pos in raw_positions:
+                if pos.contract and pos.contract.secType == "OPT":
+                    c = pos.contract
                     c.exchange = 'SMART'
                     opt_contracts.append(c)
 
@@ -77,8 +77,8 @@ class IBKRService:
                 self.ib.reqMarketDataType(3)  # Ensure delayed/realtime
                 mkt_data_subs = []
                 for c in opt_contracts:
-                    mkt_data_subs.append(self.ib.reqMktData(c, "106", False, False)) # False for snapshot since generic tick 106 doesn't support snapshot
-                await asyncio.sleep(1.5) # Give it time to fetch
+                    mkt_data_subs.append(self.ib.reqMktData(c, "106", False, False))
+                await asyncio.sleep(1.5)
                 
                 for i, c in enumerate(opt_contracts):
                     ticker = mkt_data_subs[i]
@@ -92,11 +92,16 @@ class IBKRService:
                         }
                     self.ib.cancelMktData(c)
                         
-            for item in raw_portfolio:
-                contract = item.contract
-                # Map to a clean dict
+            for pos in raw_positions:
+                contract = pos.contract
+                if not contract:
+                    continue
+                
+                # Check if we have portfolio item detail
+                p_item = portfolio_map.get(contract.conId)
+                
                 positions.append({
-                    "account": item.account,
+                    "account": pos.account,
                     "contract": {
                         "conId": contract.conId,
                         "symbol": contract.symbol,
@@ -108,12 +113,12 @@ class IBKRService:
                         "right": getattr(contract, "right", ""),
                         "lastTradeDateOrContractMonth": getattr(contract, "lastTradeDateOrContractMonth", "")
                     },
-                    "position": clean_nan(item.position),
-                    "avgCost": clean_nan(item.averageCost),
-                    "marketPrice": clean_nan(item.marketPrice),
-                    "marketValue": clean_nan(item.marketValue),
-                    "unrealizedPNL": clean_nan(item.unrealizedPNL),
-                    "realizedPNL": clean_nan(item.realizedPNL),
+                    "position": clean_nan(pos.position),
+                    "avgCost": clean_nan(pos.avgCost),
+                    "marketPrice": clean_nan(p_item.marketPrice) if p_item else None,
+                    "marketValue": clean_nan(p_item.marketValue) if p_item else None,
+                    "unrealizedPNL": clean_nan(p_item.unrealizedPNL) if p_item else None,
+                    "realizedPNL": clean_nan(p_item.realizedPNL) if p_item else None,
                     "greeks": greeks_dict.get(contract.conId, None)
                 })
 
@@ -140,9 +145,9 @@ class IBKRService:
             logger.error(f"Error fetching positions: {e}")
             return None
 
-    async def get_cash_balances(self) -> Dict[str, float]:
+    async def get_cash_balances(self) -> Optional[Dict[str, float]]:
         if not await self.ensure_connected():
-            return {}
+            return None
         
         try:
             balances = {}
@@ -161,7 +166,7 @@ class IBKRService:
             return balances
         except Exception as e:
             logger.error(f"Error fetching account summary/cash: {e}")
-            return {}
+            return None
 
     async def get_contract_details(self, symbol: str, sec_type: str = "STK", currency: str = "USD") -> Optional[Dict[str, Any]]:
         if not await self.ensure_connected():
@@ -283,4 +288,35 @@ class IBKRService:
         except Exception as e:
             logger.error(f"Error fetching snapshot for {symbol}: {e}")
             return {}
-            return {}
+
+    async def get_fundamental_data(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Attempts to fetch fundamental data via IBKR. 
+        Requires Reuters Fundamentals subscription. 
+        Returns None if not subscribed or if parsing fails.
+        """
+        if not await self.ensure_connected():
+            return None
+            
+        try:
+            contract = Stock(symbol, "SMART", "USD")
+            qualified = await self.ib.qualifyContractsAsync(contract)
+            if not qualified:
+                return None
+                
+            # 'ReportsFinSummary' gives summary financial statement data
+            # Other options: 'ReportsFinStatements', 'RESC' (estimates)
+            xml_data = await self.ib.reqFundamentalDataAsync(qualified[0], 'ReportsFinSummary')
+            
+            if not xml_data:
+                return None
+                
+            # Currently we return None to force fallback to Yahoo, 
+            # because parsing the Reuters XML requires a heavy XML parser 
+            # and mapping to our specific fields.
+            # In a full implementation, we would parse xml_data here.
+            logger.info(f"Received fundamental XML from IBKR for {symbol}, but relying on Yahoo for parsed metrics.")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to get IBKR fundamentals for {symbol} (likely no subscription): {e}")
+            return None

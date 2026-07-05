@@ -58,9 +58,32 @@ class Fundamental(Base):
     # Sentiment / Short Interest
     short_interest_pct = Column(Float, nullable=True)
 
+    # Screener & Heatmap additions
+    market_cap = Column(Float, nullable=True)
+    beta = Column(Float, nullable=True)
+    free_cashflow = Column(Float, nullable=True)
+    operating_cashflow = Column(Float, nullable=True)
+    fcf_growth_yoy = Column(Float, nullable=True)
+    net_debt = Column(Float, nullable=True)
+    ebitda = Column(Float, nullable=True)
+    net_debt_to_ebitda = Column(Float, nullable=True)
+    sma_200 = Column(Float, nullable=True)
+    sector = Column(String(100), nullable=True)
+    industry = Column(String(100), nullable=True)
+    score = Column(Integer, nullable=True)
+    performance_1y = Column(Float, nullable=True)
+
     __table_args__ = (
         UniqueConstraint('symbol', 'date', name='uq_fundamental_symbol_date'),
     )
+
+class ScreenerUniverse(Base):
+    __tablename__ = "screener_universe"
+
+    symbol = Column(String(20), primary_key=True, index=True)
+    source_index = Column(String(50), nullable=True) # e.g. SP500, Custom
+    added_at = Column(DateTime, nullable=True)
+    is_active = Column(Integer, default=1) # 1=Active, 0=Dropped
 
 class Watchlist(Base):
     __tablename__ = "watchlist"
@@ -79,3 +102,18 @@ class JobLog(Base):
     source = Column(String(50), nullable=False, index=True) # e.g. 'portfolio-sync', 'candle-miner'
     message = Column(String, nullable=False)
     details = Column(String, nullable=True) # JSON or additional text
+
+class GeneratedReportLog(Base):
+    __tablename__ = "generated_report_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    generated_at = Column(DateTime, nullable=False, index=True)
+
+class OptionSignalLog(Base):
+    __tablename__ = "option_signal_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    signal_type = Column(String(20), nullable=False)
+    generated_at = Column(DateTime, nullable=False, index=True)

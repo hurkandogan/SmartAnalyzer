@@ -77,6 +77,11 @@ async def startup_event():
     )
     # Attempt to connect to IBKR on startup
     await ibkr_service.connect()
+    
+    # Start the continuous Screener sync loop
+    from services.screener_sync import ScreenerSyncService
+    screener_sync_service = ScreenerSyncService(ibkr_service=ibkr_service)
+    asyncio.create_task(screener_sync_service.start_background_loop())
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -93,7 +98,7 @@ async def get_status():
     }
 
 @app.get("/api/portfolio")
-async def get_portfolio():
+async def get_portfolio(db: Session = Depends(get_db)):
     """
     Fetches raw portfolio positions & cash balances from IBKR and Kraken.
     """
@@ -103,10 +108,78 @@ async def get_portfolio():
         ibkr_positions = await ibkr_service.get_positions()
         ibkr_cash = await ibkr_service.get_cash_balances()
         logger.info(f"Successfully fetched {len(ibkr_positions) if ibkr_positions else 0} positions and cash balances from IBKR.")
+        
+        if ibkr_positions:
+            unique_symbols = set()
+            for pos in ibkr_positions:
+                contract = pos.get("contract")
+                if contract and contract.get("symbol"):
+                    unique_symbols.add(contract["symbol"])
+            
+            async def fetch_symbol_metrics(sym):
+                try:
+                    curr_iv = None
+                    for pos in ibkr_positions:
+                        contract = pos.get("contract")
+                        if contract and contract.get("symbol") == sym:
+                            greeks = pos.get("greeks")
+                            if greeks and greeks.get("iv") is not None:
+                                curr_iv = greeks["iv"]
+                                break
+                    if curr_iv is None:
+                        from database.models import Fundamental
+                        latest_fund = db.query(Fundamental.iv).filter(
+                            Fundamental.symbol == sym,
+                            Fundamental.iv.isnot(None),
+                            Fundamental.iv > 0
+                        ).order_by(Fundamental.date.desc()).first()
+                        if latest_fund:
+                            curr_iv = latest_fund[0]
+                    
+                    iv_rank = None
+                    if curr_iv is not None and curr_iv > 0:
+                        import datetime
+                        one_year_ago = datetime.date.today() - datetime.timedelta(days=365)
+                        from database.models import Fundamental
+                        records = db.query(Fundamental.iv).filter(
+                            Fundamental.symbol == sym,
+                            Fundamental.date >= one_year_ago,
+                            Fundamental.iv.isnot(None),
+                            Fundamental.iv > 0
+                        ).all()
+                        ivs = [r[0] for r in records]
+                        if curr_iv not in ivs:
+                            ivs.append(curr_iv)
+                        min_iv = min(ivs)
+                        max_iv = max(ivs)
+                        if max_iv > min_iv:
+                            iv_rank = round(((curr_iv - min_iv) / (max_iv - min_iv)) * 100, 1)
+                        else:
+                            iv_rank = 50.0
+                    
+                    import asyncio
+                    earnings_date = await asyncio.to_thread(yahoo_service.get_earnings_date, sym)
+                    return sym, {"iv_rank": iv_rank, "earnings_date": earnings_date}
+                except Exception as ex:
+                    logger.error(f"Error calculating metrics for {sym}: {ex}")
+                    return sym, {"iv_rank": None, "earnings_date": None}
+            
+            import asyncio
+            tasks = [fetch_symbol_metrics(sym) for sym in unique_symbols]
+            results = await asyncio.gather(*tasks)
+            symbol_metrics = dict(results)
+            
+            for pos in ibkr_positions:
+                contract = pos.get("contract")
+                if contract and contract.get("symbol"):
+                    sym = contract["symbol"]
+                    metrics = symbol_metrics.get(sym, {})
+                    pos["iv_rank"] = metrics.get("iv_rank")
+                    pos["earnings_date"] = metrics.get("earnings_date")
     except Exception as e:
         logger.error(f"Error fetching IBKR portfolio: {e}")
-        ibkr_positions = []
-        ibkr_cash = {}
+        ibkr_positions = None
+        ibkr_cash = None
     
     # Fetch Kraken balances
     try:
@@ -536,10 +609,14 @@ from services.agent_analyst import generate_stock_analysis, generate_portfolio_r
 from services.macro import MacroService
 import pandas as pd
 
+from screener_routes import router as screener_router
+app.include_router(screener_router)
+
 class ScanAlertRequest(BaseModel):
     watchlist: List[str]
     portfolios: Dict[str, Dict[str, Any]]
     force_risk: Optional[bool] = False
+    force_scan: Optional[bool] = False
 
 
 @app.post("/api/scan-and-alert")
@@ -558,8 +635,23 @@ async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db
     scored_symbols = []
     for symbol in request.watchlist:
         symbol = symbol.upper()
-        logger.info(f"[Scanner] Scanning {symbol}...")
         
+        # Check if report was generated in last 30 days
+        if not request.force_scan:
+            from datetime import datetime, timedelta
+            from database.models import GeneratedReportLog
+            
+            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            recent_report = db.query(GeneratedReportLog).filter(
+                GeneratedReportLog.symbol == symbol,
+                GeneratedReportLog.generated_at >= thirty_days_ago
+            ).first()
+            
+            if recent_report:
+                logger.info(f"[Scanner] Skipping {symbol} because a report was already generated on {recent_report.generated_at.strftime('%Y-%m-%d')}")
+                continue
+
+        logger.info(f"[Scanner] Scanning {symbol}...")
         try:
             candles = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.date.desc()).limit(250).all()
             if not candles:
@@ -591,7 +683,7 @@ async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db
             rvol = fund.rvol if fund else 1.0
             iv = fund.iv if (fund and fund.iv) else 0.0
             
-            # Scoring logic (Golden Cross, Extreme RSI, RVOL, etc.)
+            # Scoring logic (Golden Cross, Extreme RSI, RVOL, High IV)
             score = 0
             if crosses["golden_cross"]: score += 12
             elif crosses["gc_coming"]: score += 8
@@ -599,11 +691,20 @@ async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db
             elif crosses["dc_coming"]: score += 4
             
             if rsi is not None:
-                if rsi <= 32: score += 10
-                elif rsi >= 68: score += 8
+                if rsi <= 30: score += 12
+                elif rsi <= 40: score += 8
+                elif rsi <= 45: score += 4
+                elif rsi >= 70: score += 8
+                elif rsi >= 60: score += 4
                 
-            if rvol is not None and rvol >= 1.8:
-                score += 6
+            if rvol is not None:
+                if rvol >= 1.8: score += 6
+                elif rvol >= 1.3: score += 3
+
+            if iv is not None:
+                if iv >= 0.60: score += 10
+                elif iv >= 0.40: score += 6
+                elif iv >= 0.30: score += 3
                 
             scored_symbols.append({
                 "symbol": symbol,
@@ -619,9 +720,9 @@ async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db
         except Exception as e:
             logger.error(f"[Scanner] Error scanning {symbol}: {e}")
             
-    # Sort and pick top 2 that have a signal (score > 0)
+    # Sort and pick top 2 unconditionally to ensure daily reports are sent
     scored_symbols.sort(key=lambda x: x["score"], reverse=True)
-    top_symbols = [s for s in scored_symbols if s["score"] > 0][:2]
+    top_symbols = scored_symbols[:2]
     
     # ── Step 2: Generate PDF Reports and Send to Public Telegram ──
     generated_pdfs = []
@@ -662,6 +763,16 @@ async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db
             caption = f"📊 **{symbol} Günlük Analiz Raporu**\n\nSinyal gücü yüksek hissemizin detaylı analizi ektedir."
             await tele_pub.send_document(pdf_path, caption=caption)
             logger.info(f"[Scanner] Report sent for {symbol}")
+
+            # Record report generation in DB
+            from datetime import datetime
+            from database.models import GeneratedReportLog
+            report_log = GeneratedReportLog(
+                symbol=symbol,
+                generated_at=datetime.utcnow()
+            )
+            db.add(report_log)
+            db.commit()
         except Exception as e:
             logger.error(f"[Scanner] Failed to generate/send report for {symbol}: {e}")
             
@@ -698,7 +809,24 @@ async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db
         "status": "success",
         "processed_watchlist_count": len(scored_symbols),
         "top_symbols_selected": [x["symbol"] for x in top_symbols],
-        "generated_reports_count": len(generated_pdfs)
+        "generated_pdf_count": len(generated_pdfs)
+    }
+
+class OptionsSignalsRequest(BaseModel):
+    watchlist: List[str]
+    send_telegram: Optional[bool] = False
+
+@app.post("/api/options-signals")
+async def get_options_signals(request: OptionsSignalsRequest, db: Session = Depends(get_db)):
+    """
+    Scans watchlist symbols and returns high-probability option selling signals.
+    """
+    from services.options_signals import OptionsSignalsService
+    service = OptionsSignalsService()
+    signals = await service.scan_signals(db, request.watchlist, send_telegram=request.send_telegram)
+    return {
+        "status": "success",
+        "signals": signals
     }
 
 @app.post("/api/market-weather")

@@ -70,3 +70,27 @@ export async function deleteOptionAction(userId: string, optionId: string) {
     return { success: false, message: error.message };
   }
 }
+
+export async function getIBKRSummaryAction(userId: string) {
+  if (!userId) return null;
+  try {
+    const doc = await adminDb
+      .collection('users')
+      .doc(userId)
+      .collection('config')
+      .doc('ibkr_summary')
+      .get();
+    
+    if (!doc.exists) return null;
+    const data = doc.data()!;
+    return {
+      netLiquidation: data.netLiquidation ?? 0,
+      buyingPower: data.buyingPower ?? 0,
+      excessLiquidity: data.excessLiquidity ?? 0,
+      updated_at: data.updated_at ? (data.updated_at.toDate ? data.updated_at.toDate().toISOString() : String(data.updated_at)) : null,
+    };
+  } catch (error) {
+    console.error('getIBKRSummaryAction error:', error);
+    return null;
+  }
+}

@@ -86,7 +86,7 @@ async function syncPrivateUser(currencies) {
   const ibkrConnected = ibkr.connected;
   const openOptionsList = [];
 
-  if (ibkrConnected && ibkr.positions !== null) {
+  if (ibkrConnected && ibkr.positions !== null && ibkr.cash !== null) {
     for (const pos of ibkrPositions) {
       const { contract, position: qty, avgCost } = pos;
       if (!contract) continue;
@@ -137,7 +137,9 @@ async function syncPrivateUser(currencies) {
           qty: qty,
           perShareAvgCost: perShareAvgCost,
           currentPrice: parseFloat(currentPrice) || 0,
-          greeks: pos.greeks
+          greeks: pos.greeks,
+          iv_rank: pos.iv_rank || null,
+          earnings_date: pos.earnings_date || null
         });
       }
 
@@ -653,6 +655,12 @@ async function autoSyncOptionsToTracker(userId, openOptionsList, source) {
         if (opt.currentPrice !== undefined && opt.currentPrice !== null) {
           patch.current_price = opt.currentPrice;
         }
+        if (opt.iv_rank !== undefined && opt.iv_rank !== null) {
+          patch.iv_rank = opt.iv_rank;
+        }
+        if (opt.earnings_date !== undefined && opt.earnings_date !== null) {
+          patch.earnings_date = opt.earnings_date;
+        }
         
         if (foundMatch.quantity !== absoluteQty) {
           patch.quantity = absoluteQty;
@@ -686,6 +694,8 @@ async function autoSyncOptionsToTracker(userId, openOptionsList, source) {
           note: `Auto-added from ${source}`,
           created_at: Date.now(),
           current_price: opt.currentPrice || null,
+          iv_rank: opt.iv_rank || null,
+          earnings_date: opt.earnings_date || null
         };
 
         if (opt.greeks) {

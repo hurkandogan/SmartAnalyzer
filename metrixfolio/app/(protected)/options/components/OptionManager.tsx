@@ -7,6 +7,7 @@ import {
   getOptionsAction,
   updateOptionAction,
   deleteOptionAction,
+  getIBKRSummaryAction,
 } from '@/actions/options';
 import { OptionPosition, OptionType } from '@/types/options';
 import {
@@ -102,11 +103,42 @@ const calculateDTE = (expiryStr?: string | null) => {
   return diffDays;
 };
 
+const getEarningsStatus = (earningsDateStr?: string | null) => {
+  if (!earningsDateStr) return null;
+  const parts = earningsDateStr.split('-');
+  if (parts.length !== 3) return null;
+  const earningsDate = new Date(
+    parseInt(parts[0]),
+    parseInt(parts[1]) - 1,
+    parseInt(parts[2])
+  );
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const diffTime = earningsDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (diffDays >= 0) {
+    return {
+      type: 'future' as const,
+      days: diffDays,
+      date: earningsDateStr
+    };
+  } else {
+    return {
+      type: 'past' as const,
+      days: Math.abs(diffDays),
+      date: earningsDateStr
+    };
+  }
+};
+
 export default function OptionManager() {
   const { user } = useAuth();
   const modalRef = useRef<HTMLDialogElement>(null);
 
   const [options, setOptions] = useState<OptionPosition[]>([]);
+  const [ibkrSummary, setIbkrSummary] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -135,6 +167,8 @@ export default function OptionManager() {
     setIsLoading(true);
     const data = await getOptionsAction(user.uid);
     setOptions(data);
+    const summary = await getIBKRSummaryAction(user.uid);
+    setIbkrSummary(summary);
     setIsLoading(false);
   };
 
@@ -157,6 +191,7 @@ export default function OptionManager() {
   const stats = useMemo(() => {
     let totalOpenValue = 0;
     let totalPnL = 0;
+    let totalTheta = 0;
 
     options.forEach((opt) => {
       const qty = opt.quantity || 1;
@@ -168,11 +203,52 @@ export default function OptionManager() {
         totalPnL += calcPnl(opt);
       } else {
         totalOpenValue += entryPrice * qty * OPTION_CONTRACT_SIZE;
+        if (opt.theta !== undefined && opt.theta !== null) {
+          const contractTheta = opt.theta * qty * OPTION_CONTRACT_SIZE;
+          if (opt.type.startsWith('SELL')) {
+            // we are short, so we collect the decay (theta is negative, so we negate it)
+            totalTheta += -contractTheta;
+          } else {
+            // we are long, we lose the decay
+            totalTheta += contractTheta;
+          }
+        }
       }
     });
 
-    return { totalOpenValue, totalPnL };
+    return { totalOpenValue, totalPnL, totalTheta };
   }, [options]);
+
+  const roundToOne = (num: number) => Math.round(num * 10) / 10;
+
+  const concentrationStats = useMemo(() => {
+    const symbolMap: { [symbol: string]: number } = {};
+    let totalOptionsValue = 0;
+
+    options.forEach((opt) => {
+      if (isOptionClosed(opt)) return;
+      const qty = opt.quantity || 1;
+      const currentPrice = opt.current_price ?? (opt.type.startsWith('BUY') ? opt.buy_price : opt.sell_price) ?? 0;
+      const value = currentPrice * qty * OPTION_CONTRACT_SIZE;
+      
+      symbolMap[opt.symbol] = (symbolMap[opt.symbol] || 0) + value;
+      totalOptionsValue += value;
+    });
+
+    const netLiq = ibkrSummary?.netLiquidation || 0;
+    const highRiskTickers: { symbol: string; pct: number }[] = [];
+    
+    if (netLiq > 0) {
+      Object.entries(symbolMap).forEach(([sym, val]) => {
+        const pct = (val / netLiq) * 100;
+        if (pct >= 15) {
+          highRiskTickers.push({ symbol: sym, pct: roundToOne(pct) });
+        }
+      });
+    }
+
+    return { symbolMap, totalOptionsValue, highRiskTickers };
+  }, [options, ibkrSummary]);
 
   const filteredOptions = useMemo(() => {
     let result = [...options];
@@ -406,7 +482,7 @@ export default function OptionManager() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="stats bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow">
           <div className="stat">
             <div className="stat-figure text-primary">
@@ -437,7 +513,40 @@ export default function OptionManager() {
             </div>
           </div>
         </div>
+        <div className="stats bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow">
+          <div className="stat">
+            <div className="stat-figure text-accent">
+              <FiTrendingUp size={32} className="text-accent" />
+            </div>
+            <div className="stat-title">Daily Theta Decay (Kira)</div>
+            <div className="stat-value text-3xl text-accent">
+              {(stats.totalTheta >= 0 ? '+' : '') +
+                usdFormatter.format(stats.totalTheta)}/gün
+            </div>
+          </div>
+        </div>
       </div>
+
+      {concentrationStats.highRiskTickers.length > 0 && (
+        <div className="alert alert-error bg-error/10 text-error border-error/20 shadow flex flex-col items-start gap-2 md:flex-row md:items-center md:justify-between py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🚨</span>
+            <div className="flex flex-col">
+              <span className="font-bold text-sm">Yüksek Yoğunlaşma Riski</span>
+              <span className="text-xs opacity-90">
+                Açık opsiyon pozisyonları toplam Net Likidasyon değerinizin %15'ini aşmaktadır:
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {concentrationStats.highRiskTickers.map((ticker) => (
+              <span key={ticker.symbol} className="badge badge-error text-xs font-bold px-2 py-1 leading-none">
+                {ticker.symbol}: %{ticker.pct}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="card bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow-xl">
         <div className="overflow-x-auto">
@@ -541,7 +650,24 @@ export default function OptionManager() {
                         >
                           {opt.type}
                         </span>
-                        <span className="font-bold">{opt.symbol}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold">{opt.symbol}</span>
+                          {(() => {
+                            const netLiq = ibkrSummary?.netLiquidation || 0;
+                            if (netLiq > 0) {
+                              const val = concentrationStats.symbolMap[opt.symbol] || 0;
+                              const pct = (val / netLiq) * 100;
+                              if (pct >= 15) {
+                                return (
+                                  <span className="badge badge-error badge-xs font-mono text-[9px] h-4 leading-none" title={`Hisse Yoğunlaşması: %${pct.toFixed(1)} NL`}>
+                                    🚨 %{pct.toFixed(0)}
+                                  </span>
+                                );
+                              }
+                            }
+                            return null;
+                          })()}
+                        </div>
                       </div>
                     </td>
                     <td className="text-right font-mono text-sm">
@@ -572,6 +698,25 @@ export default function OptionManager() {
                             Exp: {toDisplayDate(opt.expiry_date)}
                           </span>
                         )}
+                        {!isClosed && (() => {
+                          const status = getEarningsStatus(opt.earnings_date);
+                          if (!status) return null;
+                          if (status.type === 'future') {
+                            const isClose = status.days <= 7;
+                            const collision = opt.expiry_date ? new Date(opt.expiry_date) >= new Date(status.date) : false;
+                            return (
+                              <span className={`text-[9px] font-semibold flex items-center gap-0.5 mt-0.5 ${collision ? 'text-error animate-pulse' : isClose ? 'text-warning' : 'text-success'}`}>
+                                ⚠️ Bilanço: {status.days} gün {collision ? '(Çakışma!)' : 'kaldı'}
+                              </span>
+                            );
+                          } else {
+                            return (
+                              <span className="text-[9px] opacity-40 mt-0.5">
+                                📅 Önceki Bilanço: {toDisplayDate(status.date)}
+                              </span>
+                            );
+                          }
+                        })()}
                         {opt.note && (
                           <span className="text-[10px] italic opacity-50 truncate max-w-[150px]" title={opt.note}>
                             {opt.note}
@@ -579,19 +724,36 @@ export default function OptionManager() {
                         )}
                       </div>
                     </td>
-
+ 
                     {/* Live Greeks */}
                     <td>
                       {!isClosed && (opt.delta !== undefined && opt.delta !== null) ? (
                         <div className="flex flex-col text-[11px] font-mono gap-0.5 leading-none">
-                          <span className={Math.abs(opt.delta) >= 0.5 ? 'text-error font-bold' : 'text-success'}>
+                          <span 
+                            className={Math.abs(opt.delta) >= 0.5 ? 'text-error font-bold' : 'text-success'}
+                            title="Delta: Hisse fiyatındaki 1$'lık değişime karşılık opsiyon primindeki değişim oranı."
+                          >
                             Δ: {opt.delta.toFixed(2)}
                           </span>
-                          <span className="text-info">
+                          <span 
+                            className="text-info"
+                            title="Theta: Opsiyonun zamana bağlı günlük değer kaybı (Zaman Erimesi)."
+                          >
                             θ: {opt.theta ? opt.theta.toFixed(1) : '-'}
                           </span>
-                          <span className="opacity-60 text-[10px]">
+                          <span 
+                            className="opacity-60 text-[10px] flex items-center gap-1"
+                            title="Implied Volatility (Zımni Oynaklık): Piyasanın hisse senedinde beklediği oynaklık derecesi."
+                          >
                             IV: {opt.iv ? `${(opt.iv * 100).toFixed(0)}%` : '-'}
+                            {opt.iv_rank !== undefined && opt.iv_rank !== null && (
+                              <span 
+                                className={`badge badge-xs ${opt.iv_rank >= 50 ? 'badge-success text-success-content' : 'badge-ghost opacity-70'} leading-none px-1 text-[8px] h-3.5`}
+                                title="IV Rank: Mevcut IV değerinin son 1 yıllık geçmiş IV aralığındaki yüzdesel derecesi."
+                              >
+                                {opt.iv_rank.toFixed(0)}%R
+                              </span>
+                            )}
                           </span>
                         </div>
                       ) : (

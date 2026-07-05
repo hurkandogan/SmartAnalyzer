@@ -4,6 +4,7 @@ import { runDailyStockAnalysis } from '../jobs/dailyStockAnalysis.js';
 import { runCurrencyUpdate } from '../jobs/currencyUpdate.js';
 import { runDataMiner } from '../jobs/dataMiner.js';
 import { runMarketWeather } from '../jobs/marketWeather.js';
+import { runOptionsSignalsJob } from '../jobs/optionsSignalsJob.js';
 import { logger } from '../utils/logger.js';
 
 export const jobRoutes = new Hono();
@@ -78,6 +79,15 @@ jobRoutes.post(
 jobRoutes.get(
   '/market-weather',
   wrapJob('market-weather', runMarketWeather),
+);
+
+jobRoutes.post(
+  '/options-signals',
+  wrapJob('options-signals', () => runOptionsSignalsJob(true)),
+);
+jobRoutes.get(
+  '/options-signals',
+  wrapJob('options-signals', () => runOptionsSignalsJob(true)),
 );
 
 jobRoutes.get('/status', (c) => {
