@@ -50,21 +50,48 @@ export default function ScreenerAdmin() {
   const handleAdd = async (e) => {
     e.preventDefault();
     if (!newSymbols.trim()) return;
-    const symbolsArray = newSymbols.split(',').map(s => s.trim()).filter(Boolean);
+    
+    const symbolsArray = Array.from(new Set(newSymbols.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)));
+    
+    // Check for duplicates against currently active symbols
+    const existingSymbols = new Set(universe.filter(u => u.is_active).map(u => u.symbol.toUpperCase()));
+    const duplicates = symbolsArray.filter(s => existingSymbols.has(s));
+    const newSymbolsToAdd = symbolsArray.filter(s => !existingSymbols.has(s));
+    
+    if (newSymbolsToAdd.length === 0) {
+      alert(`Girdiğiniz tüm hisseler listede zaten ekli: ${duplicates.join(', ')}`);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_URL}/screener/universe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbols: symbolsArray, source_index: 'Custom' })
+        body: JSON.stringify({ symbols: newSymbolsToAdd, source_index: 'Custom' })
       });
+      
+      const data = await res.json();
+      
       if (res.ok) {
         setNewSymbols('');
         await loadUniverse();
+        
+        let msg = '';
+        if (data.added && data.added.length > 0) {
+          msg += `Başarıyla eklendi: ${data.added.join(', ')}`;
+        }
+        if (data.failed && data.failed.length > 0) {
+          msg += `${msg ? '\n\n' : ''}Geçersiz olduğu için eklenemeyenler (IBKR'da bulunamadı): ${data.failed.join(', ')}`;
+        }
+        if (duplicates.length > 0) {
+          msg += `${msg ? '\n\n' : ''}Zaten ekli olduğu için atlananlar: ${duplicates.join(', ')}`;
+        }
+        alert(msg);
       } else {
-        alert('Failed to add symbols');
+        alert(data.detail || 'Hisseler eklenirken hata oluştu.');
       }
     } catch (err) {
-      alert('Failed to add symbols');
+      alert('Hisseler eklenirken hata oluştu.');
     }
   };
 
@@ -143,8 +170,9 @@ export default function ScreenerAdmin() {
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 bg-[#060608]/90 backdrop-blur z-10 text-white/40 text-sm border-b border-white/10">
                 <tr>
-                  <th className="py-3 px-2">Symbol</th>
-                  <th className="py-3 px-2">Source</th>
+                  <th className="py-3 px-2">Symbol / Company</th>
+                  <th className="py-3 px-2">Sector & Industry</th>
+                  <th className="py-3 px-2">Exchange</th>
                   <th className="py-3 px-2">Status</th>
                   <th className="py-3 px-2 text-right">Action</th>
                 </tr>
@@ -152,10 +180,28 @@ export default function ScreenerAdmin() {
               <tbody>
                 {universe.map(u => (
                   <tr key={u.symbol} className={`border-b border-white/5 hover:bg-white/5 transition-colors ${u.is_active ? '' : 'opacity-50'}`}>
-                    <td className="py-3 px-2 font-bold text-white">{u.symbol}</td>
-                    <td className="py-3 px-2 text-white/60">{u.source_index}</td>
                     <td className="py-3 px-2">
-                      {u.is_active ? <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full">Active</span> : <span className="text-xs bg-white/10 text-white/40 px-2 py-1 rounded-full">Inactive</span>}
+                      <div className="font-bold text-white">{u.symbol}</div>
+                      <div className="text-xs text-white/40 max-w-[180px] truncate" title={u.long_name}>
+                        {u.long_name || 'N/A'}
+                      </div>
+                    </td>
+                    <td className="py-3 px-2">
+                      <div className="text-sm text-white/80">{u.sector || 'N/A'}</div>
+                      <div className="text-xs text-white/40 max-w-[180px] truncate" title={u.industry}>
+                        {u.industry || 'N/A'}
+                      </div>
+                    </td>
+                    <td className="py-3 px-2">
+                      <div className="text-sm text-white/70">{u.exchange || 'SMART'}</div>
+                      <div className="text-xs text-white/40">{u.currency || 'USD'}</div>
+                    </td>
+                    <td className="py-3 px-2">
+                      {u.is_active ? (
+                        <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full">Active</span>
+                      ) : (
+                        <span className="text-xs bg-white/10 text-white/40 px-2 py-1 rounded-full">Inactive</span>
+                      )}
                     </td>
                     <td className="py-3 px-2 text-right">
                       {u.is_active && (

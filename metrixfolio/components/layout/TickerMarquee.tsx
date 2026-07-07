@@ -2,27 +2,32 @@
 
 import { useEffect, useState } from 'react';
 import { getHotTickersAction, HotTickerInfo } from '@/actions/watchlist';
+import { getPricesAction } from '@/actions/screener';
 import { FiTrendingUp, FiAlertCircle } from 'react-icons/fi';
 
 export const TickerMarquee = () => {
   const [tickers, setTickers] = useState<HotTickerInfo[]>([]);
+  const [prices, setPrices] = useState<{[sym: string]: number}>({});
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchTickers = async () => {
+    const fetchTickersAndPrices = async () => {
       try {
         const data = await getHotTickersAction();
         // Sort to put HOT tickers first, then regular ones
         const sorted = [...data].sort((a, b) => (b.is_hot ? 1 : 0) - (a.is_hot ? 1 : 0));
         setTickers(sorted);
+        
+        const p = await getPricesAction();
+        setPrices(p);
       } catch (err) {
-        console.error('Failed to fetch hot tickers:', err);
+        console.error('Failed to fetch hot tickers and prices:', err);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchTickers();
+    fetchTickersAndPrices();
   }, []);
 
   if (isLoading) {
@@ -100,7 +105,10 @@ export const TickerMarquee = () => {
                 )}
 
                 <span className="opacity-80">
-                  {item.last_price ? `$${item.last_price.toFixed(2)}` : '—'}
+                  {(() => {
+                    const price = prices[item.symbol.toUpperCase()] ?? item.last_price;
+                    return price ? `$${price.toFixed(2)}` : '—';
+                  })()}
                 </span>
 
                 <div className="flex items-center gap-1.5 text-[10px] opacity-60">

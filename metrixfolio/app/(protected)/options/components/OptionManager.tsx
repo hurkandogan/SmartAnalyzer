@@ -133,6 +133,42 @@ const getEarningsStatus = (earningsDateStr?: string | null) => {
   }
 };
 
+const calculateChange = (opt: OptionPosition) => {
+  const isClosed = isOptionClosed(opt);
+  
+  if (isClosed) {
+    const buyPrice = opt.buy_price ?? 0;
+    const abs = calcPnl(opt);
+    const percent =
+      buyPrice !== 0
+        ? (((opt.sell_price ?? 0) - buyPrice) / buyPrice) * 100
+        : 0;
+    return { abs, percent };
+  }
+
+  // Open Option PnL calculation
+  const curPrice = opt.current_price;
+  if (curPrice === undefined || curPrice === null) {
+    return { abs: 0, percent: 0 };
+  }
+
+  const qty = opt.quantity || 1;
+  let abs = 0;
+  let percent = 0;
+
+  if (opt.type.startsWith('SELL')) {
+    const sellPrice = opt.sell_price ?? 0;
+    abs = (sellPrice - curPrice) * qty * OPTION_CONTRACT_SIZE;
+    percent = sellPrice > 0 ? ((sellPrice - curPrice) / sellPrice) * 100 : 0;
+  } else {
+    const buyPrice = opt.buy_price ?? 0;
+    abs = (curPrice - buyPrice) * qty * OPTION_CONTRACT_SIZE;
+    percent = buyPrice > 0 ? ((curPrice - buyPrice) / buyPrice) * 100 : 0;
+  }
+
+  return { abs, percent };
+};
+
 export default function OptionManager() {
   const { user } = useAuth();
   const modalRef = useRef<HTMLDialogElement>(null);
@@ -142,11 +178,22 @@ export default function OptionManager() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'CLOSED'>('ALL');
-  const [sortConfig, setSortConfig] = useState<{
-    key: keyof OptionPosition;
-    direction: 'asc' | 'desc';
-  } | null>(null);
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
+  const [selectedType, setSelectedType] = useState<string>('');
+  const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [selectedOutcome, setSelectedOutcome] = useState<string>('');
+
+  const availableSymbols = useMemo(() => {
+    const syms = new Set(options.map((opt) => opt.symbol.toUpperCase()));
+    return Array.from(syms).sort();
+  }, [options]);
+
+  const handleResetFilters = () => {
+    setSelectedSymbol('');
+    setSelectedType('');
+    setSelectedStatus('');
+    setSelectedOutcome('');
+  };
 
   const [formData, setFormData] = useState({
     symbol: '',
@@ -188,20 +235,90 @@ export default function OptionManager() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [user]);
 
+  const filteredOptions = useMemo(() => {
+    let result = [...options];
+
+    // 1. Ticker Filter
+    if (selectedSymbol) {
+      result = result.filter(
+        (opt) => opt.symbol.toUpperCase() === selectedSymbol.toUpperCase(),
+      );
+    }
+
+    // 2. Type Filter
+    if (selectedType) {
+      result = result.filter((opt) => opt.type === selectedType);
+    }
+
+    // 3. Status Filter
+    if (selectedStatus) {
+      result = result.filter((opt) =>
+        selectedStatus === 'CLOSED' ? isOptionClosed(opt) : !isOptionClosed(opt),
+      );
+    }
+
+    // 4. Outcome Filter
+    if (selectedOutcome) {
+      result = result.filter((opt) => {
+        const { abs } = calculateChange(opt);
+        return selectedOutcome === 'PROFIT' ? abs >= 0 : abs < 0;
+      });
+    }
+
+    // 5. Default Sort: Open positions on top (DTE ascending), Closed positions below (most recent transaction first)
+    result.sort((a, b) => {
+      const aClosed = isOptionClosed(a);
+      const bClosed = isOptionClosed(b);
+
+      if (aClosed !== bClosed) {
+        return aClosed ? 1 : -1; // Open on top
+      }
+
+      if (!aClosed) {
+        const dteA = calculateDTE(a.expiry_date);
+        const dteB = calculateDTE(b.expiry_date);
+
+        if (dteA === null && dteB === null) return 0;
+        if (dteA === null) return 1;
+        if (dteB === null) return -1;
+
+        return dteA - dteB;
+      } else {
+        const aDate =
+          a.sell_date && a.buy_date
+            ? a.sell_date > a.buy_date
+              ? a.sell_date
+              : a.buy_date
+            : a.sell_date || a.buy_date || '';
+        const bDate =
+          b.sell_date && b.buy_date
+            ? b.sell_date > b.buy_date
+              ? b.sell_date
+              : b.buy_date
+            : b.sell_date || b.buy_date || '';
+
+        return bDate.localeCompare(aDate); // Most recent transaction first
+      }
+    });
+
+    return result;
+  }, [options, selectedSymbol, selectedType, selectedStatus, selectedOutcome]);
+
   const stats = useMemo(() => {
     let totalOpenValue = 0;
     let totalPnL = 0;
     let totalTheta = 0;
 
-    options.forEach((opt) => {
+    filteredOptions.forEach((opt) => {
       const qty = opt.quantity || 1;
       const buyPrice = opt.buy_price ?? 0;
       const sellPrice = opt.sell_price ?? 0;
       const entryPrice = opt.type.startsWith('BUY') ? buyPrice : sellPrice;
 
-      if (isOptionClosed(opt)) {
-        totalPnL += calcPnl(opt);
-      } else {
+      const { abs } = calculateChange(opt);
+      totalPnL += abs;
+
+      if (!isOptionClosed(opt)) {
         totalOpenValue += entryPrice * qty * OPTION_CONTRACT_SIZE;
         if (opt.theta !== undefined && opt.theta !== null) {
           const contractTheta = opt.theta * qty * OPTION_CONTRACT_SIZE;
@@ -217,7 +334,7 @@ export default function OptionManager() {
     });
 
     return { totalOpenValue, totalPnL, totalTheta };
-  }, [options]);
+  }, [filteredOptions]);
 
   const roundToOne = (num: number) => Math.round(num * 10) / 10;
 
@@ -249,73 +366,6 @@ export default function OptionManager() {
 
     return { symbolMap, totalOptionsValue, highRiskTickers };
   }, [options, ibkrSummary]);
-
-  const filteredOptions = useMemo(() => {
-    let result = [...options];
-    if (filter !== 'ALL') {
-      result = result.filter((opt) =>
-        filter === 'CLOSED' ? isOptionClosed(opt) : !isOptionClosed(opt),
-      );
-    }
-
-    if (sortConfig) {
-      result.sort((a, b) => {
-        const aClosed = isOptionClosed(a);
-        const bClosed = isOptionClosed(b);
-        if (aClosed !== bClosed) return aClosed ? 1 : -1; // Open on top
-
-        const aValue = a[sortConfig.key];
-        const bValue = b[sortConfig.key];
-
-        if (aValue === null || aValue === undefined) return 1;
-        if (bValue === null || bValue === undefined) return -1;
-
-        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-        return 0;
-      });
-    } else {
-      // Default sort: Open first, then by entry date descending
-      result.sort((a, b) => {
-        const aClosed = isOptionClosed(a);
-        const bClosed = isOptionClosed(b);
-
-        if (aClosed !== bClosed) return aClosed ? 1 : -1; // Open on top
-
-        const aEntry = a.type.startsWith('BUY')
-          ? a.buy_date || ''
-          : a.sell_date || '';
-        const bEntry = b.type.startsWith('BUY')
-          ? b.buy_date || ''
-          : b.sell_date || '';
-
-        return bEntry.localeCompare(aEntry); // Most recent first
-      });
-    }
-
-    return result;
-  }, [options, filter, sortConfig]);
-
-  const handleSort = (key: keyof OptionPosition) => {
-    let direction: 'asc' | 'desc' = 'asc';
-    if (
-      sortConfig &&
-      sortConfig.key === key &&
-      sortConfig.direction === 'asc'
-    ) {
-      direction = 'desc';
-    }
-    setSortConfig({ key, direction });
-  };
-
-  const renderSortArrow = (key: keyof OptionPosition) => {
-    if (!sortConfig || sortConfig.key !== key) return null;
-    return sortConfig.direction === 'asc' ? (
-      <FiChevronUp className="ml-1 inline" />
-    ) : (
-      <FiChevronDown className="ml-1 inline" />
-    );
-  };
 
   const handleOpenModal = (opt?: OptionPosition) => {
     if (opt) {
@@ -404,41 +454,7 @@ export default function OptionManager() {
     loadOptions();
   };
 
-  const calculateChange = (opt: OptionPosition) => {
-    const isClosed = isOptionClosed(opt);
-    
-    if (isClosed) {
-      const buyPrice = opt.buy_price ?? 0;
-      const abs = calcPnl(opt);
-      const percent =
-        buyPrice !== 0
-          ? (((opt.sell_price ?? 0) - buyPrice) / buyPrice) * 100
-          : 0;
-      return { abs, percent };
-    }
-
-    // Open Option PnL calculation
-    const curPrice = opt.current_price;
-    if (curPrice === undefined || curPrice === null) {
-      return { abs: 0, percent: 0 };
-    }
-
-    const qty = opt.quantity || 1;
-    let abs = 0;
-    let percent = 0;
-
-    if (opt.type.startsWith('SELL')) {
-      const sellPrice = opt.sell_price ?? 0;
-      abs = (sellPrice - curPrice) * qty * OPTION_CONTRACT_SIZE;
-      percent = sellPrice > 0 ? ((sellPrice - curPrice) / sellPrice) * 100 : 0;
-    } else {
-      const buyPrice = opt.buy_price ?? 0;
-      abs = (curPrice - buyPrice) * qty * OPTION_CONTRACT_SIZE;
-      percent = buyPrice > 0 ? ((curPrice - buyPrice) / buyPrice) * 100 : 0;
-    }
-
-    return { abs, percent };
-  };
+  // Removed local calculateChange (moved outside component scope)
 
   if (isLoading) return <div className="skeleton h-96 w-full"></div>;
 
@@ -459,25 +475,76 @@ export default function OptionManager() {
         </button>
       </div>
 
-      <div className="flex justify-center">
-        <div className="join bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow-sm">
+      {/* Filters Bar */}
+      <div className="card bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 items-end">
+          {/* Ticker Filter */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold opacity-70">Ticker</label>
+            <select
+              className="select select-bordered select-sm w-full"
+              value={selectedSymbol}
+              onChange={(e) => setSelectedSymbol(e.target.value)}
+            >
+              <option value="">All Tickers</option>
+              {availableSymbols.map((sym) => (
+                <option key={sym} value={sym}>
+                  {sym}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Type Filter */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold opacity-70">Type</label>
+            <select
+              className="select select-bordered select-sm w-full"
+              value={selectedType}
+              onChange={(e) => setSelectedType(e.target.value)}
+            >
+              <option value="">All Types</option>
+              <option value="SELL_PUT">Sell Put (Short)</option>
+              <option value="SELL_CALL">Sell Call (Short)</option>
+              <option value="BUY_PUT">Buy Put (Long)</option>
+              <option value="BUY_CALL">Buy Call (Long)</option>
+            </select>
+          </div>
+
+          {/* Status Filter */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold opacity-70">Status</label>
+            <select
+              className="select select-bordered select-sm w-full"
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+            >
+              <option value="">All Statuses</option>
+              <option value="OPEN">Open</option>
+              <option value="CLOSED">Closed</option>
+            </select>
+          </div>
+
+          {/* Outcome Filter */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold opacity-70">PnL Outcome</label>
+            <select
+              className="select select-bordered select-sm w-full"
+              value={selectedOutcome}
+              onChange={(e) => setSelectedOutcome(e.target.value)}
+            >
+              <option value="">All Outcomes</option>
+              <option value="PROFIT">Profitable</option>
+              <option value="LOSS">Loss-making</option>
+            </select>
+          </div>
+
+          {/* Reset Filters */}
           <button
-            className={`join-item btn btn-sm px-6 ${filter === 'ALL' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setFilter('ALL')}
+            className="btn btn-neutral btn-sm w-full"
+            onClick={handleResetFilters}
           >
-            All
-          </button>
-          <button
-            className={`join-item btn btn-sm px-6 ${filter === 'OPEN' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setFilter('OPEN')}
-          >
-            Open
-          </button>
-          <button
-            className={`join-item btn btn-sm px-6 ${filter === 'CLOSED' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setFilter('CLOSED')}
-          >
-            Closed
+            Reset Filters
           </button>
         </div>
       </div>
@@ -553,43 +620,13 @@ export default function OptionManager() {
           <table className="table">
             <thead>
               <tr className="bg-base-200/50">
-                <th
-                  className="cursor-pointer whitespace-nowrap select-none"
-                  onClick={() => handleSort('buy_date')}
-                >
-                  Dates{' '}
-                  {renderSortArrow('buy_date') || renderSortArrow('sell_date')}
-                </th>
-                <th
-                  className="cursor-pointer whitespace-nowrap select-none"
-                  onClick={() => handleSort('symbol')}
-                >
-                  Type & Symbol {renderSortArrow('symbol')}
-                </th>
-                <th
-                  className="cursor-pointer text-right whitespace-nowrap select-none"
-                  onClick={() => handleSort('quantity')}
-                >
-                  Qty {renderSortArrow('quantity')}
-                </th>
-                <th
-                  className="cursor-pointer whitespace-nowrap select-none"
-                  onClick={() => handleSort('strike_price')}
-                >
-                  Strike &amp; Expiry {renderSortArrow('strike_price')}
-                </th>
-                <th className="whitespace-nowrap select-none">
-                  Live Greeks
-                </th>
-                <th className="cursor-pointer text-right text-xs whitespace-nowrap select-none">
-                  Prices (B/S)
-                </th>
-                <th
-                  className="cursor-pointer text-right whitespace-nowrap select-none"
-                  onClick={() => handleSort('buy_price')}
-                >
-                  PnL / Change {renderSortArrow('buy_price')}
-                </th>
+                <th className="whitespace-nowrap select-none">Dates</th>
+                <th className="whitespace-nowrap select-none">Type & Symbol</th>
+                <th className="text-right whitespace-nowrap select-none">Qty</th>
+                <th className="whitespace-nowrap select-none">Strike &amp; Expiry</th>
+                <th className="whitespace-nowrap select-none">Live Greeks</th>
+                <th className="text-right text-xs whitespace-nowrap select-none">Prices (B/S)</th>
+                <th className="text-right whitespace-nowrap select-none">PnL / Change</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
@@ -842,10 +879,10 @@ export default function OptionManager() {
                   </tr>
                 );
               })}
-              {options.length === 0 && (
+              {filteredOptions.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center opacity-50">
-                    No options found. Add your first trade!
+                  <td colSpan={8} className="py-8 text-center opacity-50">
+                    No options found matching the criteria.
                   </td>
                 </tr>
               )}

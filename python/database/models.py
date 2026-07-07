@@ -85,6 +85,15 @@ class ScreenerUniverse(Base):
     added_at = Column(DateTime, nullable=True)
     is_active = Column(Integer, default=1) # 1=Active, 0=Dropped
 
+    # IBKR contract details cache
+    con_id = Column(Integer, nullable=True)
+    long_name = Column(String(200), nullable=True)
+    exchange = Column(String(50), nullable=True)
+    currency = Column(String(10), nullable=True)
+    sector = Column(String(100), nullable=True)
+    industry = Column(String(100), nullable=True)
+    subcategory = Column(String(100), nullable=True)
+
 class Watchlist(Base):
     __tablename__ = "watchlist"
 

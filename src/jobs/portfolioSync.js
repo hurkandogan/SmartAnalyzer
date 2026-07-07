@@ -18,8 +18,9 @@ const priceCache = new Map();
  * Fetch price from Python service
  */
 async function fetchPrice(symbol, currency = 'USD', exchange = 'SMART', secType = 'STK', conId = 0, currencies = {}) {
-  if (priceCache.has(symbol)) {
-    return priceCache.get(symbol);
+  const cacheKey = `${symbol}_${secType}`;
+  if (priceCache.has(cacheKey)) {
+    return priceCache.get(cacheKey);
   }
 
   const result = await pythonClient.getPrice(symbol, currency, exchange, secType, conId);
@@ -29,7 +30,7 @@ async function fetchPrice(symbol, currency = 'USD', exchange = 'SMART', secType 
     if (currency !== 'USD' && currencies[currency]) {
       price = price * currencies[currency];
     }
-    priceCache.set(symbol, price);
+    priceCache.set(cacheKey, price);
     return price;
   }
   return null;
@@ -122,7 +123,8 @@ async function syncPrivateUser(currencies) {
         
         // Cache the USD price for other public users!
         if (price > 0 && contract.symbol) {
-          priceCache.set(contract.symbol, price);
+          const cacheKey = `${contract.symbol}_${contract.secType || 'STK'}`;
+          priceCache.set(cacheKey, price);
         }
       }
       

@@ -5,7 +5,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 from database.db import SessionLocal
-from database.models import ScreenerUniverse, Fundamental, JobLog
+from database.models import ScreenerUniverse, Fundamental, JobLog, Watchlist
 
 from services.yahoo import YahooService
 from services.ibkr import IBKRService
@@ -253,10 +253,20 @@ class ScreenerSyncService:
                 if f.symbol not in latest_funds or f.date > latest_funds[f.symbol].date:
                     latest_funds[f.symbol] = f
             
+            # Map symbols to long names from ScreenerUniverse
+            symbols = list(latest_funds.keys())
+            long_names = {}
+            if symbols:
+                universe_items = db.query(ScreenerUniverse).filter(ScreenerUniverse.symbol.in_(symbols)).all()
+                for item in universe_items:
+                    if item.long_name:
+                        long_names[item.symbol] = item.long_name
+
             ops = []
             for f in latest_funds.values():
                 ops.append({
                     "symbol": f.symbol,
+                    "long_name": long_names.get(f.symbol) or f.symbol,
                     "score": f.score,
                     "pe": f.pe,
                     "peg": f.peg,
@@ -273,13 +283,55 @@ class ScreenerSyncService:
             
             ops.sort(key=lambda x: x["score"], reverse=True)
             
-            # 3. Push via Hono Proxy
+            # 3. Fetch current prices for Watchlist + Opportunities
+            watchlist_syms = [w.symbol for w in db.query(Watchlist).all()]
+            opp_syms = [o["symbol"] for o in ops]
+            price_syms = list(set(watchlist_syms + opp_syms))
+            
+            prices_dict = {}
+            if price_syms:
+                try:
+                    logger.info(f"Fetching bulk prices for {len(price_syms)} symbols via yfinance...")
+                    yf_data = await asyncio.to_thread(
+                        yf.download, 
+                        price_syms, 
+                        period="1d", 
+                        group_by="ticker", 
+                        progress=False, 
+                        threads=True
+                    )
+                    
+                    for sym in price_syms:
+                        try:
+                            df = yf_data[sym] if len(price_syms) > 1 else yf_data
+                            df = df.dropna(subset=['Close'])
+                            if not df.empty:
+                                prices_dict[sym.upper()] = float(df['Close'].iloc[-1])
+                        except Exception as e:
+                            logger.error(f"Error parsing bulk yfinance price for {sym}: {e}")
+                except Exception as e:
+                    logger.error(f"Failed to fetch bulk yfinance prices: {e}")
+                
+                # Fallback to IBKR snapshot prices for missing symbols
+                missing_syms = [sym for sym in price_syms if sym.upper() not in prices_dict]
+                if missing_syms and self.ibkr_service:
+                    logger.info(f"Fetching fallback IBKR snapshot prices for {len(missing_syms)} missing symbols...")
+                    for chunk in [missing_syms[i:i+20] for i in range(0, len(missing_syms), 20)]:
+                        tasks = [self.ibkr_service.get_snapshot(sym) for sym in chunk]
+                        snapshots = await asyncio.gather(*tasks)
+                        for snap in snapshots:
+                            if snap and snap.get("lastPrice") is not None:
+                                prices_dict[snap["symbol"].upper()] = snap["lastPrice"]
+
+            # 4. Push via Hono Proxy
             hono_url = "http://localhost:3500/api/screener/push-firebase"
             async with httpx.AsyncClient() as client:
                 await client.post(hono_url, json={"type": "heatmap", "data": sector_perf})
                 await client.post(hono_url, json={"type": "opportunities", "data": ops})
+                if prices_dict:
+                    await client.post(hono_url, json={"type": "prices", "data": prices_dict})
                 
-            self.log_job(db, "INFO", "Successfully pushed latest Sector ETF Heatmap and Opportunities to Firebase via Hono.")
+            self.log_job(db, "INFO", f"Successfully pushed latest Sector ETF Heatmap, Opportunities, and {len(prices_dict)} prices to Firebase via Hono.")
         except Exception as e:
             self.log_job(db, "ERROR", f"Failed to push to Firebase: {e}")
             logger.error(f"Failed to push to Firebase: {e}")

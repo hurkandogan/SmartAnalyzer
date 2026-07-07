@@ -75,6 +75,26 @@ async def startup_event():
         port=int(os.getenv("IBKR_PORT", "7497")),
         client_id=int(os.getenv("IBKR_CLIENT_ID", "1"))
     )
+    # Run DB migration to ensure new ScreenerUniverse columns exist
+    from database.db import SessionLocal
+    from sqlalchemy import text
+    db_session = SessionLocal()
+    try:
+        db_session.execute(text("ALTER TABLE screener_universe ADD COLUMN IF NOT EXISTS con_id INTEGER;"))
+        db_session.execute(text("ALTER TABLE screener_universe ADD COLUMN IF NOT EXISTS long_name VARCHAR(200);"))
+        db_session.execute(text("ALTER TABLE screener_universe ADD COLUMN IF NOT EXISTS exchange VARCHAR(50);"))
+        db_session.execute(text("ALTER TABLE screener_universe ADD COLUMN IF NOT EXISTS currency VARCHAR(10);"))
+        db_session.execute(text("ALTER TABLE screener_universe ADD COLUMN IF NOT EXISTS sector VARCHAR(100);"))
+        db_session.execute(text("ALTER TABLE screener_universe ADD COLUMN IF NOT EXISTS industry VARCHAR(100);"))
+        db_session.execute(text("ALTER TABLE screener_universe ADD COLUMN IF NOT EXISTS subcategory VARCHAR(100);"))
+        db_session.commit()
+        logger.info("Successfully checked/added new ScreenerUniverse cache columns in DB.")
+    except Exception as db_err:
+        logger.error(f"Failed to auto-migrate database columns: {db_err}")
+        db_session.rollback()
+    finally:
+        db_session.close()
+
     # Attempt to connect to IBKR on startup
     await ibkr_service.connect()
     

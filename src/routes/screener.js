@@ -108,6 +108,11 @@ screenerRoutes.post('/push-firebase', async (c) => {
         tree: body.data,
         updatedAt: new Date().toISOString()
       });
+    } else if (body.type === 'prices') {
+      await db.collection('screener').doc('prices').set({
+        prices: body.data,
+        updatedAt: new Date().toISOString()
+      });
     } else {
       return c.json({ error: 'Invalid type' }, 400);
     }

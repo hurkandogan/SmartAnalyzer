@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getOpportunitiesAction } from '@/actions/screener';
+import { getOpportunitiesAction, getPricesAction } from '@/actions/screener';
 import Link from 'next/link';
 import { FiTrendingUp, FiActivity, FiDollarSign, FiBriefcase } from 'react-icons/fi';
 
 export default function OpportunitiesPage() {
   const [opportunities, setOpportunities] = useState<any[]>([]);
+  const [prices, setPrices] = useState<{[sym: string]: number}>({});
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -18,6 +19,8 @@ export default function OpportunitiesPage() {
     try {
       const data = await getOpportunitiesAction(75); // Filter > 75
       setOpportunities(data);
+      const p = await getPricesAction();
+      setPrices(p);
     } catch (err) {
       console.error(err);
     }
@@ -62,9 +65,19 @@ export default function OpportunitiesPage() {
 
                 <div className="flex justify-between items-start mb-6">
                   <div>
-                    <Link href={`/ticker/${o.symbol}`} className="text-3xl font-black text-primary hover:underline decoration-primary/30 underline-offset-4">
-                      {o.symbol}
-                    </Link>
+                    <div className="flex items-baseline gap-2">
+                      <span 
+                        title={o.long_name || o.symbol}
+                        className="text-3xl font-black text-primary cursor-help"
+                      >
+                        {o.symbol}
+                      </span>
+                      {prices[o.symbol.toUpperCase()] && (
+                        <span className="text-lg font-bold opacity-80 text-base-content/70">
+                          ${prices[o.symbol.toUpperCase()].toFixed(2)}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm text-base-content/60 mt-1 font-medium">{o.sector} &bull; {o.industry}</p>
                   </div>
                   <div className="flex flex-col items-center">

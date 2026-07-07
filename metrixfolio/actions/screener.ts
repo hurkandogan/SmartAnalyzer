@@ -1,9 +1,11 @@
 'use server';
 
 import { adminDb } from '@/utils/firebase-admin';
+import { revalidatePath } from 'next/cache';
 
 export async function getOpportunitiesAction(minScore: number = 75) {
   try {
+    revalidatePath('/screener/opportunities');
     const doc = await adminDb.collection('screener').doc('opportunities').get();
     if (!doc.exists) return [];
     
@@ -26,6 +28,17 @@ export async function getHeatmapAction() {
     return doc.data()?.tree || {};
   } catch (err) {
     console.error("Failed to fetch heatmap from Firebase:", err);
+    return {};
+  }
+}
+
+export async function getPricesAction() {
+  try {
+    const doc = await adminDb.collection('screener').doc('prices').get();
+    if (!doc.exists) return {};
+    return doc.data()?.prices || {};
+  } catch (err) {
+    console.error("Failed to fetch prices from Firebase:", err);
     return {};
   }
 }

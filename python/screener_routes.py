@@ -18,43 +18,104 @@ class AddUniverseRequest(BaseModel):
 @router.get("/universe")
 def get_universe(db: Session = Depends(get_db)):
     universe = db.query(ScreenerUniverse).all()
-    return [{"symbol": u.symbol, "source_index": u.source_index, "is_active": u.is_active} for u in universe]
+    return [{
+        "symbol": u.symbol, 
+        "source_index": u.source_index, 
+        "is_active": u.is_active,
+        "con_id": u.con_id,
+        "long_name": u.long_name,
+        "exchange": u.exchange,
+        "currency": u.currency,
+        "sector": u.sector,
+        "industry": u.industry,
+        "subcategory": u.subcategory
+    } for u in universe]
 
 @router.post("/universe")
 async def add_to_universe(req: AddUniverseRequest, db: Session = Depends(get_db)):
     from main import ibkr_service
-    added = 0
-    for sym in req.symbols:
-        sym = sym.upper().strip()
-        if not sym: continue
+    added = []
+    failed = []
+    already_active = []
+    
+    # Deduplicate and clean symbols
+    clean_symbols = list(dict.fromkeys(sym.upper().strip() for sym in req.symbols if sym.strip()))
+    
+    for sym in clean_symbols:
         
+        # Check if already active in universe
+        exists = db.query(ScreenerUniverse).filter(ScreenerUniverse.symbol == sym).first()
+        if exists and exists.is_active == 1:
+            already_active.append(sym)
+            continue
+            
         # Validate symbol with IBKR
         details = await ibkr_service.get_contract_details(sym)
         if not details:
+            failed.append(sym)
             continue
             
-        exists = db.query(ScreenerUniverse).filter(ScreenerUniverse.symbol == sym).first()
-        if not exists:
-            new_item = ScreenerUniverse(symbol=sym, source_index=req.source_index, added_at=datetime.utcnow(), is_active=1)
+        # If it exists but was inactive, reactivate it and update details
+        if exists:
+            exists.is_active = 1
+            exists.con_id = details.get("conId")
+            exists.long_name = details.get("longName")
+            exists.exchange = details.get("exchange")
+            exists.currency = details.get("currency")
+            exists.sector = details.get("category")
+            exists.industry = details.get("industry")
+            exists.subcategory = details.get("subcategory")
+            added.append(sym)
+        else:
+            new_item = ScreenerUniverse(
+                symbol=sym,
+                source_index=req.source_index,
+                added_at=datetime.utcnow(),
+                is_active=1,
+                con_id=details.get("conId"),
+                long_name=details.get("longName"),
+                exchange=details.get("exchange"),
+                currency=details.get("currency"),
+                sector=details.get("category"),
+                industry=details.get("industry"),
+                subcategory=details.get("subcategory")
+            )
             db.add(new_item)
+            added.append(sym)
             
-            # Pre-fill sector/industry into Fundamental if we got it
-            industry = details.get("industry")
-            sector = details.get("category")
-            if industry or sector:
+        # Also pre-fill/update sector/industry in Fundamental if we got it
+        industry = details.get("industry")
+        sector = details.get("category")
+        if industry or sector:
+            # Check if fundamental entry for today exists
+            today = datetime.utcnow().date()
+            fund = db.query(Fundamental).filter(Fundamental.symbol == sym, Fundamental.date == today).first()
+            if fund:
+                fund.sector = sector
+                fund.industry = industry
+            else:
                 new_fund = Fundamental(
                     symbol=sym,
-                    date=datetime.utcnow().date(),
+                    date=today,
                     sector=sector,
                     industry=industry
                 )
                 db.add(new_fund)
                 
-            added += 1
-        else:
-            exists.is_active = 1
     db.commit()
-    return {"status": "success", "added": added}
+    
+    if len(added) == 0 and len(failed) > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Hisseler eklenemedi. IBKR'da bu semboller bulunamadı: {', '.join(failed)}"
+        )
+        
+    return {
+        "status": "success",
+        "added": added,
+        "failed": failed,
+        "already_active": already_active
+    }
 
 @router.delete("/universe/{symbol}")
 def remove_from_universe(symbol: str, db: Session = Depends(get_db)):
