@@ -638,6 +638,22 @@ class ScanAlertRequest(BaseModel):
     force_risk: Optional[bool] = False
     force_scan: Optional[bool] = False
 
+class ScanIvCrushRequest(BaseModel):
+    watchlist: List[str]
+    send_telegram: Optional[bool] = False
+
+@app.post("/api/scan-iv-crush")
+async def scan_iv_crush(request: ScanIvCrushRequest, db: Session = Depends(get_db)):
+    from services.iv_crush_scanner import IVCrushScannerService
+    logger.info(f"Starting IV Crush scan for {len(request.watchlist)} symbols.")
+    try:
+        scanner = IVCrushScannerService()
+        signals = await scanner.scan_signals(db, request.watchlist, request.send_telegram)
+        return {"status": "success", "signals": signals}
+    except Exception as e:
+        logger.error(f"Error in IV Crush scan: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/scan-and-alert")
 async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db)):

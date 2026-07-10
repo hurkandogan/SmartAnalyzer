@@ -5,6 +5,7 @@ import { runPortfolioSync } from './portfolioSync.js';
 import { runDataMiner } from './dataMiner.js';
 import { runMarketWeather } from './marketWeather.js';
 import { runOptionsSignalsJob } from './optionsSignalsJob.js';
+import { runIvCrushJob } from './ivCrushJob.js';
 import { logger, dbLogger } from '../utils/logger.js';
 
 /**
@@ -80,7 +81,20 @@ export function startScheduler() {
     }
   });
 
-  logger.info('Scheduler started — 6 jobs registered');
+  // ── IV Crush Scanner: daily at 16:30 (around 09:30 EST) ──
+  // Note: runIvCrushJob itself checks if 30 mins have passed since US market open.
+  cron.schedule('30 16 * * 1-5', async () => {
+    logger.info('[CRON] IV Crush Scanner triggered');
+    try {
+      await dbLogger('iv-crush', 'info', 'IV Crush Scanner triggered');
+      await runIvCrushJob();
+      await dbLogger('iv-crush', 'success', 'IV Crush Scanner completed');
+    } catch (error) {
+      await dbLogger('iv-crush', 'error', `IV Crush Scanner failed: ${error.message}`);
+    }
+  });
+
+  logger.info('Scheduler started — 7 jobs registered');
 }
 
-export { runPortfolioSync, runDailyStockAnalysis, runCurrencyUpdate, runDataMiner, runMarketWeather, runOptionsSignalsJob };
+export { runPortfolioSync, runDailyStockAnalysis, runCurrencyUpdate, runDataMiner, runMarketWeather, runOptionsSignalsJob, runIvCrushJob };

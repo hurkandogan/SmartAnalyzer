@@ -184,6 +184,21 @@ class PythonClientService {
     }
   }
 
+  async scanIvCrush(watchlist, sendTelegram = false) {
+    try {
+      const res = await fetch(`${PYTHON_SERVICE_URL}/api/scan-iv-crush`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ watchlist, send_telegram: sendTelegram })
+      });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      logger.error(`[PythonClient] Failed to scan IV crush: ${err.message}`);
+      return null;
+    }
+  }
+
   async triggerMarketWeather() {
     try {
       const res = await fetch(`${PYTHON_SERVICE_URL}/api/market-weather`, {

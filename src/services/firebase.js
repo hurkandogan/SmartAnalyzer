@@ -163,3 +163,33 @@ export async function getUserProfile(userId) {
   const doc = await db.collection('users').doc(userId).get();
   return doc.exists ? doc.data() : null;
 }
+
+// ── IV Crush Opportunities ────────────────────────────────────
+export async function saveIvCrushOpportunities(signals) {
+  const batch = db.batch();
+  
+  // 1. Get all current symbols in the opportunities collection
+  const snapshot = await db.collection('iv_crush_opportunities').get();
+  const existingSymbols = snapshot.docs.map(doc => doc.id);
+  const newSymbols = new Set(signals.map(s => s.symbol));
+  
+  // 2. Delete symbols that are no longer active opportunities
+  for (const sym of existingSymbols) {
+    if (!newSymbols.has(sym)) {
+      const docRef = db.collection('iv_crush_opportunities').doc(sym);
+      batch.delete(docRef);
+    }
+  }
+  
+  // 3. Upsert the current active opportunities
+  for (const signal of signals) {
+    const docRef = db.collection('iv_crush_opportunities').doc(signal.symbol);
+    batch.set(docRef, {
+      ...signal,
+      updated_at: FieldValue.serverTimestamp()
+    }, { merge: true });
+  }
+  
+  await batch.commit();
+  logger.info(`Saved ${signals.length} IV Crush opportunities to Firestore (cleaned up obsolete ones).`);
+}

@@ -4,8 +4,8 @@ import logging
 logger = logging.getLogger("smart_analyser.macro")
 
 MACRO_TICKERS = {
-    "SPX": "^GSPC",
-    "NDX": "^NDX",
+    "ES (S&P Futures)": "ES=F",
+    "NQ (Nasdaq Futures)": "NQ=F",
     "DXY": "DX-Y.NYB",
     "EURUSD": "EURUSD=X",
     "TLT": "TLT",
