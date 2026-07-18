@@ -201,13 +201,8 @@ async def get_portfolio(db: Session = Depends(get_db)):
         ibkr_positions = None
         ibkr_cash = None
     
-    # Fetch Kraken balances
-    try:
-        kraken_holdings = await kraken_service.get_balances()
-        logger.info(f"Successfully fetched {len(kraken_holdings) if kraken_holdings else 0} asset balances from Kraken.")
-    except Exception as e:
-        logger.error(f"Error fetching Kraken balances: {e}")
-        kraken_holdings = {}
+    # Fetch Kraken balances disabled
+    kraken_holdings = {}
     
     return {
         "status": "success",
@@ -652,6 +647,19 @@ async def scan_iv_crush(request: ScanIvCrushRequest, db: Session = Depends(get_d
         return {"status": "success", "signals": signals}
     except Exception as e:
         logger.error(f"Error in IV Crush scan: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+@app.post("/api/scan-swing")
+async def scan_swing(db: Session = Depends(get_db)):
+    from services.swing_scanner import SwingScannerService
+    from services.telegram import TelegramService
+    logger.info("Starting Swing Scanner...")
+    try:
+        telegram = TelegramService()
+        scanner = SwingScannerService(telegram)
+        signals = await scanner.scan_signals(db, send_telegram=True)
+        return {"status": "success", "signals": signals}
+    except Exception as e:
+        logger.error(f"Error in Swing Scan: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

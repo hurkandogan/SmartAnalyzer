@@ -94,3 +94,25 @@ export async function getIBKRSummaryAction(userId: string) {
     return null;
   }
 }
+
+export async function getIvCrushOpportunitiesAction() {
+  try {
+    const snapshot = await adminDb.collection('iv_crush_opportunities').get();
+    return snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        symbol: data.symbol || doc.id,
+        market_price: data.market_price ?? data.current_price ?? null,
+        earnings_date: data.earnings_date ?? null,
+        days_to_earnings: data.days_to_earnings ?? null,
+        iv_rank: data.iv_rank ?? null,
+        iv_percentile: data.iv_percentile ?? data.iv ?? null, // fallback if iv is stored instead of iv_percentile
+        opportunities: data.opportunities ?? [],
+        updated_at: data.updated_at ? (data.updated_at.toDate ? data.updated_at.toDate().toISOString() : String(data.updated_at)) : null,
+      };
+    });
+  } catch (error) {
+    console.error('Get IV Crush Opportunities Error:', error);
+    return [];
+  }
+}

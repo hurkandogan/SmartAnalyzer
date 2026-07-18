@@ -42,6 +42,23 @@ app.get('/api/ticker-data', async (c) => {
   return c.json(data);
 });
 
+import { getFirestore } from 'firebase-admin/firestore';
+app.post('/api/swing-signals', async (c) => {
+  try {
+    const body = await c.req.json();
+    const db = getFirestore();
+    await db.collection('screener').doc('swing_signals').set({
+      signals: body.signals,
+      updatedAt: new Date().toISOString()
+    });
+    logger.info(`[SwingSignals] Successfully pushed to Firebase.`);
+    return c.json({ status: 'success' });
+  } catch (err) {
+    logger.error(`[SwingSignals] Error pushing to Firebase: ${err.message}`);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 app.get('/api/logs', async (c) => {
   const limit = c.req.query('limit') || 50;
   const logs = await pythonClient.getLogs(limit);

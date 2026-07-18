@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthProvider';
-import { db } from '@/utils/firebase';
-import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import { getIvCrushOpportunitiesAction } from '@/actions/options';
 import { FiTrendingDown, FiClock, FiActivity, FiZap } from 'react-icons/fi';
 
 const usdFormatter = new Intl.NumberFormat('en-US', {
@@ -31,11 +30,7 @@ export default function IvCrushRadar() {
     const fetchSignals = async () => {
       if (!user) return;
       try {
-        const q = query(
-          collection(db, 'iv_crush_opportunities')
-        );
-        const snapshot = await getDocs(q);
-        const data = snapshot.docs.map(d => d.data() as IvCrushSignal);
+        const data = await getIvCrushOpportunitiesAction();
         // Sort by IV Rank descending
         data.sort((a, b) => (b.iv_rank || 0) - (a.iv_rank || 0));
         setSignals(data);
@@ -72,23 +67,24 @@ export default function IvCrushRadar() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {signals.map((signal) => (
             <div 
               key={signal.symbol} 
               className="card bg-base-100/60 backdrop-blur-xl border border-white/5 shadow-2xl overflow-hidden hover:border-accent/30 transition-all duration-300 hover:shadow-accent/10"
+              style={{ WebkitBackdropFilter: 'blur(24px)' }}
             >
               {/* Header Gradient Strip */}
               <div className="h-1 w-full bg-gradient-to-r from-accent via-primary to-secondary"></div>
               
-              <div className="p-6 space-y-6">
+              <div className="p-4 space-y-4">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h3 className="text-2xl font-black tracking-tight drop-shadow-md">
+                    <h3 className="text-xl font-black tracking-tight drop-shadow-md">
                       {signal.symbol}
                     </h3>
-                    <div className="text-sm font-medium opacity-80 mt-1 flex items-center gap-2">
-                      <span className="text-primary font-mono bg-primary/10 px-2 py-0.5 rounded-md">
+                    <div className="text-xs font-medium opacity-80 mt-0.5 flex items-center gap-2">
+                      <span className="text-primary font-mono bg-primary/10 px-1.5 py-0.5 rounded">
                         {signal.market_price ? usdFormatter.format(signal.market_price) : 'N/A'}
                       </span>
                     </div>
@@ -96,32 +92,32 @@ export default function IvCrushRadar() {
                   
                   {/* Earnings Badge */}
                   <div className="flex flex-col items-end">
-                    <div className={`badge badge-lg border-none shadow-inner font-bold ${
+                    <div className={`badge badge-md border-none shadow-inner font-bold py-3 ${
                       signal.days_to_earnings !== null && signal.days_to_earnings <= 3 
                         ? 'bg-error text-error-content' 
                         : 'bg-warning text-warning-content'
                     }`}>
-                      <FiClock className="mr-1.5" /> 
-                      {signal.days_to_earnings === 0 ? 'TODAY' : `${signal.days_to_earnings} Days`}
+                      <FiClock className="mr-1" size={12} /> 
+                      {signal.days_to_earnings === 0 ? 'EARNINGS TODAY' : `${signal.days_to_earnings} Days to Earnings`}
                     </div>
-                    <span className="text-xs opacity-50 mt-1 font-medium tracking-wide uppercase">
+                    <span className="text-[10px] opacity-50 mt-0.5 font-medium tracking-wide uppercase">
                       {signal.earnings_date}
                     </span>
                   </div>
                 </div>
 
                 {/* IV Stats Grid */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-base-200/50 rounded-xl p-4 border border-white/5 relative overflow-hidden group">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-base-200/50 rounded-xl p-3 border border-white/5 relative overflow-hidden group">
                     <div className="absolute inset-0 bg-gradient-to-br from-accent/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                    <div className="text-xs font-bold opacity-60 mb-1 flex items-center gap-1.5 uppercase tracking-wider">
-                      <FiActivity /> IV Rank
+                    <div className="text-[10px] font-bold opacity-60 mb-0.5 flex items-center gap-1 uppercase tracking-wider">
+                      <FiActivity size={10} /> IV Rank
                     </div>
-                    <div className="text-3xl font-black text-accent drop-shadow-md">
+                    <div className="text-2xl font-black text-accent drop-shadow-md">
                       {signal.iv_rank ? signal.iv_rank.toFixed(0) : '-'}%
                     </div>
                     {/* Progress Bar */}
-                    <div className="w-full bg-base-300 h-1.5 rounded-full mt-3 overflow-hidden">
+                    <div className="w-full bg-base-300 h-1 rounded-full mt-2 overflow-hidden">
                       <div 
                         className="bg-accent h-full shadow-[0_0_8px_rgba(var(--color-accent),0.8)]" 
                         style={{ width: `${Math.min(100, Math.max(0, signal.iv_rank || 0))}%` }}
@@ -129,16 +125,16 @@ export default function IvCrushRadar() {
                     </div>
                   </div>
                   
-                  <div className="bg-base-200/50 rounded-xl p-4 border border-white/5 relative overflow-hidden group">
+                  <div className="bg-base-200/50 rounded-xl p-3 border border-white/5 relative overflow-hidden group">
                     <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                    <div className="text-xs font-bold opacity-60 mb-1 flex items-center gap-1.5 uppercase tracking-wider">
-                      <FiTrendingDown /> IV Percentile
+                    <div className="text-[10px] font-bold opacity-60 mb-0.5 flex items-center gap-1 uppercase tracking-wider">
+                      <FiTrendingDown size={10} /> IV Percentile
                     </div>
-                    <div className="text-3xl font-black text-primary drop-shadow-md">
+                    <div className="text-2xl font-black text-primary drop-shadow-md">
                       {signal.iv_percentile ? (signal.iv_percentile * 100).toFixed(0) : '-'}%
                     </div>
                     {/* Progress Bar */}
-                    <div className="w-full bg-base-300 h-1.5 rounded-full mt-3 overflow-hidden">
+                    <div className="w-full bg-base-300 h-1 rounded-full mt-2 overflow-hidden">
                       <div 
                         className="bg-primary h-full shadow-[0_0_8px_rgba(var(--color-primary),0.8)]" 
                         style={{ width: `${Math.min(100, Math.max(0, (signal.iv_percentile || 0) * 100))}%` }}
@@ -149,32 +145,32 @@ export default function IvCrushRadar() {
 
                 {/* Option Opportunities */}
                 {signal.opportunities && signal.opportunities.length > 0 && (
-                  <div className="space-y-3 pt-2">
-                    <h4 className="text-xs font-bold opacity-70 uppercase tracking-widest flex items-center gap-2">
-                      <FiZap className="text-warning" /> Suggested Strategies
+                  <div className="space-y-2 pt-1">
+                    <h4 className="text-[10px] font-bold opacity-70 uppercase tracking-widest flex items-center gap-1.5">
+                      <FiZap className="text-warning" size={10} /> Suggested Strategies
                     </h4>
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       {signal.opportunities.map((opp, idx) => {
                         const isPut = opp.right === 'P';
                         const isCall = opp.right === 'C';
                         return (
-                          <div key={idx} className="flex items-center justify-between bg-base-200/30 hover:bg-base-200/60 transition-colors p-3 rounded-xl border border-white/5">
-                            <div className="flex items-center gap-3">
-                              <span className={`badge badge-sm font-bold border-none shadow-sm ${isPut ? 'bg-secondary text-secondary-content' : 'bg-info text-info-content'}`}>
+                          <div key={idx} className="flex items-center justify-between bg-base-200/30 hover:bg-base-200/60 transition-colors p-2.5 rounded-xl border border-white/5">
+                            <div className="flex items-center gap-2">
+                              <span className={`badge badge-sm font-bold border-none shadow-sm text-[9px] ${isPut ? 'bg-secondary text-secondary-content' : 'bg-info text-info-content'}`}>
                                 {isPut ? 'SELL PUT' : 'SELL CALL'}
                               </span>
-                              <div className="flex flex-col">
-                                <span className="font-bold font-mono text-sm">Strike ${opp.strike}</span>
-                                <span className="text-[10px] opacity-60">{opp.expiration}</span>
+                              <div className="flex flex-col leading-none">
+                                <span className="font-bold font-mono text-xs">Strike ${opp.strike}</span>
+                                <span className="text-[9px] opacity-60 mt-0.5">{opp.expiration}</span>
                               </div>
                             </div>
                             
-                            <div className="flex flex-col items-end">
-                              <span className="font-black text-lg text-success drop-shadow-sm">
+                            <div className="flex flex-col items-end leading-none">
+                              <span className="font-black text-base text-success drop-shadow-sm">
                                 {usdFormatter.format(opp.price)}
                               </span>
                               {opp.delta !== undefined && (
-                                <span className="text-[10px] font-mono opacity-60">
+                                <span className="text-[9px] font-mono opacity-60 mt-0.5">
                                   Δ: {opp.delta.toFixed(2)}
                                 </span>
                               )}

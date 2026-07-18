@@ -257,51 +257,13 @@ async function syncPrivateUser(currencies) {
     await autoSyncOptionsToTracker(userId, openOptionsList, 'IBKR TWS');
   }
 
-  // ── Kraken Balances ────────────────────────────────────────
-  const krakenSeenIds = new Set();
-  const krakenBalances = kraken.balances || {};
-
-  for (const [symbol, amount] of Object.entries(krakenBalances)) {
-    const id = `KRAKEN_${symbol}`;
-    krakenSeenIds.add(id);
-    const existing = firebaseMap.get(id);
-    
-    // Fetch price for Kraken symbol
-    const price = await fetchPrice(symbol, 'USD', '', 'CRYPTO', 0, currencies);
-    const currentPrice = price && price > 0 ? String(price) : existing?.current_price || '0';
-
-    if (existing) {
-      await setUserAsset(userId, id, {
-        amount: String(amount),
-        current_price: currentPrice,
-        is_active: true,
-      });
-    } else {
-      await setUserAsset(userId, id, {
-        id,
-        symbol,
-        name: symbol,
-        amount: String(amount),
-        avg_cost: '0',
-        current_price: currentPrice,
-        cost_basis_money: '0',
-        multiplier: '1.0',
-        currency: 'USD',
-        source: 'KRAKEN',
-        type: 'CRYPTO',
-        category_id: 'crypto',
-        is_active: true,
-      });
-    }
-  }
-
-  // Delete stale Kraken assets if API was successfully read
-  if (Object.keys(krakenBalances).length > 0) {
-    for (const asset of firebaseAssets) {
-      if (asset.source === 'KRAKEN' && !krakenSeenIds.has(asset.id)) {
-        logger.info(`[Private] Deleting stale Kraken asset: ${asset.id}`);
-        await deleteUserAsset(userId, asset.id);
-      }
+  // ── Legacy Kraken Sync Disabled ────────────────────────────
+  // Clean up any remaining legacy KRAKEN-sourced assets from Firestore.
+  // Manuel crypto assets will be tracked via MANUAL source and updated below.
+  for (const asset of firebaseAssets) {
+    if (asset.source === 'KRAKEN') {
+      logger.info(`[Private] Deleting legacy KRAKEN asset: ${asset.id}`);
+      await deleteUserAsset(userId, asset.id);
     }
   }
 
@@ -646,6 +608,28 @@ async function autoSyncOptionsToTracker(userId, openOptionsList, source) {
                o.type === optionType;
       });
 
+      // Calculate Days to Expiry (DTE)
+      let dte = 1;
+      if (expiryIso) {
+        const expDate = new Date(expiryIso);
+        const todayDate = new Date();
+        const diffTime = expDate.getTime() - todayDate.getTime();
+        dte = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+      }
+      
+      let marginRequired = 0;
+      let aroc = 0;
+      
+      if (optionType === 'SELL_PUT') {
+        const premium = Math.abs(opt.perShareAvgCost) || 0;
+        const breakEven = parsedStrike - premium;
+        
+        marginRequired = breakEven * 100 * absoluteQty;
+        if (breakEven > 0) {
+          aroc = ((premium / breakEven) / dte) * 365 * 100;
+        }
+      }
+
       if (foundMatch) {
         const patch = {};
         if (opt.greeks) {
@@ -667,10 +651,14 @@ async function autoSyncOptionsToTracker(userId, openOptionsList, source) {
         if (foundMatch.quantity !== absoluteQty) {
           patch.quantity = absoluteQty;
         }
+
+        patch.margin_required = marginRequired;
+        patch.aroc = aroc;
+        patch.dte = dte;
         
         if (Object.keys(patch).length > 0) {
           await db.collection('users').doc(userId).collection('options').doc(foundMatch.id).update(patch);
-          logger.info(`[AutoOptions] Updated Greeks/Qty/Price for tracked option ${foundMatch.id} (${opt.symbol})`);
+          logger.info(`[AutoOptions] Updated Greeks/Qty/Price/ROC for tracked option ${foundMatch.id} (${opt.symbol})`);
         }
       } else {
         const docRef = db.collection('users').doc(userId).collection('options').doc();
@@ -697,7 +685,10 @@ async function autoSyncOptionsToTracker(userId, openOptionsList, source) {
           created_at: Date.now(),
           current_price: opt.currentPrice || null,
           iv_rank: opt.iv_rank || null,
-          earnings_date: opt.earnings_date || null
+          earnings_date: opt.earnings_date || null,
+          margin_required: marginRequired,
+          aroc: aroc,
+          dte: dte
         };
 
         if (opt.greeks) {

@@ -199,6 +199,20 @@ class PythonClientService {
     }
   }
 
+  async scanSwing() {
+    try {
+      const res = await fetch(`${PYTHON_SERVICE_URL}/api/scan-swing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      logger.error(`[PythonClient] Failed to scan Swing setups: ${err.message}`);
+      return null;
+    }
+  }
+
   async triggerMarketWeather() {
     try {
       const res = await fetch(`${PYTHON_SERVICE_URL}/api/market-weather`, {

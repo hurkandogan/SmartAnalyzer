@@ -5,6 +5,8 @@ import { runPortfolioSync } from './portfolioSync.js';
 import { runDataMiner } from './dataMiner.js';
 import { runMarketWeather } from './marketWeather.js';
 import { runOptionsSignalsJob } from './optionsSignalsJob.js';
+import { runSwingJob } from './swingJob.js';
+import { runMacroCalendarSync } from './macroCalendarSync.js';
 import { runIvCrushJob } from './ivCrushJob.js';
 import { logger, dbLogger } from '../utils/logger.js';
 
@@ -94,7 +96,29 @@ export function startScheduler() {
     }
   });
 
-  logger.info('Scheduler started — 7 jobs registered');
+  // ── Swing Scanner: daily at 22:30 (Market Close) ──
+  cron.schedule('30 22 * * 1-5', async () => {
+    logger.info('[CRON] Swing Scanner triggered');
+    try {
+      await dbLogger('swing-scanner', 'info', 'Swing Scanner triggered');
+      await runSwingJob();
+      await dbLogger('swing-scanner', 'success', 'Swing Scanner completed');
+    } catch (error) {
+      await dbLogger('swing-scanner', 'error', `Swing Scanner failed: ${error.message}`);
+    }
+  });
+
+  // ── Macro Calendar Sync: every Monday at 08:00 ──
+  cron.schedule('0 8 * * 1', async () => {
+    logger.info('[CRON] Macro Calendar Sync triggered');
+    try {
+      await runMacroCalendarSync();
+    } catch (error) {
+      logger.error(`[CRON] Macro Calendar Sync failed: ${error.message}`);
+    }
+  });
+
+  logger.info('Scheduler started — 9 jobs registered');
 }
 
-export { runPortfolioSync, runDailyStockAnalysis, runCurrencyUpdate, runDataMiner, runMarketWeather, runOptionsSignalsJob, runIvCrushJob };
+export { runPortfolioSync, runDailyStockAnalysis, runCurrencyUpdate, runDataMiner, runMarketWeather, runOptionsSignalsJob, runIvCrushJob, runSwingJob, runMacroCalendarSync };

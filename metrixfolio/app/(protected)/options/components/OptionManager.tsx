@@ -625,6 +625,7 @@ export default function OptionManager() {
                 <th className="text-right whitespace-nowrap select-none">Qty</th>
                 <th className="whitespace-nowrap select-none">Strike &amp; Expiry</th>
                 <th className="whitespace-nowrap select-none">Live Greeks</th>
+                <th className="text-right whitespace-nowrap select-none text-xs">Margin & AROC</th>
                 <th className="text-right text-xs whitespace-nowrap select-none">Prices (B/S)</th>
                 <th className="text-right whitespace-nowrap select-none">PnL / Change</th>
                 <th className="text-right">Actions</th>
@@ -797,6 +798,27 @@ export default function OptionManager() {
                         <span className="text-xs opacity-40">-</span>
                       )}
                     </td>
+                    {/* ROC & Margin */}
+                    <td className="text-right font-mono text-[11px] leading-tight">
+                      {!isClosed && opt.margin_required ? (
+                        <div className="flex flex-col gap-0.5 items-end">
+                          <span className="text-base-content/80" title="Tahmini Bağlanan Teminat (Cash Secured)">
+                            ${opt.margin_required.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </span>
+                          {opt.aroc !== undefined && opt.aroc !== null && (
+                            <span 
+                              className={`font-bold ${opt.aroc >= 20 ? 'text-success' : opt.aroc >= 10 ? 'text-warning' : 'text-error'}`}
+                              title="Annualized Return on Capital (Yıllıklandırılmış Getiri)"
+                            >
+                              %{opt.aroc.toFixed(1)}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="opacity-40">-</span>
+                      )}
+                    </td>
+
                     <td className="text-right font-mono text-sm">
                       <div className="flex flex-col">
                         <span className="text-info">

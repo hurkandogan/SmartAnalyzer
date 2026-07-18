@@ -6,6 +6,7 @@ import { usePortfolio } from '@/hooks/usePortfolio';
 import { useIBKRSync } from '@/hooks/useIBKRSync';
 import { CategoryCards } from '@/components/dashboard/CategoryCards';
 import { MagicSearchBar } from '@/components/dashboard/MagicSearchBar';
+import { MacroCalendar } from '@/components/dashboard/MacroCalendar';
 
 export default function Dashboard() {
   const { portfolio, isLoading, isError, history } = usePortfolio();
@@ -66,9 +67,12 @@ export default function Dashboard() {
           />
         )}
 
-        <div className="w-full">
+        <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
             <GoalTable currentValue={portfolio?.total_value || 0} />
+          </div>
+          <div className="lg:col-span-1">
+            <MacroCalendar />
           </div>
         </div>
       </div>

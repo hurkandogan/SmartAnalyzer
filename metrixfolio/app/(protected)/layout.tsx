@@ -5,6 +5,7 @@ import { NavBar } from '@/components/layout/NavBar';
 import { TickerMarquee } from '@/components/layout/TickerMarquee';
 import { useAuth } from '@/context/AuthProvider';
 import { useIBKRSync } from '@/hooks/useIBKRSync';
+import MacroWarning from '@/components/layout/MacroWarning';
 import { redirect } from 'next/navigation';
 
 export default function ProtectedLayout({
@@ -27,6 +28,7 @@ export default function ProtectedLayout({
   return (
     <>
       <div className="flex min-h-screen flex-col">
+        <MacroWarning />
         <NavBar />
         <TickerMarquee />
         <main className="container mx-auto grow p-4">{children}</main>

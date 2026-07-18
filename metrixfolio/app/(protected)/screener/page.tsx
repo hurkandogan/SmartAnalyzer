@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { getHeatmapAction } from '@/actions/screener';
 import Link from 'next/link';
+import SwingSignals from './components/SwingSignals';
 
 export default function ScreenerPage() {
   const [sectorData, setSectorData] = useState<any[]>([]);
@@ -69,18 +70,35 @@ export default function ScreenerPage() {
               const isPos1D = sector.performance_1d >= 0;
               const val1D = (sector.performance_1d * 100).toFixed(2) + '%';
 
+              const isPos1W = (sector.performance_1w ?? 0) >= 0;
+              const val1W = ((sector.performance_1w ?? 0) * 100).toFixed(1) + '%';
+
+              const isPos1M = (sector.performance_1m ?? 0) >= 0;
+              const val1M = ((sector.performance_1m ?? 0) * 100).toFixed(1) + '%';
+
               return (
-                <div key={sector.name} className={`flex flex-col items-center justify-center p-6 rounded-2xl shadow-sm hover:scale-105 transition-transform border ${bgClass}`}>
-                  <span className="font-bold text-lg text-center mb-1">{sector.name}</span>
-                  <span className="text-xs opacity-70 mb-3">{sector.ticker}</span>
-                  <div className="flex flex-col items-center gap-1">
+                <div key={sector.name} className={`flex flex-col items-center justify-center p-4 rounded-2xl shadow-sm hover:scale-105 transition-transform border ${bgClass}`}>
+                  <span className="font-bold text-base text-center mb-0.5 leading-tight">{sector.name}</span>
+                  <span className="text-[10px] opacity-70 mb-2 font-mono">{sector.ticker}</span>
+                  <div className="flex flex-col items-center w-full">
                     <div className="flex flex-col items-center">
-                      <span className="text-xs font-semibold opacity-80 uppercase tracking-widest">1 Year</span>
+                      <span className="text-[9px] font-semibold opacity-80 uppercase tracking-widest">1 Year</span>
                       <span className="text-2xl font-black">{val1Y}</span>
                     </div>
-                    <div className={`flex flex-col items-center mt-2 ${isPos1D ? 'text-success' : 'text-error'}`}>
-                      <span className="text-[10px] font-semibold opacity-80 uppercase tracking-widest">1 Day</span>
-                      <span className="text-sm font-bold">{val1D}</span>
+                    
+                    <div className="grid grid-cols-3 gap-1 w-full mt-3 pt-2.5 border-t border-current/10 text-center leading-none">
+                      <div className="flex flex-col items-center">
+                        <span className="text-[8px] font-bold opacity-75 uppercase tracking-wider mb-1">1 Day</span>
+                        <span className={`text-[10px] font-black ${isPos1D ? 'text-success' : 'text-error'}`}>{val1D}</span>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <span className="text-[8px] font-bold opacity-75 uppercase tracking-wider mb-1">1 Week</span>
+                        <span className={`text-[10px] font-black ${isPos1W ? 'text-success' : 'text-error'}`}>{val1W}</span>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <span className="text-[8px] font-bold opacity-75 uppercase tracking-wider mb-1">1 Month</span>
+                        <span className={`text-[10px] font-black ${isPos1M ? 'text-success' : 'text-error'}`}>{val1M}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -88,6 +106,8 @@ export default function ScreenerPage() {
             })}
         </div>
       )}
+      
+      <SwingSignals />
     </div>
   );
 }

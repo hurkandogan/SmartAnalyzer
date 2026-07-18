@@ -235,11 +235,20 @@ class ScreenerSyncService:
                             perf_1y = ((last_price - price_1y_ago) / price_1y_ago)
                             perf_1d = ((last_price - price_1d_ago) / price_1d_ago)
                             
+                            # Calculate 1-Week (5 trading days ago) and 1-Month (21 trading days ago)
+                            price_1w_ago = float(df_1y['Close'].iloc[-6]) if len(df_1y) >= 6 else float(df_1y['Close'].iloc[0])
+                            price_1m_ago = float(df_1y['Close'].iloc[-22]) if len(df_1y) >= 22 else float(df_1y['Close'].iloc[0])
+                            
+                            perf_1w = ((last_price - price_1w_ago) / price_1w_ago)
+                            perf_1m = ((last_price - price_1m_ago) / price_1m_ago)
+                            
                             sector_perf.append({
                                 "name": name,
                                 "ticker": ticker,
                                 "performance_1y": perf_1y,
-                                "performance_1d": perf_1d
+                                "performance_1d": perf_1d,
+                                "performance_1w": perf_1w,
+                                "performance_1m": perf_1m
                             })
                     except Exception as e:
                         logger.error(f"Error calculating performance for {name} ({ticker}): {e}")
