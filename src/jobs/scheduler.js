@@ -7,6 +7,7 @@ import { runMarketWeather } from './marketWeather.js';
 import { runOptionsSignalsJob } from './optionsSignalsJob.js';
 import { runSwingJob } from './swingJob.js';
 import { runMacroCalendarSync } from './macroCalendarSync.js';
+import { runEarningsCalendarSync } from './earningsCalendarSync.js';
 import { runIvCrushJob } from './ivCrushJob.js';
 import { logger, dbLogger } from '../utils/logger.js';
 
@@ -118,7 +119,17 @@ export function startScheduler() {
     }
   });
 
-  logger.info('Scheduler started — 9 jobs registered');
+  // ── Earnings Calendar Sync: daily at 07:00 ──
+  cron.schedule('0 7 * * *', async () => {
+    logger.info('[CRON] Earnings Calendar Sync triggered');
+    try {
+      await runEarningsCalendarSync();
+    } catch (error) {
+      logger.error(`[CRON] Earnings Calendar Sync failed: ${error.message}`);
+    }
+  });
+
+  logger.info('Scheduler started — 10 jobs registered');
 }
 
-export { runPortfolioSync, runDailyStockAnalysis, runCurrencyUpdate, runDataMiner, runMarketWeather, runOptionsSignalsJob, runIvCrushJob, runSwingJob, runMacroCalendarSync };
+export { runPortfolioSync, runDailyStockAnalysis, runCurrencyUpdate, runDataMiner, runMarketWeather, runOptionsSignalsJob, runIvCrushJob, runSwingJob, runMacroCalendarSync, runEarningsCalendarSync };

@@ -144,7 +144,7 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
   };
 
   return (
-    <div className="card bg-base-100/50 backdrop-blur-md border-base-200/50 relative flex h-full flex-col border shadow-xl">
+    <div className="card bg-base-100 shadow-xl border-t-4 border-t-primary h-full max-h-[800px] flex flex-col">
       {/* Settings Modal */}
       <dialog
         ref={settingsModalRef}
@@ -246,7 +246,7 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
         </div>
       </div>
 
-      <div className="max-h-125 flex-1 overflow-x-auto overflow-y-auto">
+      <div className="flex-1 overflow-x-auto overflow-y-auto">
         <table className="table-pin-rows table-xs md:table-sm table">
           <thead>
             <tr>

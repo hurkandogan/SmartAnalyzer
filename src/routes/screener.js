@@ -113,6 +113,11 @@ screenerRoutes.post('/push-firebase', async (c) => {
         prices: body.data,
         updatedAt: new Date().toISOString()
       });
+    } else if (body.type === 'earnings_calendar') {
+      await db.collection('screener').doc('earnings_calendar').set({
+        events: body.data,
+        updatedAt: new Date().toISOString()
+      });
     } else {
       return c.json({ error: 'Invalid type' }, 400);
     }
