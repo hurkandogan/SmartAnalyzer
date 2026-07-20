@@ -515,6 +515,7 @@ async function writePortfolioHistory(userId) {
 
   const categories = {};
   let totalMarketValue = 0;
+  let totalGrossValue = 0;
   let totalCostBasis = 0;
 
   for (const asset of active) {
@@ -530,16 +531,30 @@ async function writePortfolioHistory(userId) {
     
     categories[catId].value += mv;
     totalMarketValue += mv;
+    totalGrossValue += Math.abs(mv);
     totalCostBasis += parseFloat(asset.cost_basis_money) || 0;
   }
 
-  const allocation = Object.entries(categories).map(([catId, cat]) => ({
-    category_id: catId,
-    name: getCategoryName(catId),
-    type: cat.type,
-    value: cat.value,
-    percentage: totalMarketValue !== 0 ? (cat.value / totalMarketValue) * 100 : 0,
-  }));
+  let totalPositiveValue = 0;
+  for (const cat of Object.values(categories)) {
+    if (cat.value > 0) totalPositiveValue += cat.value;
+  }
+
+  const allocation = Object.entries(categories).map(([catId, cat]) => {
+    let pct = 0;
+    if (cat.value > 0) {
+      pct = totalPositiveValue !== 0 ? (cat.value / totalPositiveValue) * 100 : 0;
+    } else if (cat.value < 0) {
+      pct = totalMarketValue !== 0 ? (cat.value / totalMarketValue) * 100 : 0;
+    }
+    return {
+      category_id: catId,
+      name: getCategoryName(catId),
+      type: cat.type,
+      value: cat.value,
+      percentage: pct,
+    };
+  });
 
   const today = new Date().toISOString().slice(0, 10);
 

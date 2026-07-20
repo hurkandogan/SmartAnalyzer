@@ -173,9 +173,11 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
             ? absActual - absTarget
             : cat.actual_percentage - cat.target_percentage;
 
-          const isBalanced = Math.abs(diff) <= 5.0;
-          const isOverexposed = diff > 5.0;
-          const isUnderexposed = diff < -5.0;
+          // Dynamic margin: 10% of the target percentage, with a minimum tolerance of 1.0% to avoid flickering on very small targets
+          const dynamicMargin = Math.max(absTarget * 0.10, 1.0);
+          const isBalanced = Math.abs(diff) <= dynamicMargin;
+          const isOverexposed = diff > dynamicMargin;
+          const isUnderexposed = diff < -dynamicMargin;
 
           let statusColor = 'text-success';
           let badgeClass = 'badge-success/10 text-success border-success/20';

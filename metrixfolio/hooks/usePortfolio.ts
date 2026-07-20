@@ -63,6 +63,7 @@ export function usePortfolio() {
     const { categories, assets, transactions } = rawData;
 
     let totalValue = 0;
+    let totalGrossValue = 0;
     let totalUnrealizedPnl = 0;
     const categoryValues = new Map<string, number>();
 
@@ -75,6 +76,7 @@ export function usePortfolio() {
       );
 
       totalValue += marketValueUsd;
+      totalGrossValue += Math.abs(marketValueUsd);
       totalUnrealizedPnl += unrealizedPnlUsd;
 
       const catId = asset.category_id || 'uncategorized';
@@ -100,9 +102,19 @@ export function usePortfolio() {
     const pnlPercentage =
       totalInvested !== 0 ? (totalPnl / totalInvested) * 100 : 0;
 
+    let totalPositiveValue = 0;
+    for (const val of categoryValues.values()) {
+      if (val > 0) totalPositiveValue += val;
+    }
+
     const categoryAnalysis = categories.map((cat) => {
       const val = categoryValues.get(cat.id) || 0;
-      const actualPct = totalValue !== 0 ? (val / totalValue) * 100 : 0;
+      let actualPct = 0;
+      if (val > 0) {
+        actualPct = totalPositiveValue !== 0 ? (val / totalPositiveValue) * 100 : 0;
+      } else if (val < 0) {
+        actualPct = totalValue !== 0 ? (val / totalValue) * 100 : 0;
+      }
       return {
         id: cat.id,
         name: cat.name,

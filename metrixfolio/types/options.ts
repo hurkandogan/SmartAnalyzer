@@ -24,5 +24,7 @@ export interface OptionPosition {
   current_price?: number | null;
   iv_rank?: number | null;
   earnings_date?: string | null;
+  margin_required?: number | null;
+  aroc?: number | null;
 }
 
