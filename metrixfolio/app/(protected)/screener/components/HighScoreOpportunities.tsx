@@ -5,7 +5,7 @@ import { getOpportunitiesAction, getPricesAction } from '@/actions/screener';
 import Link from 'next/link';
 import { FiTrendingUp, FiActivity, FiDollarSign, FiBriefcase } from 'react-icons/fi';
 
-export default function OpportunitiesPage() {
+export default function HighScoreOpportunities() {
   const [opportunities, setOpportunities] = useState<any[]>([]);
   const [prices, setPrices] = useState<{[sym: string]: number}>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -32,20 +32,14 @@ export default function OpportunitiesPage() {
   }
 
   return (
-    <div className="flex flex-col gap-8 w-full max-w-7xl mx-auto">
-      <div className="flex justify-between items-end mb-4">
-        <div>
-          <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-success to-emerald-400">High Score Opportunities</h1>
-          <p className="text-base-content/60 mt-2 text-lg">
-            Stocks passing hard filters with a fundamental score &ge; 75.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link href="/screener" className="btn btn-outline border-base-content/20 hover:border-base-content/40 transition-colors rounded-xl">
-            Back to Heatmap
-          </Link>
-        </div>
+    <div className="flex flex-col gap-8 w-full mt-10">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xl">🏆</span>
+        <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-success to-emerald-400">High Score Opportunities</h2>
       </div>
+      <p className="text-base-content/60 -mt-6">
+        Stocks passing hard filters with a fundamental score &ge; 75.
+      </p>
 
       {opportunities.length === 0 ? (
         <div className="alert alert-warning shadow-lg rounded-2xl">

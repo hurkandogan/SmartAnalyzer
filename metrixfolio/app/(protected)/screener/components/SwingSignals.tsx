@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { db } from '@/utils/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { getSwingSignalsAction } from '@/actions/screener';
 
 interface SwingSignal {
   symbol: string;
@@ -22,13 +21,9 @@ export default function SwingSignals() {
   useEffect(() => {
     async function fetchSignals() {
       try {
-        const docRef = doc(db, 'screener', 'swing_signals');
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          if (data.signals && Array.isArray(data.signals)) {
-            setSignals(data.signals);
-          }
+        const data = await getSwingSignalsAction();
+        if (data && data.signals && Array.isArray(data.signals)) {
+          setSignals(data.signals);
         }
       } catch (err) {
         console.error('Failed to fetch swing signals:', err);

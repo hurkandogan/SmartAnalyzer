@@ -43,3 +43,36 @@ export async function getPricesAction() {
   }
 }
 
+export async function getMacroCalendarAction() {
+  try {
+    const doc = await adminDb.collection('screener').doc('macro_calendar').get();
+    if (!doc.exists) return null;
+    return doc.data();
+  } catch (err) {
+    console.error("Failed to fetch macro calendar:", err);
+    return null;
+  }
+}
+
+export async function getEarningsCalendarAction() {
+  try {
+    const doc = await adminDb.collection('screener').doc('earnings_calendar').get();
+    if (!doc.exists) return null;
+    return doc.data();
+  } catch (err) {
+    console.error("Failed to fetch earnings calendar:", err);
+    return null;
+  }
+}
+
+export async function getSwingSignalsAction() {
+  try {
+    const doc = await adminDb.collection('screener').doc('swing_signals').get();
+    if (!doc.exists) return null;
+    return doc.data();
+  } catch (err) {
+    console.error("Failed to fetch swing signals:", err);
+    return null;
+  }
+}
+

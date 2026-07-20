@@ -5,6 +5,8 @@ import { getHeatmapAction } from '@/actions/screener';
 import Link from 'next/link';
 import SwingSignals from './components/SwingSignals';
 
+import HighScoreOpportunities from './components/HighScoreOpportunities';
+
 export default function ScreenerPage() {
   const [sectorData, setSectorData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,18 +41,13 @@ export default function ScreenerPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-full">
+    <div className="flex flex-col gap-6 w-full max-w-full pb-10">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-4xl font-bold">Sector Performance Heatmap</h1>
           <p className="text-base-content/60 mt-2">
             1-Year and 1-Day performance of major US Sectors & Industries.
           </p>
-        </div>
-        <div className="flex gap-2">
-          <Link href="/screener/opportunities" className="btn btn-secondary">
-            High Score Opportunities
-          </Link>
         </div>
       </div>
 
@@ -107,6 +104,7 @@ export default function ScreenerPage() {
         </div>
       )}
       
+      <HighScoreOpportunities />
       <SwingSignals />
     </div>
   );

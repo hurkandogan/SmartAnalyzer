@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { db } from '@/utils/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { getEarningsCalendarAction, getMacroCalendarAction } from '@/actions/screener';
 
 interface MacroEvent {
   title: string;
@@ -20,30 +19,21 @@ export function MacroCalendar() {
   useEffect(() => {
     async function fetchCalendar() {
       try {
-        const macroRef = doc(db, 'screener', 'macro_calendar');
-        const earningsRef = doc(db, 'screener', 'earnings_calendar');
-        
         let combinedEvents: MacroEvent[] = [];
 
         try {
-          const macroSnap = await getDoc(macroRef);
-          if (macroSnap.exists()) {
-            const data = macroSnap.data();
-            if (data.events) {
-              combinedEvents = combinedEvents.concat(data.events.map((e: any) => ({ ...e, type: 'macro' })));
-            }
+          const macroData = await getMacroCalendarAction();
+          if (macroData && macroData.events) {
+            combinedEvents = combinedEvents.concat(macroData.events.map((e: any) => ({ ...e, type: 'macro' })));
           }
         } catch (e) {
           console.error('Failed to fetch macro calendar:', e);
         }
 
         try {
-          const earningsSnap = await getDoc(earningsRef);
-          if (earningsSnap.exists()) {
-            const data = earningsSnap.data();
-            if (data.events) {
-              combinedEvents = combinedEvents.concat(data.events.map((e: any) => ({ ...e, type: 'earnings' })));
-            }
+          const earningsData = await getEarningsCalendarAction();
+          if (earningsData && earningsData.events) {
+            combinedEvents = combinedEvents.concat(earningsData.events.map((e: any) => ({ ...e, type: 'earnings' })));
           }
         } catch (e) {
           console.error('Failed to fetch earnings calendar:', e);
