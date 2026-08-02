@@ -13,7 +13,7 @@ const WATCHLIST_COLLECTION = 'watchlist';
 export async function getWatchlistAction(): Promise<WatchlistItem[]> {
   const snapshot = await adminDb.collection(WATCHLIST_COLLECTION).get();
 
-  const watchlistItems = snapshot.docs.map((doc) => {
+  const watchlistItems: WatchlistItem[] = snapshot.docs.map((doc) => {
     const data = doc.data();
     return {
       symbol: data.symbol || doc.id,
