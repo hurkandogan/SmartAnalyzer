@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import useSWR from 'swr';
 import { useAuth } from '@/context/AuthProvider';
 import {
   FiAlertCircle,
@@ -52,8 +53,6 @@ const calculateDTE = (expiryStr: string) => {
 
 export default function PositionsPage() {
   const { user } = useAuth();
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [closedAssets, setClosedAssets] = useState<ClosedAsset[]>([]);
   const [currentTab, setCurrentTab] = useState<'OPEN' | 'CLOSED'>('OPEN');
 
   const [sortConfig, setSortConfig] = useState<{
@@ -61,8 +60,6 @@ export default function PositionsPage() {
     direction: 'asc' | 'desc';
   } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-
-  const [categories, setCategories] = useState<Category[]>([]);
   const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({
     symbol: '',
@@ -77,46 +74,34 @@ export default function PositionsPage() {
     price: '',
   });
 
+  const { data, mutate, isLoading } = useSWR(
+    user ? ['positions-data', user.uid] : null,
+    async ([_, uid]) => {
+      let [assetsData, closedData, categoriesData] = await Promise.all([
+        getAssetsAction(uid),
+        getClosedAssetsAction(uid),
+        getCategoriesAction(uid),
+      ]);
+
+      const zeroQtyIds = assetsData
+        .filter((a) => a.amount === 0)
+        .map((a) => a.id);
+      if (zeroQtyIds.length > 0) {
+        await purgeZeroQuantityAssetsAction(uid, zeroQtyIds);
+        assetsData = assetsData.filter((a) => a.amount !== 0);
+      }
+
+      return { assets: assetsData, closedAssets: closedData, categories: categoriesData };
+    },
+    { revalidateOnFocus: true }
+  );
+
+  const assets = data?.assets || [];
+  const closedAssets = data?.closedAssets || [];
+  const categories = data?.categories || [];
+
   const modalRef = useRef<HTMLDialogElement>(null);
   const closePortalRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    loadData();
-  }, [user]);
-
-  // Refresh data when user returns to the tab
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        loadData();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () =>
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [user]);
-
-  const loadData = async () => {
-    if (!user) return;
-    let [assetsData, closedData, categoriesData] = await Promise.all([
-      getAssetsAction(user.uid),
-      getClosedAssetsAction(user.uid),
-      getCategoriesAction(user.uid),
-    ]);
-
-    // Purge zero-quantity positions in a single batch request
-    const zeroQtyIds = assetsData
-      .filter((a) => a.amount === 0)
-      .map((a) => a.id);
-    if (zeroQtyIds.length > 0) {
-      await purgeZeroQuantityAssetsAction(user.uid, zeroQtyIds);
-      assetsData = assetsData.filter((a) => a.amount !== 0);
-    }
-
-    setAssets(assetsData);
-    setClosedAssets(closedData);
-    setCategories(categoriesData);
-  };
 
   const openEditModal = (asset: any) => {
     setSelectedAsset(asset);
@@ -158,7 +143,7 @@ export default function PositionsPage() {
 
     if (res.success) {
       modalRef.current?.close();
-      await loadData();
+      await mutate();
     } else {
       alert('Error: ' + res.message);
     }
@@ -181,7 +166,7 @@ export default function PositionsPage() {
     );
     if (res.success) {
       closePortalRef.current?.close();
-      await loadData();
+      await mutate();
     } else {
       alert('Error: ' + res.message);
     }
@@ -193,7 +178,7 @@ export default function PositionsPage() {
 
     const res = await deleteAssetAction(user.uid, assetId);
     if (res.success) {
-      await loadData();
+      await mutate();
     } else {
       alert('Error: ' + res.message);
     }
@@ -208,7 +193,7 @@ export default function PositionsPage() {
 
     const res = await deleteClosedAssetAction(user.uid, assetId);
     if (res.success) {
-      await loadData();
+      await mutate();
     } else {
       alert('Error: ' + res.message);
     }
@@ -541,7 +526,7 @@ export default function PositionsPage() {
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <AddManualAssetModal categories={categories} onSuccess={loadData} />
+          <AddManualAssetModal categories={categories} onSuccess={() => mutate()} />
           <div className="join bg-base-100 border-base-200 border">
             <button
               className={`join-item btn btn-sm px-6 ${currentTab === 'OPEN' ? 'btn-primary' : 'btn-ghost'}`}

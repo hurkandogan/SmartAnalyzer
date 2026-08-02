@@ -21,6 +21,15 @@ export function startScheduler() {
     logger.info('[CRON] Portfolio Sync triggered');
     try {
       await dbLogger('portfolio-sync', 'info', 'Portfolio Sync triggered');
+      
+      // Fetch latest currencies before portfolio sync
+      try {
+        await dbLogger('currency-update', 'info', 'Currency Update triggered from Portfolio Sync');
+        await runCurrencyUpdate();
+      } catch (err) {
+        logger.error(`Currency update before portfolio sync failed: ${err.message}`);
+      }
+      
       await runPortfolioSync();
       await dbLogger('portfolio-sync', 'success', 'Portfolio Sync completed successfully');
     } catch (error) {

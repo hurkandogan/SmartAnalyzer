@@ -157,6 +157,7 @@ class IVCrushScannerService:
 
     async def scan_signals(self, db: Session, watchlist: List[str], send_telegram: bool = False) -> List[Dict[str, Any]]:
         signals = []
+        telegram_messages = []
         today = datetime.date.today()
         
         for symbol in watchlist:
@@ -198,6 +199,9 @@ class IVCrushScannerService:
                 # 5. Fetch IBKR Option suggestions (Gamma protected, ~20 delta, 7+ days after earnings)
                 ibkr_data = await self._fetch_ibkr_options(symbol, earnings_date, current_price)
                 
+                rsi = latest_fund.rsi if latest_fund and latest_fund.rsi else 50.0
+                target_price = latest_fund.target_mean_price if latest_fund and latest_fund.target_mean_price else None
+                
                 signal = {
                     "symbol": symbol,
                     "earnings_date": earnings_date.isoformat(),
@@ -205,26 +209,45 @@ class IVCrushScannerService:
                     "current_price": current_price,
                     "iv": current_iv,
                     "iv_rank": iv_rank,
+                    "rsi": rsi,
                     "ibkr_options": ibkr_data
                 }
                 signals.append(signal)
                 
                 if send_telegram:
-                    from services.telegram import TelegramService
-                    telegram = TelegramService()
                     msg = (
                         f"🚀 **IV Crush Fırsatı: {symbol}**\n"
                         f"• Bilanço: {days_to_earnings} gün sonra\n"
                         f"• IV Rank: %{iv_rank:.1f} (Çok Şişkin!)\n"
                     )
                     
+                    if rsi > 65:
+                        msg += f"• 🔴 Düşüş Riski: Hissede aşırı alım var (RSI > 65) ({rsi:.1f})\n"
+                    elif rsi < 35:
+                        msg += f"• 🟢 Düşük Risk: Hisse satılmış bölgede (RSI < 35) ({rsi:.1f})\n"
+                        
+                    if target_price and current_price > target_price * 1.10:
+                        msg += f"• 🔴 Değerleme Riski: Güncel fiyat (${current_price:.2f}), analist ortalama hedefinin (${target_price:.2f}) çok üzerinde!\n"
+                    elif target_price and current_price < target_price * 0.90:
+                        msg += f"• 🟢 Değerleme Fırsatı: Güncel fiyat (${current_price:.2f}), analist ortalama hedefinin (${target_price:.2f}) altında.\n"
+
                     if 'put_suggestion' in ibkr_data:
                         msg += f"• Önerilen Güvenli Put: ${ibkr_data['put_suggestion']['strike']} Strike (Delta: {ibkr_data['put_suggestion']['delta']:.2f})\n"
                         
                     msg += "Detaylı zincir seviyeleri ve primler Metrixfolio Radarı'nda!"
-                    await telegram.send_message(msg)
+                    telegram_messages.append(msg)
 
             except Exception as e:
                 logger.error(f"[IVCrushScanner] Error scanning {symbol}: {e}")
+                
+        # Send telegram messages at the end
+        if send_telegram and telegram_messages:
+            try:
+                from services.telegram import TelegramService
+                telegram = TelegramService()
+                for msg in telegram_messages:
+                    await telegram.send_message(msg)
+            except Exception as e:
+                logger.error(f"[IVCrushScanner] Error sending bulk Telegram messages: {e}")
                 
         return signals

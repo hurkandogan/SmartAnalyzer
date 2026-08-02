@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getEarningsCalendarAction, getMacroCalendarAction } from '@/actions/screener';
+import { FundamentalModal } from './FundamentalModal';
 
 interface MacroEvent {
   title: string;
@@ -15,6 +16,21 @@ interface MacroEvent {
 export function MacroCalendar() {
   const [events, setEvents] = useState<MacroEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const handleEventClick = (ev: MacroEvent) => {
+    if (ev.type === 'earnings') {
+      const parts = ev.title.split(':');
+      if (parts.length > 1) {
+        setSelectedSymbol(parts[1].trim().toUpperCase());
+        setIsModalOpen(true);
+      } else {
+        setSelectedSymbol(ev.title.trim().toUpperCase());
+        setIsModalOpen(true);
+      }
+    }
+  };
 
   useEffect(() => {
     async function fetchCalendar() {
@@ -76,8 +92,13 @@ export function MacroCalendar() {
     const dayNum = d.getDate();
     const timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
     
+    const isClickable = ev.type === 'earnings' && ev.is_watchlist;
     return (
-      <div key={`${ev.title}-${i}`} className="flex items-center bg-base-200/50 hover:bg-base-200 transition-colors p-3 rounded-xl border border-base-content/5">
+      <div 
+        key={`${ev.title}-${i}`} 
+        className={`flex items-center bg-base-200/50 hover:bg-base-200 transition-colors p-3 rounded-xl border border-base-content/5 ${isClickable ? 'cursor-pointer' : ''}`}
+        onClick={() => isClickable && handleEventClick(ev)}
+      >
         <div className={`flex flex-col items-center justify-center w-16 h-16 rounded-xl shrink-0 bg-${badgeColor.replace('badge-', '')}/10 text-${badgeColor.replace('badge-', '')}`}>
           <span className="text-xs uppercase font-bold opacity-80">{dayName.substring(0, 3)}</span>
           <span className="text-2xl font-black">{dayNum}</span>
@@ -132,6 +153,11 @@ export function MacroCalendar() {
           </div>
         )}
       </div>
+      <FundamentalModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        symbol={selectedSymbol}
+      />
     </div>
   );
 }

@@ -73,6 +73,17 @@ export async function getSwingSignalsAction() {
   } catch (err) {
     console.error("Failed to fetch swing signals:", err);
     return null;
+    return null;
   }
 }
 
+export async function getValueOpportunitiesAction() {
+  try {
+    const res = await fetch('http://127.0.0.1:8000/api/screener/value', { next: { revalidate: 3600 } });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error("Failed to fetch value opportunities from Python:", err);
+    return [];
+  }
+}

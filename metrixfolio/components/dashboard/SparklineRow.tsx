@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { LineChart, Line, YAxis, Tooltip } from 'recharts';
+import dynamic from 'next/dynamic';
+
+const SparklineChart = dynamic(() => import('./charts/SparklineChart'), { ssr: false });
 
 interface SparklineRowProps {
   label: string;
@@ -51,33 +53,14 @@ export const SparklineRow: React.FC<SparklineRowProps> = ({
         </div>
         <div className="w-3/4 h-12 flex justify-end items-center bg-base-200/50 dark:bg-base-300/20 rounded-lg px-2 border border-base-content/5 relative">
           {hasData ? (
-            <LineChart width={chartWidth} height={36} data={data} margin={{ top: 2, bottom: 2, left: 2, right: 2 }}>
-              <YAxis domain={[domainMin, domainMax]} hide />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '6px',
-                  padding: '4px 8px',
-                  fontSize: '11px',
-                  fontWeight: '600',
-                }}
-                labelStyle={{ display: 'none' }}
-                itemStyle={{ color: '#fff', padding: 0 }}
-                formatter={(val: any) => [formatValue ? formatValue(val) : val, '']}
-              />
-              <Line
-                type="monotone"
-                dataKey="val"
-                stroke={color}
-                strokeWidth={2.5}
-                dot={false}
-                activeDot={{ r: 4, strokeWidth: 0, fill: color }}
-                isAnimationActive={true}
-                animationDuration={1000}
-                animationEasing="ease-in-out"
-              />
-            </LineChart>
+            <SparklineChart 
+              data={data} 
+              width={chartWidth} 
+              domainMin={domainMin} 
+              domainMax={domainMax} 
+              color={color} 
+              formatValue={formatValue} 
+            />
           ) : (
             <div className="text-xs text-base-content/30 italic pr-2">
               No history

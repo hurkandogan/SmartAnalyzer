@@ -40,6 +40,12 @@ class YahooService:
                 "forward_eps": info.get("forwardEps") or None,
                 "earnings_growth": info.get("earningsGrowth") or None,
                 "revenue_growth": info.get("revenueGrowth") or None,
+                "target_mean_price": info.get("targetMeanPrice") or None,
+                "target_high_price": info.get("targetHighPrice") or None,
+
+                # Historical CAGR
+                "revenue_cagr_5y": self._calculate_cagr_5y(ticker, "Total Revenue"),
+                "net_income_cagr_5y": self._calculate_cagr_5y(ticker, "Net Income"),
 
                 # Market
                 "market_cap": info.get("marketCap") or None,
@@ -164,6 +170,32 @@ class YahooService:
             return float(round(growth, 4))
         except Exception as e:
             logger.debug(f"Could not calculate FCF Growth: {e}")
+            return None
+
+    def _calculate_cagr_5y(self, ticker: yf.Ticker, field_name: str) -> Optional[float]:
+        try:
+            financials = ticker.financials
+            if financials is None or financials.empty:
+                return None
+            
+            if field_name not in financials.index:
+                return None
+            
+            row = financials.loc[field_name].dropna()
+            if len(row) < 3: # Need at least 3 years to calculate a meaningful CAGR
+                return None
+                
+            # Most recent is row.iloc[0], oldest is row.iloc[-1]
+            end_val = row.iloc[0]
+            start_val = row.iloc[-1]
+            periods = len(row) - 1
+            
+            if start_val <= 0 or end_val <= 0:
+                return None
+                
+            cagr = (end_val / start_val) ** (1 / periods) - 1
+            return float(round(cagr, 4))
+        except Exception:
             return None
 
     def get_historical_candles(self, symbol: str, period: str = "1y", interval: str = "1d") -> List[Dict[str, Any]]:

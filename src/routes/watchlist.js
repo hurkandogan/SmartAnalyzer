@@ -50,6 +50,26 @@ watchlistRoutes.post('/', async (c) => {
 
     await addWatchlistItem(symbol, item);
     logger.info(`Watchlist: added ${symbol}`);
+    
+    // Asynchronously trigger data mining and analysis so UI populates fast
+    (async () => {
+      try {
+        logger.info(`[Watchlist] Triggering async data mining for new symbol: ${symbol}`);
+        await pythonClient.mineTicker(symbol);
+        
+        logger.info(`[Watchlist] Triggering async analysis for new symbol: ${symbol}`);
+        const syncResult = await pythonClient.analyzeTicker(symbol);
+        
+        if (syncResult && syncResult.status === 'success' && syncResult.fundamentals && syncResult.fundamentals.date) {
+           const { addStockAnalysis } = await import('../services/firebase.js');
+           await addStockAnalysis(symbol, syncResult.fundamentals.date, syncResult.fundamentals);
+           logger.info(`[Watchlist] Successfully synced fundamentals for new symbol: ${symbol}`);
+        }
+      } catch (err) {
+        logger.error(`[Watchlist] Async mining/analysis failed for ${symbol}: ${err.message}`);
+      }
+    })();
+    
     return c.json({ success: true, item });
   } catch (error) {
     logger.error(`Watchlist add failed for ${symbol}: ${error.message}`);

@@ -6,6 +6,7 @@ import {
   saveGoalAmountAction,
   getGoalAmountAction,
 } from '@/actions/widget-actions';
+import { useCurrencyConverter } from '@/hooks/useCurrencyConverter';
 
 interface StatCardsProps {
   totalValue: number;
@@ -14,6 +15,7 @@ interface StatCardsProps {
   profitPercentage: number;
   prevTotalValue?: number;
   prevInvested?: number;
+  selectedCurrency?: string;
 }
 
 const GOAL_MILESTONES = [
@@ -27,13 +29,33 @@ export const StatCards: React.FC<StatCardsProps> = ({
   profitPercentage,
   prevTotalValue,
   prevInvested,
+  selectedCurrency = 'USD',
 }) => {
-  const [goalAmount, setGoalAmount] = useState<number>(10000);
+  const [goalAmountUsd, setGoalAmountUsd] = useState<number>(10000);
+  const [localGoal, setLocalGoal] = useState<string>('');
   const [isLoaded, setIsLoaded] = useState(false);
   const { user } = useAuth();
   const { totalDebtUsd } = useDebts();
-  const netLiq = totalValue - totalDebtUsd;
-  const netLiqPercentage = totalValue > 0 ? (netLiq / totalValue) * 100 : 0;
+  const { convert } = useCurrencyConverter();
+
+  const ccy = selectedCurrency;
+  
+  const cTotalValue = convert(totalValue, 'USD', ccy);
+  const cTotalInvested = convert(totalInvested, 'USD', ccy);
+  const cTotalProfit = convert(totalProfit, 'USD', ccy);
+  const cPrevTotalValue = prevTotalValue !== undefined ? convert(prevTotalValue, 'USD', ccy) : undefined;
+  const cTotalDebt = convert(totalDebtUsd, 'USD', ccy);
+
+  const cGoalAmount = convert(goalAmountUsd, 'USD', ccy);
+
+  useEffect(() => {
+    if (isLoaded) {
+      setLocalGoal(Math.round(cGoalAmount).toString());
+    }
+  }, [cGoalAmount, isLoaded]);
+
+  const netLiq = cTotalValue - cTotalDebt;
+  const netLiqPercentage = cTotalValue > 0 ? (netLiq / cTotalValue) * 100 : 0;
 
   useEffect(() => {
     if (!user || isLoaded) return;
@@ -43,12 +65,12 @@ export const StatCards: React.FC<StatCardsProps> = ({
         const goalFromDb = await getGoalAmountAction(user.uid);
 
         if (goalFromDb != null && goalFromDb > 0) {
-          setGoalAmount(goalFromDb);
+          setGoalAmountUsd(goalFromDb);
         } else {
           const nextGoal =
             GOAL_MILESTONES.find((g) => g > totalValue) ||
             GOAL_MILESTONES[GOAL_MILESTONES.length - 1];
-          setGoalAmount(nextGoal);
+          setGoalAmountUsd(nextGoal);
           await saveGoalAmountAction(user.uid, nextGoal);
         }
         setIsLoaded(true);
@@ -61,9 +83,12 @@ export const StatCards: React.FC<StatCardsProps> = ({
   }, [user, totalValue, isLoaded]);
 
   const handleBlur = async () => {
-    if (!user || goalAmount <= 0) return;
+    const val = Number(localGoal);
+    if (!user || val <= 0) return;
     try {
-      await saveGoalAmountAction(user.uid, goalAmount);
+      const valUsd = convert(val, ccy, 'USD');
+      setGoalAmountUsd(valUsd);
+      await saveGoalAmountAction(user.uid, valUsd);
     } catch (error) {
       console.error('Error saving goal amount:', error);
     }
@@ -72,7 +97,9 @@ export const StatCards: React.FC<StatCardsProps> = ({
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD',
+      currency: ccy,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
     }).format(val);
   };
 
@@ -104,8 +131,8 @@ export const StatCards: React.FC<StatCardsProps> = ({
     );
   };
 
-  const safeGoal = goalAmount > 0 ? goalAmount : 1;
-  const goalPercentage = Math.min((totalValue / safeGoal) * 100, 100);
+  const safeGoal = cGoalAmount > 0 ? cGoalAmount : 1;
+  const goalPercentage = Math.min((cTotalValue / safeGoal) * 100, 100);
 
   const progressColor =
     goalPercentage < 25
@@ -121,11 +148,11 @@ export const StatCards: React.FC<StatCardsProps> = ({
       <div className="stat">
         <div className="stat-title font-semibold opacity-70">Total Balance</div>
         <div className="stat-value text-primary text-3xl font-extrabold tracking-tight lg:text-4xl">
-          {formatCurrency(totalValue)}
+          {formatCurrency(cTotalValue)}
         </div>
         <div className="stat-desc mt-1.5 flex flex-col gap-1 w-full font-medium">
-          <div>{renderDiff(totalValue, prevTotalValue)}</div>
-          {totalDebtUsd > 0 && (
+          <div>{renderDiff(cTotalValue, cPrevTotalValue)}</div>
+          {cTotalDebt > 0 && (
             <div
               className={`flex items-center text-xs font-semibold whitespace-nowrap ${netLiq >= 0 ? 'text-success' : 'text-error'}`}
             >
@@ -141,16 +168,16 @@ export const StatCards: React.FC<StatCardsProps> = ({
           Invested Capital
         </div>
         <div className="stat-value text-3xl font-extrabold tracking-tight lg:text-4xl">
-          {formatCurrency(totalInvested)}
+          {formatCurrency(cTotalInvested)}
         </div>
       </div>
 
       <div className="stat">
         <div className="stat-title font-semibold opacity-70">Total P&L</div>
         <div
-          className={`stat-value text-3xl font-extrabold tracking-tight lg:text-4xl ${totalProfit >= 0 ? 'text-success' : 'text-error'}`}
+          className={`stat-value text-3xl font-extrabold tracking-tight lg:text-4xl ${cTotalProfit >= 0 ? 'text-success' : 'text-error'}`}
         >
-          {formatCurrency(totalProfit)}
+          {formatCurrency(cTotalProfit)}
         </div>
         <div className="stat-desc mt-1 flex w-full flex-row items-center justify-between">
           <span
@@ -165,12 +192,12 @@ export const StatCards: React.FC<StatCardsProps> = ({
         <div className="stat-title flex items-center justify-between font-semibold opacity-70">
           <span>Goal Target</span>
           <div className="flex items-center gap-1">
-            <span className="text-xs opacity-50">$</span>
+            <span className="text-xs opacity-50">{ccy === 'USD' ? '$' : ccy === 'EUR' ? '€' : '₺'}</span>
             <input
               type="number"
               className="input input-ghost input-xs focus:text-primary h-6 w-24 [appearance:textfield] pr-3 text-right font-bold focus:bg-transparent [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-              value={goalAmount}
-              onChange={(e) => setGoalAmount(Number(e.target.value))}
+              value={localGoal}
+              onChange={(e) => setLocalGoal(e.target.value)}
               onBlur={handleBlur}
             />
           </div>

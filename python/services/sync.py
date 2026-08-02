@@ -142,10 +142,10 @@ class SyncService:
         
         now = datetime.utcnow()
         # Skip weekends (5 = Saturday, 6 = Sunday)
-        if now.weekday() >= 5:
-            result["status"] = "skipped"
-            result["messages"].append("Skipped sync on weekend.")
-            return result
+        # if now.weekday() >= 5:
+        #     result["status"] = "skipped"
+        #     result["messages"].append("Skipped sync on weekend.")
+        #     return result
         
         # 1. Determine how much history to fetch
         watchlist_record = db.query(Watchlist).filter(Watchlist.symbol == symbol).first()
@@ -350,6 +350,38 @@ class SyncService:
             fund_record.revenue_growth_yoy = fund_data.get("revenue_growth")
             fund_record.short_interest_pct = fund_data.get("short_pct_float")
             
+            # Save the missing fields
+            fund_record.market_cap = fund_data.get("market_cap")
+            fund_record.beta = fund_data.get("beta")
+            fund_record.eps = fund_data.get("eps")
+            fund_record.forward_eps = fund_data.get("forward_eps")
+            fund_record.dividend_yield = fund_data.get("dividend_yield")
+            fund_record.profit_margin = fund_data.get("profit_margin")
+            fund_record.operating_margin = fund_data.get("operating_margin")
+            fund_record.gross_margin = fund_data.get("gross_margin")
+            fund_record.ev_to_ebitda = fund_data.get("ev_to_ebitda")
+            fund_record.current_ratio = fund_data.get("current_ratio")
+            fund_record.de_ratio = fund_data.get("de_ratio")
+            fund_record.payout_ratio = fund_data.get("payout_ratio")
+            fund_record.ebitda = fund_data.get("ebitda")
+            fund_record.free_cashflow = fund_data.get("free_cashflow")
+            fund_record.operating_cashflow = fund_data.get("operating_cashflow")
+            fund_record.fcf_growth_yoy = fund_data.get("fcf_growth_yoy")
+            fund_record.net_debt = fund_data.get("net_debt")
+            fund_record.net_debt_to_ebitda = fund_data.get("net_debt_to_ebitda")
+            fund_record.sma_200 = fund_data.get("sma_200")
+            fund_record.sector = fund_data.get("sector")
+            fund_record.industry = fund_data.get("industry")
+            fund_record.performance_1y = fund_data.get("performance_1y")
+            
+            # New Value Investing fields
+            fund_record.revenue_cagr_5y = fund_data.get("revenue_cagr_5y")
+            fund_record.net_income_cagr_5y = fund_data.get("net_income_cagr_5y")
+            fund_record.target_mean_price = fund_data.get("target_mean_price")
+            fund_record.target_high_price = fund_data.get("target_high_price")
+            fund_record.earnings_growth_fwd = fund_data.get("earnings_growth")
+            fund_record.revenue_growth_fwd = fund_data.get("revenue_growth")
+            
             db.commit()
             result["messages"].append("Fundamentals updated.")
             
@@ -390,6 +422,10 @@ class SyncService:
                 "week52_low": fund_data.get("week52_low"),
                 "rsi": rsi,
                 "iv": fund_record.iv * 100 if fund_record.iv is not None else None,
+                "revenue_cagr_5y": fund_record.revenue_cagr_5y,
+                "net_income_cagr_5y": fund_record.net_income_cagr_5y,
+                "target_mean_price": fund_record.target_mean_price,
+                "target_high_price": fund_record.target_high_price,
             }
             
             # Replace float('nan') or float('inf') or pd.isna values with None to prevent FastAPI serialization errors

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useMemo, useEffect } from 'react';
+import { useState, useRef, useMemo } from 'react';
+import useSWR from 'swr';
 import { useAuth } from '@/context/AuthProvider';
 import {
   addOptionAction,
@@ -172,10 +173,23 @@ const calculateChange = (opt: OptionPosition) => {
 export default function OptionManager() {
   const { user } = useAuth();
   const modalRef = useRef<HTMLDialogElement>(null);
+  const infoModalRef = useRef<HTMLDialogElement>(null);
 
-  const [options, setOptions] = useState<OptionPosition[]>([]);
-  const [ibkrSummary, setIbkrSummary] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data, mutate, isLoading } = useSWR(
+    user ? ['options-data', user.uid] : null,
+    async ([_, uid]) => {
+      const [optionsData, summaryData] = await Promise.all([
+        getOptionsAction(uid),
+        getIBKRSummaryAction(uid)
+      ]);
+      return { options: optionsData, summary: summaryData };
+    },
+    { revalidateOnFocus: true }
+  );
+
+  const options = data?.options || [];
+  const ibkrSummary = data?.summary || null;
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('');
@@ -209,31 +223,6 @@ export default function OptionManager() {
     expiry_date: '',
   });
 
-  const loadOptions = async () => {
-    if (!user) return;
-    setIsLoading(true);
-    const data = await getOptionsAction(user.uid);
-    setOptions(data);
-    const summary = await getIBKRSummaryAction(user.uid);
-    setIbkrSummary(summary);
-    setIsLoading(false);
-  };
-
-  useEffect(() => {
-    loadOptions();
-  }, [user]);
-
-  // Refresh data when user returns to the tab
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        loadOptions();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () =>
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [user]);
 
   const filteredOptions = useMemo(() => {
     let result = [...options];
@@ -440,7 +429,7 @@ export default function OptionManager() {
     }
 
     if (res.success) {
-      loadOptions();
+      mutate();
       handleCloseModal();
     } else {
       alert('Error: ' + res.message);
@@ -451,7 +440,7 @@ export default function OptionManager() {
   const handleDelete = async (id: string) => {
     if (!user || !confirm('Are you sure?')) return;
     await deleteOptionAction(user.uid, id);
-    loadOptions();
+    mutate();
   };
 
   // Removed local calculateChange (moved outside component scope)

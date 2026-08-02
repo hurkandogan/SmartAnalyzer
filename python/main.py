@@ -611,6 +611,28 @@ async def analyze_ticker(symbol: str, db: Session = Depends(get_db)):
             "revenue_growth": fund_record.revenue_growth_yoy,
             "short_interest_pct": fund_record.short_interest_pct,
             "iv": fund_record.iv * 100 if fund_record.iv is not None else None,
+            "market_cap": fund_record.market_cap,
+            "beta": fund_record.beta,
+            "eps": fund_record.eps,
+            "forward_eps": fund_record.forward_eps,
+            "dividend_yield": fund_record.dividend_yield,
+            "profit_margin": fund_record.profit_margin,
+            "operating_margin": fund_record.operating_margin,
+            "gross_margin": fund_record.gross_margin,
+            "ev_to_ebitda": fund_record.ev_to_ebitda,
+            "current_ratio": fund_record.current_ratio,
+            "de_ratio": fund_record.de_ratio,
+            "payout_ratio": fund_record.payout_ratio,
+            "ebitda": fund_record.ebitda,
+            "free_cashflow": fund_record.free_cashflow,
+            "operating_cashflow": fund_record.operating_cashflow,
+            "fcf_growth_yoy": fund_record.fcf_growth_yoy,
+            "net_debt": fund_record.net_debt,
+            "net_debt_to_ebitda": fund_record.net_debt_to_ebitda,
+            "sma_200": fund_record.sma_200,
+            "sector": fund_record.sector,
+            "industry": fund_record.industry,
+            "performance_1y": fund_record.performance_1y,
             "cross_signal": cross_signal
         },
         "comments": insights_html if insights_html else None
@@ -676,149 +698,148 @@ async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db
     from database.models import Candle, Fundamental
     
     # ── Step 1: Scan and score watchlist ──
-    scored_symbols = []
+    fundamental_symbols = []
+    value_symbols = []
+    
     for symbol in request.watchlist:
         symbol = symbol.upper()
         
-        # Check if report was generated in last 30 days
-        if not request.force_scan:
-            from datetime import datetime, timedelta
-            from database.models import GeneratedReportLog
-            
-            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-            recent_report = db.query(GeneratedReportLog).filter(
-                GeneratedReportLog.symbol == symbol,
-                GeneratedReportLog.generated_at >= thirty_days_ago
-            ).first()
-            
-            if recent_report:
-                logger.info(f"[Scanner] Skipping {symbol} because a report was already generated on {recent_report.generated_at.strftime('%Y-%m-%d')}")
-                continue
-
         logger.info(f"[Scanner] Scanning {symbol}...")
         try:
             candles = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.date.desc()).limit(250).all()
             if not candles:
-                # Fallback to yahoo
                 candles_data = yahoo_service.get_historical_candles(symbol)
             else:
                 candles.reverse()
-                candles_data = [
-                    {
-                        "date": c.date.strftime("%Y-%m-%d"),
-                        "open": c.open,
-                        "high": c.high,
-                        "low": c.low,
-                        "close": c.close,
-                        "volume": c.volume
-                    } for c in candles
-                ]
+                candles_data = [{"date": c.date.strftime("%Y-%m-%d"), "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in candles]
                 
             if not candles_data or len(candles_data) < 20:
-                logger.warning(f"[Scanner] Not enough candle data for {symbol}. Skipping.")
                 continue
                 
             closes = [c["close"] for c in candles_data]
             rsi = analytics_service.compute_rsi(closes)
             crosses = analytics_service.detect_crosses(closes)
             
-            # Fetch latest fundamental record
             fund = db.query(Fundamental).filter(Fundamental.symbol == symbol).order_by(Fundamental.date.desc()).first()
             rvol = fund.rvol if fund else 1.0
             iv = fund.iv if (fund and fund.iv) else 0.0
             
-            # Scoring logic (Golden Cross, Extreme RSI, RVOL, High IV)
-            score = 0
-            if crosses["golden_cross"]: score += 12
-            elif crosses["gc_coming"]: score += 8
-            if crosses["death_cross"]: score += 6
-            elif crosses["dc_coming"]: score += 4
+            # --- Fundamental Scoring ---
+            f_score = 0
+            if crosses["golden_cross"]: f_score += 12
+            elif crosses["gc_coming"]: f_score += 8
+            if crosses["death_cross"]: f_score += 6
+            elif crosses["dc_coming"]: f_score += 4
             
             if rsi is not None:
-                if rsi <= 30: score += 12
-                elif rsi <= 40: score += 8
-                elif rsi <= 45: score += 4
-                elif rsi >= 70: score += 8
-                elif rsi >= 60: score += 4
+                if rsi <= 30: f_score += 12
+                elif rsi <= 40: f_score += 8
+                elif rsi <= 45: f_score += 4
+                elif rsi >= 70: f_score += 8
+                elif rsi >= 60: f_score += 4
                 
             if rvol is not None:
-                if rvol >= 1.8: score += 6
-                elif rvol >= 1.3: score += 3
-
+                if rvol >= 1.8: f_score += 6
+                elif rvol >= 1.3: f_score += 3
             if iv is not None:
-                if iv >= 0.60: score += 10
-                elif iv >= 0.40: score += 6
-                elif iv >= 0.30: score += 3
+                if iv >= 0.60: f_score += 10
+                elif iv >= 0.40: f_score += 6
+                elif iv >= 0.30: f_score += 3
                 
-            scored_symbols.append({
-                "symbol": symbol,
-                "score": score,
-                "candles": candles_data,
-                "rsi": rsi,
-                "rvol": rvol,
-                "iv": iv,
-                "crosses": crosses,
-                "last_price": closes[-1]
+            fundamental_symbols.append({
+                "symbol": symbol, "score": f_score, "candles": candles_data, "rsi": rsi, "rvol": rvol, "iv": iv, "crosses": crosses, "last_price": closes[-1]
             })
-            logger.info(f"[Scanner] Scored {symbol}: {score}")
+            
+            # --- Value Scoring ---
+            v_score = 0
+            if fund:
+                # 1. Consistent Growth
+                if fund.revenue_cagr_5y and fund.revenue_cagr_5y > 0.05: v_score += 10
+                if fund.net_income_cagr_5y and fund.net_income_cagr_5y > 0.05: v_score += 10
+                if fund.revenue_growth_fwd and fund.revenue_growth_fwd > 0.05: v_score += 5
+                if fund.earnings_growth_fwd and fund.earnings_growth_fwd > 0.05: v_score += 5
+                
+                # 2. Profitability
+                if fund.roic and fund.roic > 0.10: v_score += 10
+                
+                # 3. Market Mispricing (Price Drop or Underperformance)
+                last_price = closes[-1]
+                if fund.target_mean_price and last_price < fund.target_mean_price * 0.85: v_score += 15 # 15% below target
+                if rsi is not None and rsi < 40: v_score += 10 # Oversold
+                
+                if v_score >= 30: # Only consider if there's actual value potential
+                    value_symbols.append({
+                        "symbol": symbol, "score": v_score, "candles": candles_data, "rsi": rsi, "rvol": rvol, "iv": iv, "crosses": crosses, "last_price": last_price
+                    })
+                    
         except Exception as e:
             logger.error(f"[Scanner] Error scanning {symbol}: {e}")
             
-    # Sort and pick top 2 unconditionally to ensure daily reports are sent
-    scored_symbols.sort(key=lambda x: x["score"], reverse=True)
-    top_symbols = scored_symbols[:2]
+    # Sort
+    fundamental_symbols.sort(key=lambda x: x["score"], reverse=True)
+    value_symbols.sort(key=lambda x: x["score"], reverse=True)
     
-    # ── Step 2: Generate PDF Reports and Send to Public Telegram ──
+    top_fundamental = fundamental_symbols[:2]
+    top_value = value_symbols[:2]
+    
+    # ── Step 2: Generate Reports and Send to Telegram ──
     generated_pdfs = []
     tele_pub = TelegramService()
     
-    for item in top_symbols:
+    from datetime import datetime, timedelta
+    from database.models import GeneratedReportLog
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    
+    async def process_report(item, scan_type, label):
         symbol = item["symbol"]
-        logger.info(f"[Scanner] Generating PDF Report for {symbol} (Score: {item['score']})...")
+        
+        if not request.force_scan:
+            recent_report = db.query(GeneratedReportLog).filter(
+                GeneratedReportLog.symbol == symbol,
+                GeneratedReportLog.scan_type == scan_type,
+                GeneratedReportLog.generated_at >= thirty_days_ago
+            ).first()
+            if recent_report:
+                logger.info(f"[Scanner] Skipping {scan_type} report for {symbol} (already generated recently).")
+                return
+                
+        logger.info(f"[Scanner] Generating {label} PDF Report for {symbol} (Score: {item['score']})...")
         try:
-            # Fetch yfinance news and earnings date
             news = yahoo_service.get_ticker_news(symbol)
             earnings_date = yahoo_service.get_earnings_date(symbol)
             closes = [c["close"] for c in item["candles"]]
             df_candles = pd.DataFrame(item["candles"])
             
-            # Technical stats
             tech_data = {
-                "last_price": item["last_price"],
-                "rsi": item["rsi"],
-                "rvol": item["rvol"],
+                "last_price": item["last_price"], "rsi": item["rsi"], "rvol": item["rvol"],
                 "atr": compute_atr(df_candles, 14),
                 "sma20": analytics_service.compute_sma(closes, 20),
                 "sma50": analytics_service.compute_sma(closes, 50),
                 "sma200": analytics_service.compute_sma(closes, 200),
                 "gc_coming": item["crosses"]["gc_coming"],
                 "dc_coming": item["crosses"]["dc_coming"],
-                "iv": item["iv"]
+                "iv": item["iv"],
+                "scan_type": scan_type
             }
             
-            # Generate AI Wall Street commentary
             ai_comment = await generate_stock_analysis(symbol, tech_data, news)
-            
-            # Generate report
             pdf_path = generate_pdf_report(symbol, item["candles"], iv_history=[], ai_comment=ai_comment, earnings_date=earnings_date)
             generated_pdfs.append(pdf_path)
             
-            # Send Document to Telegram
-            caption = f"📊 **{symbol} Günlük Analiz Raporu**\n\nSinyal gücü yüksek hissemizin detaylı analizi ektedir."
+            caption = f"📊 **{symbol} Günlük {label} Raporu**\n\nSinyal gücü yüksek hissemizin detaylı analizi ektedir."
             await tele_pub.send_document(pdf_path, caption=caption)
-            logger.info(f"[Scanner] Report sent for {symbol}")
-
-            # Record report generation in DB
-            from datetime import datetime
-            from database.models import GeneratedReportLog
-            report_log = GeneratedReportLog(
-                symbol=symbol,
-                generated_at=datetime.utcnow()
-            )
+            
+            report_log = GeneratedReportLog(symbol=symbol, generated_at=datetime.utcnow(), scan_type=scan_type)
             db.add(report_log)
             db.commit()
         except Exception as e:
-            logger.error(f"[Scanner] Failed to generate/send report for {symbol}: {e}")
+            logger.error(f"[Scanner] Failed {scan_type} report for {symbol}: {e}")
+
+    for item in top_fundamental:
+        await process_report(item, "FUNDAMENTAL", "Teknik Analiz")
+        
+    for item in top_value:
+        await process_report(item, "VALUE", "Değer/Büyüme")
             
     # ── Step 3: Run Portfolio Risk Analysis and Send Private Telegram ──
     # ONLY run this on Monday (weekday() == 0) unless force_risk is True
@@ -851,10 +872,61 @@ async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db
             
     return {
         "status": "success",
-        "processed_watchlist_count": len(scored_symbols),
-        "top_symbols_selected": [x["symbol"] for x in top_symbols],
+        "processed_watchlist_count": len(fundamental_symbols) + len(value_symbols),
+        "top_symbols_selected": [x["symbol"] for x in top_fundamental] + [x["symbol"] for x in top_value],
         "generated_pdf_count": len(generated_pdfs)
     }
+
+@app.get("/api/screener/value")
+async def get_value_screener(db: Session = Depends(get_db)):
+    """Fetch value investing opportunities"""
+    from database.models import Fundamental, Candle
+    from sqlalchemy import func
+    
+    # Get latest date for fundamentals
+    latest_date_query = db.query(func.max(Fundamental.date)).scalar()
+    
+    if not latest_date_query:
+        return []
+        
+    records = db.query(Fundamental).filter(Fundamental.date == latest_date_query).all()
+    
+    results = []
+    for fund in records:
+        # Calculate a value score
+        score = 0
+        if fund.revenue_cagr_5y and fund.revenue_cagr_5y > 0.05: score += 1
+        if fund.net_income_cagr_5y and fund.net_income_cagr_5y > 0.05: score += 1
+        if fund.revenue_growth_fwd and fund.revenue_growth_fwd > 0.05: score += 1
+        if fund.earnings_growth_fwd and fund.earnings_growth_fwd > 0.05: score += 1
+        if fund.roic and fund.roic > 0.10: score += 1
+        
+        # Get latest price
+        latest_candle = db.query(Candle).filter(Candle.symbol == fund.symbol).order_by(Candle.date.desc()).first()
+        last_price = latest_candle.close if latest_candle else None
+        
+        if fund.target_mean_price and last_price and last_price < fund.target_mean_price * 0.90:
+            score += 2 # Strong price disconnect
+            
+        if score >= 3:
+            results.append({
+                "symbol": fund.symbol,
+                "score": score,
+                "revenue_cagr_5y": fund.revenue_cagr_5y,
+                "net_income_cagr_5y": fund.net_income_cagr_5y,
+                "revenue_growth_fwd": fund.revenue_growth_fwd,
+                "earnings_growth_fwd": fund.earnings_growth_fwd,
+                "roic": fund.roic,
+                "pe": fund.pe,
+                "forward_pe": fund.forward_pe,
+                "target_mean_price": fund.target_mean_price,
+                "last_price": last_price,
+                "rsi": fund.rsi
+            })
+            
+    # Sort by score descending
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results
 
 class OptionsSignalsRequest(BaseModel):
     watchlist: List[str]

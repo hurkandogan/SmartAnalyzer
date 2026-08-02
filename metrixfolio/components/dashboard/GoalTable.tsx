@@ -1,7 +1,7 @@
 'use client';
 
-import { formatCurrency } from '@/utils/functions';
 import { FC, useEffect, useState, useRef } from 'react';
+import { useCurrencyConverter } from '@/hooks/useCurrencyConverter';
 import {
   FiCheckCircle,
   FiTarget,
@@ -19,12 +19,27 @@ import { useAuth } from '@/context/AuthProvider';
 
 interface GoalTableProps {
   currentValue: number;
+  selectedCurrency?: string;
 }
 
-export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
+export const GoalTable: FC<GoalTableProps> = ({ currentValue, selectedCurrency = 'USD' }) => {
   const { user } = useAuth();
   const activeRowRef = useRef<HTMLTableRowElement>(null);
   const settingsModalRef = useRef<HTMLDialogElement>(null);
+
+  const { convert } = useCurrencyConverter();
+  const ccy = selectedCurrency;
+  
+  const formatCcy = (val: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: ccy,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(val);
+  };
+
+  const cCurrentValue = convert(currentValue, 'USD', ccy);
 
   const [config, setConfig] = useState<GrowthWidgetData>({
     growthRate: 10,
@@ -52,7 +67,7 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
       setConfig(data);
       setEditForm({
         growthRate: data.growthRate.toString(),
-        baseAmount: (data.baseAmount ?? 1000).toString(),
+        baseAmount: Math.round(convert(data.baseAmount ?? 1000, 'USD', ccy)).toString(),
       });
     } else {
       // Auto-create default config for new users
@@ -62,6 +77,12 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
       });
     }
   };
+
+  useEffect(() => {
+    if (user) {
+      loadData();
+    }
+  }, [user, ccy]);
 
   useEffect(() => {
     if (!user || currentValue <= 0) return;
@@ -81,7 +102,7 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
 
   useEffect(() => {
     const rows = [];
-    const baseVal = config.baseAmount ?? 1000;
+    const baseVal = convert(config.baseAmount ?? 1000, 'USD', ccy);
     const rate = (config.growthRate || 10) / 100;
 
     // Cannot compute compound growth from 0
@@ -91,9 +112,9 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
     }
 
     let activeStep = 1;
-    if (currentValue > baseVal) {
+    if (cCurrentValue > baseVal) {
       activeStep =
-        Math.floor(Math.log(currentValue / baseVal) / Math.log(1 + rate)) + 1;
+        Math.floor(Math.log(cCurrentValue / baseVal) / Math.log(1 + rate)) + 1;
     }
 
     const startStep = Math.max(1, activeStep - 5);
@@ -113,7 +134,7 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
       });
     }
     setTableData(rows);
-  }, [config, currentValue]);
+  }, [config, cCurrentValue, ccy]);
 
   useEffect(() => {
     if (activeRowRef.current) {
@@ -131,7 +152,7 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
 
     const res = await saveGrowthSettingsAction(user.uid, {
       growthRate: parseFloat(editForm.growthRate),
-      baseAmount: parseFloat(editForm.baseAmount),
+      baseAmount: convert(parseFloat(editForm.baseAmount), ccy, 'USD'),
     });
 
     if (res.success) {
@@ -162,7 +183,7 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
             <div className="form-control">
               <label className="label">
                 <span className="label-text font-bold">
-                  Starting Principal ($)
+                  Starting Principal ({ccy === 'USD' ? '$' : ccy === 'EUR' ? '€' : '₺'})
                 </span>
               </label>
               <input
@@ -260,17 +281,17 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
           </thead>
           <tbody>
             {tableData.map((row) => {
-              const isCompleted = currentValue >= row.end;
+              const isCompleted = cCurrentValue >= row.end;
               const isActive =
-                currentValue >= row.start && currentValue < row.end;
-              const gap = row.end - currentValue;
+                cCurrentValue >= row.start && cCurrentValue < row.end;
+              const gap = row.end - cCurrentValue;
 
               const stepProgress = isActive
                 ? Math.min(
                     100,
                     Math.max(
                       0,
-                      ((currentValue - row.start) / (row.end - row.start)) *
+                      ((cCurrentValue - row.start) / (row.end - row.start)) *
                         100,
                     ),
                   )
@@ -300,11 +321,11 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
                   }
                 >
                   <td className="font-bold opacity-50">{row.step}</td>
-                  <td className="font-mono">{formatCurrency(row.start)}</td>
+                  <td className="font-mono">{formatCcy(row.start)}</td>
                   <td
                     className={`font-mono font-bold ${isCompleted ? 'text-success' : ''}`}
                   >
-                    {formatCurrency(row.end)}
+                    {formatCcy(row.end)}
                   </td>
                   <td className="w-32 align-middle">
                     {isActive ? (
@@ -329,7 +350,7 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue }) => {
                   <td>
                     {isActive ? (
                       <span className="badge badge-sm badge-warning font-mono whitespace-nowrap">
-                        {formatCurrency(gap)} left
+                        {formatCcy(gap)} left
                       </span>
                     ) : isCompleted ? (
                       <span className="text-success text-xs font-bold">

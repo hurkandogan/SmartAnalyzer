@@ -2,23 +2,23 @@ import { ExchangeRate } from '@/actions/currency';
 
 export class CurrencyConverter {
   private rates: ExchangeRate[];
-  private baseCurrency: string = 'EUR'; // IBKR'ın temel para birimi genelde EUR sende
+  private baseCurrency: string = 'USD'; 
 
   constructor(rates: ExchangeRate[]) {
     this.rates = rates;
   }
 
-  // Belirli bir paranın Base Currency (EUR) karşılığını bulur
+  // Belirli bir paranın Base Currency (USD) karşılığını bulur
   private getRateToBase(currency: string): number {
     if (currency === this.baseCurrency) return 1;
 
-    // Örn: USD -> EUR oranını ara
+    // Örn: TRY -> USD oranını ara
     const direct = this.rates.find(
       (r) => r.from === currency && r.to === this.baseCurrency,
     );
     if (direct) return direct.rate;
 
-    // Tersini ara (EUR -> USD varsa)
+    // Tersini ara (USD -> TRY varsa)
     const inverse = this.rates.find(
       (r) => r.from === this.baseCurrency && r.to === currency,
     );
@@ -31,10 +31,10 @@ export class CurrencyConverter {
     if (amount === 0) return 0;
     if (from === target) return amount;
 
-    // 1. Önce Base Currency'e (EUR) çevir
+    // 1. Önce Base Currency'e (USD) çevir
     const rateFrom = this.getRateToBase(from);
 
-    // 2. Sonra Hedef Currency'e (USD) çevir
+    // 2. Sonra Hedef Currency'e çevir
     const rateTarget = this.getRateToBase(target);
 
     if (rateFrom === 0 || rateTarget === 0) {

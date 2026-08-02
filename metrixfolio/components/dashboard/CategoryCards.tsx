@@ -2,7 +2,7 @@
 
 import { FC, useState, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { formatCurrency } from '@/utils/functions';
+import { useCurrencyConverter } from '@/hooks/useCurrencyConverter';
 import {
   FiArrowUp,
   FiArrowDown,
@@ -11,15 +11,11 @@ import {
   FiActivity,
   FiPieChart,
 } from 'react-icons/fi';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from 'recharts';
+import dynamic from 'next/dynamic';
+
+const CategoryChart = dynamic(() => import('./charts/CategoryChart'), {
+  ssr: false,
+});
 import { PortfolioHistory } from '@/types/history';
 
 interface CategoryData {
@@ -34,16 +30,30 @@ interface CategoryData {
 interface CategoryCardsProps {
   categories: CategoryData[];
   history: PortfolioHistory[];
+  selectedCurrency?: string;
 }
 
 export const CategoryCards: FC<CategoryCardsProps> = ({
   categories,
   history,
+  selectedCurrency = 'USD',
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<CategoryData | null>(
     null,
   );
   const modalRef = useRef<HTMLDialogElement>(null);
+  
+  const { convert } = useCurrencyConverter();
+  const ccy = selectedCurrency;
+  
+  const formatCcy = (val: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: ccy,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(val);
+  };
 
   const handleCardClick = (cat: CategoryData) => {
     setSelectedCategory(cat);
@@ -63,7 +73,7 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
             month: 'short',
             day: 'numeric',
           }),
-          value: alloc ? alloc.value : 0,
+          value: alloc ? convert(alloc.value, 'USD', ccy) : 0,
           fullDate: day.date,
         };
       })
@@ -91,40 +101,7 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
 
               <div className="mt-4 h-75 w-full">
                 {chartData.length > 1 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        vertical={false}
-                        opacity={0.3}
-                      />
-                      <XAxis
-                        dataKey="date"
-                        tick={{ fontSize: 12 }}
-                        minTickGap={30}
-                      />
-                      <YAxis
-                        tick={{ fontSize: 12 }}
-                        tickFormatter={(val) => `$${val}`}
-                        width={60}
-                      />
-                      <Tooltip
-                        formatter={(value: any) => [
-                          formatCurrency(value),
-                          'Value',
-                        ]}
-                        labelStyle={{ color: 'black' }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="value"
-                        stroke={selectedCategory.color || '#3ABFF8'}
-                        strokeWidth={3}
-                        dot={false}
-                        activeDot={{ r: 6 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <CategoryChart chartData={chartData} color={selectedCategory.color || '#3ABFF8'} />
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center opacity-50">
                     <FiPieChart className="mb-2 text-4xl" />
@@ -137,7 +114,7 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
                 <div className="bg-base-200/50 backdrop-blur-sm rounded-lg p-3 border border-base-content/5">
                   <div className="opacity-60">Current Value</div>
                   <div className="text-xl font-bold">
-                    {formatCurrency(selectedCategory.value)}
+                    {formatCcy(convert(selectedCategory.value, 'USD', ccy))}
                   </div>
                 </div>
                 <div className="bg-base-200/50 backdrop-blur-sm rounded-lg p-3 border border-base-content/5">
@@ -191,8 +168,11 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
           const prevAlloc = lastHistory?.allocation.find(
             (a) => a.category_id === cat.id,
           );
-          const dailyPnl = prevAlloc ? cat.value - prevAlloc.value : 0;
-          const isProfit = dailyPnl >= 0;
+          
+          const cCatValue = convert(cat.value, 'USD', ccy);
+          const cPrevAllocVal = prevAlloc ? convert(prevAlloc.value, 'USD', ccy) : 0;
+          const cDailyPnl = prevAlloc ? cCatValue - cPrevAllocVal : 0;
+          const isProfit = cDailyPnl >= 0;
 
           if (!isUncategorized) {
             if (isShortCategory) {
@@ -248,7 +228,7 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
                   <p className="text-sm opacity-80">
                     You have{' '}
                     <span className="font-bold">
-                      {formatCurrency(cat.value)}
+                      {formatCcy(cCatValue)}
                     </span>{' '}
                     in uncategorized assets.
                   </p>
@@ -282,11 +262,11 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
                     </div>
                   </div>
                   <span className="text-2xl font-extrabold tracking-tight">
-                    {formatCurrency(cat.value)}
+                    {formatCcy(cCatValue)}
                   </span>
                   {prevAlloc && (
                     (() => {
-                      const pct = prevAlloc.value !== 0 ? (dailyPnl / Math.abs(prevAlloc.value)) * 100 : 0;
+                      const pct = prevAlloc.value !== 0 ? (cDailyPnl / Math.abs(cPrevAllocVal)) * 100 : 0;
                       return (
                         <div
                           className={`flex items-center text-xs font-bold ${isProfit ? 'text-success' : 'text-error'} mt-1`}
@@ -296,7 +276,7 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
                           ) : (
                             <FiArrowDown className="mr-1" />
                           )}
-                          {formatCurrency(Math.abs(dailyPnl))} ({isProfit ? '+' : ''}{pct.toFixed(2)}%)
+                          {formatCcy(Math.abs(cDailyPnl))} ({isProfit ? '+' : ''}{pct.toFixed(2)}%)
                         </div>
                       );
                     })()

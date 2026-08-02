@@ -1,35 +1,24 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import useSWR from 'swr';
 import { getHeatmapAction } from '@/actions/screener';
 import Link from 'next/link';
 import SwingSignals from './components/SwingSignals';
 
 import HighScoreOpportunities from './components/HighScoreOpportunities';
+import ValueOpportunities from './components/ValueOpportunities';
 
 export default function ScreenerPage() {
-  const [sectorData, setSectorData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    setIsLoading(true);
-    try {
+  const [activeTab, setActiveTab] = useState<'fundamental' | 'value' | 'swing'>('fundamental');
+  const { data: sectorData, isLoading } = useSWR(
+    'heatmap-data',
+    async () => {
       const data = await getHeatmapAction();
-      if (Array.isArray(data)) {
-        setSectorData(data);
-      } else {
-        setSectorData([]);
-      }
-    } catch (err) {
-      console.error(err);
-      setSectorData([]);
-    }
-    setIsLoading(false);
-  };
+      return Array.isArray(data) ? data : [];
+    },
+    { revalidateOnFocus: true }
+  );
 
   if (isLoading) {
     return (
@@ -39,6 +28,8 @@ export default function ScreenerPage() {
       </div>
     );
   }
+
+  const data = sectorData || [];
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-full pb-10">
@@ -51,13 +42,13 @@ export default function ScreenerPage() {
         </div>
       </div>
 
-      {sectorData.length === 0 ? (
+      {data.length === 0 ? (
         <div className="alert alert-info shadow-lg mt-8">
           <span>No sector data available yet. Background sync is running.</span>
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 mt-8">
-          {sectorData
+          {data
             .sort((a, b) => b.performance_1y - a.performance_1y)
             .map((sector) => {
               const isPos1Y = sector.performance_1y >= 0;
@@ -104,8 +95,34 @@ export default function ScreenerPage() {
         </div>
       )}
       
-      <HighScoreOpportunities />
-      <SwingSignals />
+      <div className="mt-12">
+        <div className="tabs tabs-boxed mb-6 p-1 bg-base-200/50 inline-flex rounded-full">
+          <button 
+            className={`tab rounded-full px-6 transition-all font-semibold ${activeTab === 'fundamental' ? 'tab-active bg-primary text-primary-content shadow-sm' : ''}`}
+            onClick={() => setActiveTab('fundamental')}
+          >
+            Fundamental
+          </button>
+          <button 
+            className={`tab rounded-full px-6 transition-all font-semibold ${activeTab === 'value' ? 'tab-active bg-primary text-primary-content shadow-sm' : ''}`}
+            onClick={() => setActiveTab('value')}
+          >
+            Value / Growth
+          </button>
+          <button 
+            className={`tab rounded-full px-6 transition-all font-semibold ${activeTab === 'swing' ? 'tab-active bg-primary text-primary-content shadow-sm' : ''}`}
+            onClick={() => setActiveTab('swing')}
+          >
+            Swing
+          </button>
+        </div>
+
+        <div className="animate-fade-in">
+          {activeTab === 'fundamental' && <HighScoreOpportunities />}
+          {activeTab === 'value' && <ValueOpportunities />}
+          {activeTab === 'swing' && <SwingSignals />}
+        </div>
+      </div>
     </div>
   );
 }

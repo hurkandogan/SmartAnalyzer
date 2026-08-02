@@ -54,9 +54,15 @@ class Fundamental(Base):
     
     # Growth
     revenue_growth_yoy = Column(Float, nullable=True)
+    revenue_cagr_5y = Column(Float, nullable=True)
+    net_income_cagr_5y = Column(Float, nullable=True)
+    revenue_growth_fwd = Column(Float, nullable=True)
+    earnings_growth_fwd = Column(Float, nullable=True)
     
-    # Sentiment / Short Interest
+    # Sentiment / Short Interest / Estimates
     short_interest_pct = Column(Float, nullable=True)
+    target_mean_price = Column(Float, nullable=True)
+    target_high_price = Column(Float, nullable=True)
 
     # Screener & Heatmap additions
     market_cap = Column(Float, nullable=True)
@@ -72,6 +78,18 @@ class Fundamental(Base):
     industry = Column(String(100), nullable=True)
     score = Column(Integer, nullable=True)
     performance_1y = Column(Float, nullable=True)
+
+    # Added to fix missing Metrixfolio data
+    eps = Column(Float, nullable=True)
+    forward_eps = Column(Float, nullable=True)
+    dividend_yield = Column(Float, nullable=True)
+    profit_margin = Column(Float, nullable=True)
+    operating_margin = Column(Float, nullable=True)
+    gross_margin = Column(Float, nullable=True)
+    ev_to_ebitda = Column(Float, nullable=True)
+    current_ratio = Column(Float, nullable=True)
+    de_ratio = Column(Float, nullable=True)
+    payout_ratio = Column(Float, nullable=True)
 
     __table_args__ = (
         UniqueConstraint('symbol', 'date', name='uq_fundamental_symbol_date'),
@@ -118,6 +136,7 @@ class GeneratedReportLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String(20), nullable=False, index=True)
     generated_at = Column(DateTime, nullable=False, index=True)
+    scan_type = Column(String(50), nullable=True) # FUNDAMENTAL, VALUE, SWING
 
 class OptionSignalLog(Base):
     __tablename__ = "option_signal_logs"
