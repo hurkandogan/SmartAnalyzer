@@ -6,6 +6,8 @@ export interface WatchlistItem {
   industry: string;
   currency: string;
   added_at: string;
+  last_price?: number | null;
+  iv?: number | null;
 }
 
 export interface WatchlistComment {

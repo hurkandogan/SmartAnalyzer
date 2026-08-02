@@ -13,7 +13,7 @@ const WATCHLIST_COLLECTION = 'watchlist';
 export async function getWatchlistAction(): Promise<WatchlistItem[]> {
   const snapshot = await adminDb.collection(WATCHLIST_COLLECTION).get();
 
-  return snapshot.docs.map((doc) => {
+  const watchlistItems = snapshot.docs.map((doc) => {
     const data = doc.data();
     return {
       symbol: data.symbol || doc.id,
@@ -25,6 +25,51 @@ export async function getWatchlistAction(): Promise<WatchlistItem[]> {
       added_at: data.added_at?.toDate?.()?.toISOString?.() || '',
     };
   });
+
+  const promises = watchlistItems.map(async (item) => {
+    const analysisSnap = await adminDb
+      .collection(WATCHLIST_COLLECTION)
+      .doc(item.symbol)
+      .collection('analyses')
+      .orderBy('date', 'desc')
+      .limit(1)
+      .get();
+      
+    if (!analysisSnap.empty) {
+      const d = analysisSnap.docs[0].data();
+      item.last_price = d.last_price ?? null;
+      item.iv = d.iv ?? null;
+      if (!item.industry) item.industry = d.industry || '';
+      if (!item.category) item.category = d.sector || d.category || '';
+    }
+    
+    // Self-heal missing names via Python API
+    if (!item.name) {
+      try {
+        const pyUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
+        const res = await fetch(`${pyUrl}/api/contract-details?symbol=${item.symbol}`);
+        if (res.ok) {
+          const details = await res.json();
+          const newName = details.longName || details.description || item.symbol;
+          item.name = newName;
+          if (!item.industry && details.industry) item.industry = details.industry;
+          
+          // Update Firestore in the background
+          adminDb.collection(WATCHLIST_COLLECTION).doc(item.symbol).update({
+            name: newName,
+            industry: item.industry,
+            category: item.category
+          }).catch(console.error);
+        }
+      } catch (err) {
+        console.error(`Failed to fetch name for ${item.symbol}:`, err);
+      }
+    }
+    
+    return item;
+  });
+
+  return Promise.all(promises);
 }
 
 export async function addWatchlistItemAction(

@@ -123,31 +123,64 @@ export default function WatchlistManager() {
               key={item.symbol}
               className="flex items-center justify-between rounded-box bg-base-100/50 backdrop-blur-md border border-base-content/5 p-4 shadow-sm hover:bg-base-200/50 transition-colors"
             >
-              <div className="flex flex-1 items-center gap-6">
-                <div className="flex flex-col w-24">
+              <div className="flex flex-1 items-center gap-4">
+                {/* Ticker */}
+                <div className="flex flex-col w-20 shrink-0">
                   <span className="text-primary text-xl font-bold">
                     {item.symbol}
                   </span>
-                  <span className="text-xs opacity-60">
-                    {item.exchange || 'N/A'}
+                  {item.exchange && (
+                    <span className="text-xs opacity-60">
+                      {item.exchange}
+                    </span>
+                  )}
+                </div>
+
+                {/* Company Name */}
+                <div className="hidden sm:flex flex-col justify-center w-56 shrink-0 bg-base-200/40 rounded-lg px-3 py-2 h-14">
+                  <span className="text-[10px] uppercase tracking-wider opacity-50 mb-0.5">Company</span>
+                  <span className="text-sm font-medium truncate" title={item.name}>{item.name || '-'}</span>
+                </div>
+                
+                {/* Price */}
+                <div className="hidden md:flex flex-col justify-center items-end w-24 shrink-0 bg-base-200/40 rounded-lg px-3 py-2 h-14">
+                  <span className="text-[10px] uppercase tracking-wider opacity-50 w-full text-left mb-0.5">Price</span>
+                  <span className="text-sm font-semibold">
+                    {item.last_price != null ? `$${item.last_price.toFixed(2)}` : '-'}
                   </span>
                 </div>
-                <div className="hidden flex-1 sm:block">
-                  <span className="text-base font-medium">{item.name}</span>
+
+                {/* IV */}
+                <div className="hidden md:flex flex-col justify-center items-end w-20 shrink-0 bg-base-200/40 rounded-lg px-3 py-2 h-14">
+                  <span className="text-[10px] uppercase tracking-wider opacity-50 w-full text-left mb-0.5">IV</span>
+                  <span className={`text-sm font-semibold ${item.iv != null && item.iv > 45 ? 'text-warning' : ''}`}>
+                    {item.iv != null ? `${item.iv.toFixed(1)}%` : '-'}
+                  </span>
                 </div>
-                <div className="hidden gap-2 md:flex">
-                  {item.category && (
-                    <span className="badge badge-outline">
-                      {item.category}
-                    </span>
-                  )}
-                  {item.industry && (
-                    <span className="badge badge-ghost">
-                      {item.industry}
-                    </span>
-                  )}
+
+                {/* Sector / Industry */}
+                <div className="hidden lg:flex flex-col justify-center w-80 shrink-0 bg-base-200/40 rounded-lg px-3 py-2 h-14">
+                  <span className="text-[10px] uppercase tracking-wider opacity-50 mb-0.5">Sector & Industry</span>
+                  <div className="flex gap-1 items-center">
+                    {item.category ? (
+                      <span className="badge badge-outline badge-sm text-[10px] truncate max-w-[120px]" title={item.category}>
+                        {item.category}
+                      </span>
+                    ) : null}
+                    {item.industry ? (
+                      <span className="badge badge-ghost badge-sm text-[10px] truncate max-w-[180px]" title={item.industry}>
+                        {item.industry}
+                      </span>
+                    ) : null}
+                    {!item.category && !item.industry && <span className="text-sm font-medium">-</span>}
+                  </div>
                 </div>
-                <div className="hidden items-center gap-1 text-xs opacity-50 lg:flex">
+
+                {/* Spacer */}
+                <div className="flex-1"></div>
+
+                {/* Added Date */}
+                <div className="hidden xl:flex items-center gap-1 text-xs opacity-40 shrink-0">
                   <FiClock className="h-3 w-3" />
                   {formatDate(item.added_at)}
                 </div>
