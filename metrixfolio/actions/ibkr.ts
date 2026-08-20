@@ -106,24 +106,80 @@ async function syncPositionsToFirestore(
     .doc(userId)
     .collection(CollectionType.ASSETS);
 
-  // Fetch existing IBKR assets to preserve category_id
+  // Fetch existing IBKR assets to preserve category_id, sector, and industry
   const existing = await assetsRef.where('source', '==', 'IBKR').get();
   const categoryMap = new Map<string, string>();
+  const sectorMap = new Map<string, string>();
+  const industryMap = new Map<string, string>();
   existing.docs.forEach((d) => {
-    const catId = d.data().category_id;
-    if (catId) categoryMap.set(d.id, catId);
+    const data = d.data();
+    if (data.category_id) categoryMap.set(d.id, data.category_id);
+    if (data.sector) sectorMap.set(d.id, data.sector);
+    if (data.industry) industryMap.set(d.id, data.industry);
   });
+
+  // Fetch closed positions to avoid reopening them
+  const closedRef = adminDb.collection(CollectionType.USERS).doc(userId).collection('closed_positions');
+  const closedSnap = await closedRef.where('source', '==', 'IBKR').get();
+  const closedIds = new Set(closedSnap.docs.map((d) => d.id));
 
   const updatedAt = Math.floor(Date.now() / 1000);
   const batch = adminDb.batch();
 
+  // Fetch missing sectors and industries from python API
+  const stockAssets = assets.filter(a => (a.type === 'ASSET' || a.type === 'STOCK') && (!sectorMap.has(a.id) || !industryMap.has(a.id)));
+  const enrichPayload = stockAssets.map(a => ({
+    symbol: a.symbol,
+    currency: a.currency,
+    exchange: 'SMART',
+    secType: 'STK'
+  }));
+  const enrichmentMap = new Map<string, { sector?: string, industry?: string }>();
+  
+  if (enrichPayload.length > 0) {
+    try {
+      const pythonApiUrl = process.env.PYTHON_API_URL || 'http://127.0.0.1:8000';
+      const enrichRes = await fetch(`${pythonApiUrl}/api/enrich-symbols`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols: enrichPayload })
+      });
+      if (enrichRes.ok) {
+        const enrichJson = await enrichRes.json();
+        if (enrichJson.status === 'success' && enrichJson.data) {
+          for (const [sym, data] of Object.entries(enrichJson.data)) {
+            enrichmentMap.set(sym, data as any);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to enrich symbols from python backend:", e);
+    }
+  }
+
   const writePosition = (pos: IBKRAsset | IBKRCashPosition) => {
+    // Skip if this position was already closed by the user manually
+    if (closedIds.has(pos.id)) {
+      return;
+    }
+
     const ref = assetsRef.doc(pos.id);
-    const preservedCategory = categoryMap.get(pos.id) ?? 'uncategorized';
+    let preservedCategory = categoryMap.get(pos.id) ?? 'uncategorized';
+    
+    // Auto-assign new options to options_sell or options_buy based on amount
+    if (('type' in pos) && pos.type === 'OPTION' && preservedCategory === 'uncategorized') {
+      const amt = Number(pos.amount) || 0;
+      preservedCategory = amt < 0 ? 'options_sell' : 'options_buy';
+    }
+
+    const enrichData = ('symbol' in pos) ? enrichmentMap.get(pos.symbol) : undefined;
+
     batch.set(ref, {
       ...pos,
       category_id: preservedCategory,
       updated_at: updatedAt,
+      ...(enrichData?.sector ? { sector: enrichData.sector } : {}),
+      ...(enrichData?.industry ? { industry: enrichData.industry } : {}),
     }, { merge: true });
   };
 

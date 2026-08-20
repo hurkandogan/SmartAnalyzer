@@ -54,9 +54,6 @@ export const StatCards: React.FC<StatCardsProps> = ({
     }
   }, [cGoalAmount, isLoaded]);
 
-  const netLiq = cTotalValue - cTotalDebt;
-  const netLiqPercentage = cTotalValue > 0 ? (netLiq / cTotalValue) * 100 : 0;
-
   useEffect(() => {
     if (!user || isLoaded) return;
 
@@ -152,14 +149,6 @@ export const StatCards: React.FC<StatCardsProps> = ({
         </div>
         <div className="stat-desc mt-1.5 flex flex-col gap-1 w-full font-medium">
           <div>{renderDiff(cTotalValue, cPrevTotalValue)}</div>
-          {cTotalDebt > 0 && (
-            <div
-              className={`flex items-center text-xs font-semibold whitespace-nowrap ${netLiq >= 0 ? 'text-success' : 'text-error'}`}
-            >
-              Net Liq: {formatPercentage(netLiqPercentage)} |{' '}
-              {formatCurrency(netLiq)}
-            </div>
-          )}
         </div>
       </div>
 

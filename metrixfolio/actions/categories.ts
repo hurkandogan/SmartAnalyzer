@@ -1,117 +1,58 @@
 'use server';
 
 import { adminDb } from '@/utils/firebase-admin';
-import { CollectionType, Category } from '@/types/settings';
+import { CollectionType, Category, FIXED_CATEGORIES } from '@/types/settings';
 
 export async function getCategoriesAction(userId: string): Promise<Category[]> {
   if (!userId) return [];
 
   try {
-    const snapshot = await adminDb
+    const configDoc = await adminDb
       .collection(CollectionType.USERS)
       .doc(userId)
-      .collection('categories')
+      .collection('configuration')
+      .doc('category_targets')
       .get();
 
-    return snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    })) as Category[];
+    const customTargets = configDoc.exists ? configDoc.data() : {};
+
+    // Map over FIXED_CATEGORIES to apply custom targets
+    return FIXED_CATEGORIES.map((cat) => {
+      if (customTargets && typeof customTargets[cat.id] === 'number') {
+        return { ...cat, target_percentage: customTargets[cat.id] };
+      }
+      return cat;
+    });
   } catch (error) {
     console.error('Get Categories Error:', error);
-    return [];
+    return FIXED_CATEGORIES;
   }
 }
 
-export async function addCategoryAction(
+export async function updateCategoryTargetAction(
   userId: string,
-  name: string,
-  target: number,
-  type: string,
-  color: string,
+  categoryId: string,
+  targetPercentage: number,
 ) {
-  if (!userId || !name) {
-    return { success: false, message: 'Missing parameters.' };
-  }
-
-  const id = name.trim().toLowerCase().replace(/\s+/g, '');
-
-  if (!id) {
-    return { success: false, message: 'Invalid category name.' };
-  }
-
-  try {
-    const categoryRef = adminDb
-      .collection(CollectionType.USERS)
-      .doc(userId)
-      .collection('categories')
-      .doc(id);
-
-    const doc = await categoryRef.get();
-    if (doc.exists) {
-      return {
-        success: false,
-        message: 'A category with this name (ID) already exists.',
-      };
-    }
-
-    await categoryRef.set({
-      name: name.trim(),
-      target_percentage: target,
-      type,
-      color,
-      updated_at: new Date().toISOString(),
-    });
-
-    return { success: true };
-  } catch (error: any) {
-    console.error('Add Category Error:', error);
-    return { success: false, message: error.message };
-  }
-}
-
-export async function updateCategoryAction(
-  userId: string,
-  category: Partial<Category> & { color?: string },
-) {
-  if (!userId || !category.id) {
+  if (!userId || !categoryId) {
     return { success: false, message: 'Missing parameters.' };
   }
 
   try {
-    await adminDb
+    const targetRef = adminDb
       .collection(CollectionType.USERS)
       .doc(userId)
-      .collection('categories')
-      .doc(category.id)
-      .update({
-        ...category,
-        updated_at: new Date().toISOString(),
-      });
+      .collection('configuration')
+      .doc('category_targets');
+      
+    await targetRef.set({
+      [categoryId]: targetPercentage,
+      updated_at: new Date().toISOString()
+    }, { merge: true });
 
     return { success: true };
   } catch (error: any) {
-    console.error('Update Category Error:', error);
-    return { success: false, message: error.message };
-  }
-}
-
-export async function deleteCategoryAction(userId: string, category: Category) {
-  if (!userId || !category.id) {
-    return { success: false, message: 'Missing parameters.' };
-  }
-
-  try {
-    await adminDb
-      .collection(CollectionType.USERS)
-      .doc(userId)
-      .collection('categories')
-      .doc(category.id)
-      .delete();
-
-    return { success: true };
-  } catch (error: any) {
-    console.error('Delete Category Error:', error);
+    console.error('Update Category Target Error:', error);
     return { success: false, message: error.message };
   }
 }

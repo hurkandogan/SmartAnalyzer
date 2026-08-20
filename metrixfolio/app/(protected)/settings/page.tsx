@@ -1,6 +1,5 @@
 'use client';
 
-import CategoryManager from './components/CategoryManager';
 import ConnectionsManager from './components/ConnectionsManager';
 
 export default function SettingsPage() {
@@ -10,39 +9,12 @@ export default function SettingsPage() {
         <h1>Settings</h1>
       </div>
 
-      <div role="tablist" className="tabs tabs-lifted tabs-lg">
-        <input
-          type="radio"
-          name="settings_tabs"
-          role="tab"
-          className="tab"
-          aria-label="Categories"
-          defaultChecked
-        />
-        <div
-          role="tabpanel"
-          className="tab-content bg-base-100/50 backdrop-blur-md border-base-content/5 border rounded-box p-6"
-        >
-          <CategoryManager />
+      <div className="bg-base-100/50 backdrop-blur-md border-base-content/5 border rounded-box p-6">
+        <div className="mb-4">
+          <h2 className="text-xl font-bold">Connections</h2>
+          <p className="text-base-content/60 text-sm">Configure external data sources. Positions sync automatically once per day on login.</p>
         </div>
-
-        <input
-          type="radio"
-          name="settings_tabs"
-          role="tab"
-          className="tab"
-          aria-label="Connections"
-        />
-        <div
-          role="tabpanel"
-          className="tab-content bg-base-100/50 backdrop-blur-md border-base-content/5 border rounded-box p-6"
-        >
-          <div className="mb-4">
-            <h2 className="text-xl font-bold">Connections</h2>
-            <p className="text-base-content/60 text-sm">Configure external data sources. Positions sync automatically once per day on login.</p>
-          </div>
-          <ConnectionsManager />
-        </div>
+        <ConnectionsManager />
       </div>
     </div>
   );

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useMemo } from 'react';
 import { useDebts } from '@/hooks/useDebts';
+import { usePortfolio } from '@/hooks/usePortfolio';
 import { useAuth } from '@/context/AuthProvider';
 import { addDebtAction, deleteDebtAction, updateDebtAction } from '@/actions/debts';
 import { Debt } from '@/types/debt';
@@ -17,7 +18,15 @@ export default function DebtManager() {
   const modalRef = useRef<HTMLDialogElement>(null);
   
   const { debts, totalDebtUsd, isLoading, mutate } = useDebts();
+  const { portfolio } = usePortfolio();
+  const cTotalValue = portfolio?.total_value || 0;
+  const netLiq = cTotalValue - totalDebtUsd;
+  const netLiqPercentage = cTotalValue > 0 ? (netLiq / cTotalValue) * 100 : 0;
   
+  const formatPercentage = (val: number) => {
+    return `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
+  };
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -104,7 +113,7 @@ export default function DebtManager() {
       </div>
 
       {/* STAT CARDS */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-1">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="stats bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow">
           <div className="stat">
             <div className="stat-figure text-error">
@@ -115,6 +124,24 @@ export default function DebtManager() {
               {usdFormatter.format(totalDebtUsd)}
             </div>
             <div className="stat-desc text-lg">Converted to USD</div>
+          </div>
+        </div>
+
+        <div className="stats bg-base-100/50 backdrop-blur-md border-base-content/5 border shadow">
+          <div className="stat">
+            <div className="stat-title">Net Liquidation (Liq)</div>
+            <div className={`stat-value text-3xl ${netLiq >= 0 ? 'text-success' : 'text-error'}`}>
+              {usdFormatter.format(netLiq)}
+            </div>
+            <div className="stat-desc text-lg mt-1 font-semibold">
+              {totalDebtUsd > 0 ? (
+                <span className={netLiq >= 0 ? 'text-success' : 'text-error'}>
+                  {formatPercentage(netLiqPercentage)} of Total Balance
+                </span>
+              ) : (
+                <span className="opacity-70">No debts recorded</span>
+              )}
+            </div>
           </div>
         </div>
       </div>

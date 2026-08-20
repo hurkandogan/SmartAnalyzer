@@ -28,9 +28,9 @@ export default function ProtectedLayout({
   return (
     <>
       <div className="flex min-h-screen flex-col">
-        <MacroWarning />
         <NavBar />
         <TickerMarquee />
+        <MacroWarning />
         <main className="container mx-auto grow p-4">{children}</main>
         <Footer />
       </div>

@@ -83,7 +83,11 @@ export function parseIBKRXml(xmlString: string): IBKRParseResult {
     const assetCategory = pos.getAttribute('assetCategory') ?? '';
     const rawSymbol = pos.getAttribute('symbol') ?? '';
     const normalizedSymbol = normalizeSymbol(rawSymbol);
-    const id = `IBKR_${normalizedSymbol}`;
+    
+    // Extract openDateTime to distinguish different trades of the same option
+    const openDateTime = pos.getAttribute('openDateTime');
+    const uniqueSuffix = openDateTime ? `_${openDateTime.replace(/\D/g, '')}` : '';
+    const id = `IBKR_${normalizedSymbol}${uniqueSuffix}`;
 
     const isOption = assetCategory === 'OPT';
     const position = pos.getAttribute('position') ?? '0';

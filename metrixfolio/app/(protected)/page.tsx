@@ -12,6 +12,8 @@ import { useAuth } from '@/context/AuthProvider';
 import { useEffect, useState } from 'react';
 import { getUserPreferenceAction, saveUserPreferenceAction } from '@/actions/user';
 
+import DistributionHeatmap from '@/components/dashboard/DistributionHeatmap';
+
 export default function Dashboard() {
   const { user } = useAuth();
   const [dashboardCurrency, setDashboardCurrency] = useState<string>('USD');
@@ -30,7 +32,7 @@ export default function Dashboard() {
       await saveUserPreferenceAction(user.uid, 'preferredDashboardCurrency', currency);
     }
   };
-  const { portfolio, isLoading, isError, history } = usePortfolio();
+  const { portfolio, assets, isLoading, isError, history } = usePortfolio();
   const { isConfigured, lastSync, isSyncing } = useIBKRSync();
 
   const lastHistory =
@@ -89,6 +91,23 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+        
+        {portfolio?.categories && (() => {
+          const totalTarget = portfolio.categories
+            .filter(c => c.type !== 'OPTIONS' && c.id !== 'uncategorized')
+            .reduce((sum, c) => sum + (c.target_percentage || 0), 0);
+          
+          if (totalTarget < 100) {
+            return (
+              <div role="alert" className="alert alert-warning shadow-sm mt-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <span>Warning: Your total category allocations are currently set to {totalTarget}%. Please adjust them to reach exactly 100%.</span>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
         <StatCards
           selectedCurrency={dashboardCurrency}
           totalValue={portfolio?.total_value || 0}
@@ -104,8 +123,12 @@ export default function Dashboard() {
             selectedCurrency={dashboardCurrency}
             categories={portfolio.categories}
             history={history || []}
+            assets={assets}
+            totalPortfolioValue={portfolio.total_value}
           />
         )}
+
+        <DistributionHeatmap assets={assets} />
 
         <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">

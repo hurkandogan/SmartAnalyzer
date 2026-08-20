@@ -22,6 +22,8 @@ export interface Asset {
   right?: string;
   expiry?: string;
   type?: string;
+  sector?: string;
+  industry?: string;
 }
 
 export interface ClosedAsset extends Asset {

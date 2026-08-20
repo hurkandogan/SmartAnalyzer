@@ -216,6 +216,72 @@ async def get_portfolio(db: Session = Depends(get_db)):
         }
     }
 
+class EnrichAsset(BaseModel):
+    symbol: str
+    currency: str
+    exchange: str = "SMART"
+    secType: str = "STK"
+
+class EnrichRequest(BaseModel):
+    symbols: List[EnrichAsset]
+
+@app.post("/api/enrich-symbols")
+async def enrich_symbols(req: EnrichRequest):
+    import asyncio
+    logger.info(f"Received enrich-symbols request for {len(req.symbols)} symbols")
+    
+    ETF_MAPPING = {
+        "SEMI": {"sector": "Technology", "industry": "Semiconductors"},
+        "SEMI.AS": {"sector": "Technology", "industry": "Semiconductors"},
+        "SXR8": {"sector": "ETF", "industry": "Broad Market"},
+        "SXR8.DE": {"sector": "ETF", "industry": "Broad Market"},
+        "QQQ": {"sector": "Technology", "industry": "Broad Market"},
+        "SPY": {"sector": "ETF", "industry": "Broad Market"},
+    }
+
+    async def fetch_enrich(asset: EnrichAsset):
+        sym = asset.symbol
+        if sym in ETF_MAPPING:
+            return sym, ETF_MAPPING[sym]
+        
+        try:
+            # IBKR requires the "Reuters Fundamentals" subscription to return sector/industry.
+            # Without it, it throws Error 10358 and returns empty category/industry.
+            # So we use Yahoo Finance instead (like Watchlist does).
+            
+            # Try plain symbol first
+            info = await asyncio.to_thread(yahoo_service.get_fundamentals, sym)
+            
+            # If failed, try common European suffixes (IBKR European stocks often need this for Yahoo)
+            if not info and asset.currency == 'EUR':
+                for suffix in ['.DE', '.AS', '.PA', '.MI']:
+                    info = await asyncio.to_thread(yahoo_service.get_fundamentals, f"{sym}{suffix}")
+                    if info:
+                        break
+            
+            if not info:
+                return sym, {"sector": "Unknown", "industry": "Unknown"}
+            
+            sector = info.get("sector")
+            industry = info.get("industry")
+            
+            quote_type = info.get("quoteType", "")
+            if not sector and quote_type == "ETF":
+                sector = "ETF"
+                industry = "Broad Market"
+                
+            return sym, {
+                "sector": sector or "Unknown",
+                "industry": industry or "Unknown"
+            }
+        except Exception as e:
+            logger.error(f"Error enriching {sym}: {e}")
+            return sym, {"sector": "Unknown", "industry": "Unknown"}
+
+    tasks = [fetch_enrich(a) for a in req.symbols]
+    results = await asyncio.gather(*tasks)
+    return {"status": "success", "data": dict(results)}
+
 @app.get("/api/contract-details")
 async def get_contract_details(symbol: str, sec_type: str = "STK", currency: str = "USD"):
     details = await ibkr_service.get_contract_details(symbol, sec_type, currency)

@@ -67,8 +67,8 @@ export default function MacroWarning() {
   };
 
   return (
-    <div className="w-full bg-error/10 border-b border-error/20 py-2 px-4 shadow-sm backdrop-blur-md sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto flex items-center justify-between text-sm">
+    <div className="w-full px-4 pt-4">
+      <div className="max-w-7xl mx-auto bg-error/10 border border-error/20 rounded-2xl py-3 px-5 shadow-sm backdrop-blur-md flex items-center justify-between text-sm">
         <div className="flex items-center gap-3">
           <span className="text-xl animate-pulse">⚠️</span>
           <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2">
@@ -84,7 +84,7 @@ export default function MacroWarning() {
         </div>
         <button 
           onClick={dismissWarning}
-          className="btn btn-ghost btn-xs btn-circle text-error/80 hover:bg-error/20"
+          className="btn btn-ghost btn-xs btn-circle text-error/80 hover:bg-error/20 ml-2"
         >
           ✕
         </button>

@@ -32,15 +32,10 @@ export async function getAssetsAction(userId: string): Promise<Asset[]> {
       const amount = parseFloat(data.amount) || 0;
       const multiplier = parseFloat(data.multiplier) || 1;
       const currency = data.currency || 'USD';
-      const type = data.type || 'STOCK';
+      const type = data.type || (data.secType === 'OPT' ? 'OPTION' : 'STOCK');
 
-      let avgCost = parseFloat(data.avg_cost) || 0;
-
-      // IBKR Opsiyonlarında avg_cost toplam maliyet olarak gelir. UI'da fiyatla yan yana
-      // mantıklı görünmesi için (örn: $169 yerine $1.69) çarpana bölüyoruz.
-      if (data.source === 'IBKR' && type === 'OPTION' && multiplier > 1) {
-        avgCost = avgCost / multiplier;
-      }
+      const rawAvgCost = data.avg_cost ?? data.avgCost;
+      const avgCost = parseFloat(rawAvgCost) || 0;
 
       const currentPrice = parseFloat(data.current_price) || 0;
       let unrealizedPnl = parseFloat(data.unrealized_pnl) || 0;
@@ -73,6 +68,8 @@ export async function getAssetsAction(userId: string): Promise<Asset[]> {
         right: data.right || '',
         expiry: data.expiry || '',
         type: type,
+        sector: data.sector || null,
+        industry: data.industry || null,
       };
     });
 

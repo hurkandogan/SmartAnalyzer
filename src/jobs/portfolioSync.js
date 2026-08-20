@@ -13,6 +13,37 @@ import { fetchAndParseFlexQuery } from '../services/flexQuery.js';
 import { logger } from '../utils/logger.js';
 
 const priceCache = new Map();
+const enrichCache = new Map();
+
+/**
+ * Fetch sector/industry from Python service
+ */
+async function fetchEnrich(symbol, currency = 'USD', exchange = 'SMART', secType = 'STK') {
+  if (secType === 'OPT' || secType === 'CASH') return null;
+  const cacheKey = `${symbol}_${secType}`;
+  if (enrichCache.has(cacheKey)) {
+    return enrichCache.get(cacheKey);
+  }
+
+  try {
+    const enrichRes = await fetch(`http://127.0.0.1:8000/api/enrich-symbols`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols: [{ symbol, currency, exchange, secType }] })
+    });
+    if (enrichRes.ok) {
+      const json = await enrichRes.json();
+      if (json.status === 'success' && json.data && json.data[symbol]) {
+        const data = json.data[symbol];
+        enrichCache.set(cacheKey, data);
+        return data;
+      }
+    }
+  } catch (err) {
+    logger.warn(`[Enrich] Failed to fetch enrichment for ${symbol}: ${err.message}`);
+  }
+  return null;
+}
 
 /**
  * Fetch price from Python service
@@ -145,6 +176,16 @@ async function syncPrivateUser(currencies) {
         });
       }
 
+      let sector = existing?.sector || null;
+      let industry = existing?.industry || null;
+      if (!isOption && (!sector || !industry)) {
+        const enrichData = await fetchEnrich(contract.symbol, contract.currency || 'USD', contract.exchange || 'SMART', contract.secType || 'STK');
+        if (enrichData) {
+          sector = enrichData.sector;
+          industry = enrichData.industry;
+        }
+      }
+
       if (existing) {
         const patch = {
           amount: String(qty),
@@ -153,6 +194,8 @@ async function syncPrivateUser(currencies) {
           current_price: currentPrice,
           value: String(pos.marketValue || 0),
           multiplier: String(contract.multiplier || '1'),
+          ...(sector && !existing.sector ? { sector } : {}),
+          ...(industry && !existing.industry ? { industry } : {}),
         };
         await setUserAsset(userId, id, patch);
         logger.info(`[Private] Patched ${id} → price=${currentPrice} qty=${qty}`);
@@ -181,6 +224,8 @@ async function syncPrivateUser(currencies) {
           strike: isOption ? String(contract.strike || '0') : null,
           right: isOption ? contract.right : null,
           expiry: isOption ? contract.lastTradeDateOrContractMonth : null,
+          ...(sector ? { sector } : {}),
+          ...(industry ? { industry } : {}),
         };
         await setUserAsset(userId, id, newAsset);
         logger.info(`[Private] New IBKR asset added: ${id}`);
@@ -452,6 +497,17 @@ async function syncFlexUser(userId, flexCreds, currencies) {
 
       const valueUsd = currentPriceUsd * qty * multiplierNum;
 
+      const existing = existingMap.get(id);
+      let sector = existing?.sector || null;
+      let industry = existing?.industry || null;
+      if (!isOption && (!sector || !industry)) {
+        const enrichData = await fetchEnrich(symbol, currency, 'SMART', 'STK');
+        if (enrichData) {
+          sector = enrichData.sector;
+          industry = enrichData.industry;
+        }
+      }
+
       const newAsset = {
         id,
         symbol: symbol,
@@ -470,6 +526,8 @@ async function syncFlexUser(userId, flexCreds, currencies) {
         strike: isOption ? String(attrs.strike || '0') : null,
         right: isOption ? attrs.putCall : null,
         expiry: isOption ? attrs.expiry : null,
+        ...(sector ? { sector } : {}),
+        ...(industry ? { industry } : {}),
       };
 
       if (isOption) {

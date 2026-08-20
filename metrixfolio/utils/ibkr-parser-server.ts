@@ -28,7 +28,12 @@ export function parseIBKRXmlServer(xmlString: string): IBKRParseResult {
     const assetCategory = attr(tag, 'assetCategory');
     const rawSymbol = attr(tag, 'symbol');
     const normalizedSymbol = normalizeSymbol(rawSymbol);
-    const id = `IBKR_${normalizedSymbol}`;
+    
+    // Extract openDateTime to distinguish different trades of the same option
+    const openDateTime = attr(tag, 'openDateTime');
+    const uniqueSuffix = openDateTime ? `_${openDateTime.replace(/\D/g, '')}` : '';
+    const id = `IBKR_${normalizedSymbol}${uniqueSuffix}`;
+    
     const isOption = assetCategory === 'OPT';
     const multiplier = attr(tag, 'multiplier') || '1';
 
