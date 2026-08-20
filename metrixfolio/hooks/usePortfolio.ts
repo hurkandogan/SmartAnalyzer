@@ -25,6 +25,7 @@ export interface PortfolioSummary {
     actual_percentage: number;
     target_percentage: number;
     color?: string;
+    type?: string;
   }[];
 }
 
@@ -122,6 +123,7 @@ export function usePortfolio() {
         actual_percentage: actualPct,
         target_percentage: cat.target_percentage,
         color: cat.color,
+        type: cat.type,
       };
     });
 

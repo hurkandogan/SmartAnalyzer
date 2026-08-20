@@ -127,7 +127,7 @@ async function syncPositionsToFirestore(
   const batch = adminDb.batch();
 
   // Fetch missing sectors and industries from python API
-  const stockAssets = assets.filter(a => (a.type === 'ASSET' || a.type === 'STOCK') && (!sectorMap.has(a.id) || !industryMap.has(a.id)));
+  const stockAssets = assets.filter(a => a.type === 'ASSET' && (!sectorMap.has(a.id) || !industryMap.has(a.id)));
   const enrichPayload = stockAssets.map(a => ({
     symbol: a.symbol,
     currency: a.currency,

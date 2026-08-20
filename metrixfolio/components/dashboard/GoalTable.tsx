@@ -136,14 +136,6 @@ export const GoalTable: FC<GoalTableProps> = ({ currentValue, selectedCurrency =
     setTableData(rows);
   }, [config, cCurrentValue, ccy]);
 
-  useEffect(() => {
-    if (activeRowRef.current) {
-      activeRowRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-      });
-    }
-  }, [tableData]);
 
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();

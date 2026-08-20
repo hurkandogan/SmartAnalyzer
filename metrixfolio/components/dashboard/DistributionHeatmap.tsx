@@ -131,9 +131,9 @@ export default function DistributionHeatmap({ assets }: DistributionHeatmapProps
   return (
     <div className="flex flex-col gap-4 w-full mt-8">
       {/* Sectors Accordion */}
-      <div className="collapse bg-base-100 rounded-3xl shadow-sm border border-base-200 overflow-visible">
+      <div className="collapse collapse-arrow bg-base-100 rounded-3xl shadow-sm border border-base-200 overflow-visible">
         <input type="checkbox" checked={sectorsOpen} onChange={toggleSectors} /> 
-        <div className="collapse-title text-xl font-bold flex items-center gap-3">
+        <div className="collapse-title text-xl font-bold flex items-center gap-3 pr-10">
           Sectors Distribution
           <span className="text-sm font-normal text-base-content/60 bg-base-200 px-2 py-1 rounded-full">Target: {TARGET_SECTOR_WEIGHT.toFixed(1)}%</span>
         </div>

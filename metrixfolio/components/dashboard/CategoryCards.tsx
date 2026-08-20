@@ -163,13 +163,34 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
                     {selectedCategory.actual_percentage.toFixed(2)}%
                   </div>
                 </div>
-                </div>
+              </div>
                 
                 {!selectedCategory.id.includes('options') && selectedCategory.id !== 'uncategorized' && (
                   <div className="mt-6 bg-base-200/50 backdrop-blur-sm rounded-lg p-4 border border-base-content/5">
-                    <div className="flex justify-between mb-2">
+                    <div className="flex justify-between items-center mb-2">
                       <span className="font-bold">Target Allocation</span>
-                      <span className="font-bold text-primary">{editingTarget}%</span>
+                      <div className="flex items-center gap-1">
+                        <input 
+                          type="number"
+                          className="input input-bordered input-sm w-20 text-primary font-bold text-right"
+                          value={editingTarget}
+                          onChange={(e) => {
+                            let val = parseInt(e.target.value);
+                            if (isNaN(val)) val = 0;
+                            
+                            if (val > 100) {
+                              setEditingTarget(selectedCategory.target_percentage);
+                            } else if (val > maxAllowedTarget) {
+                              setEditingTarget(maxAllowedTarget);
+                            } else {
+                              setEditingTarget(val);
+                            }
+                          }}
+                          min="0"
+                          max={maxAllowedTarget}
+                        />
+                        <span className="font-bold text-primary">%</span>
+                      </div>
                     </div>
                     <input 
                       type="range" 
@@ -191,28 +212,25 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
                       <span>Max: {maxAllowedTarget}%</span>
                     </div>
                     
-                    {editingTarget !== selectedCategory.target_percentage && (
-                      <div className="mt-4 flex justify-end">
-                        <button 
-                          className="btn btn-primary btn-sm"
-                          disabled={isSaving}
-                          onClick={async () => {
-                            if (user) {
-                              setIsSaving(true);
-                              await updateCategoryTargetAction(user.uid, selectedCategory.id, editingTarget);
-                              setIsSaving(false);
-                              modalRef.current?.close();
-                              // Since we rely on SWR in usePortfolio, it will revalidate periodically,
-                              // but to force an update we could mutate. 
-                              // For now, reload the page is simplest or let SWR handle it.
-                              window.location.reload();
-                            }
-                          }}
-                        >
-                          {isSaving ? <span className="loading loading-spinner" /> : 'Save Target'}
-                        </button>
-                      </div>
-                    )}
+                    <div className="mt-4 flex justify-end">
+                      <button 
+                        className="btn btn-primary btn-sm"
+                        disabled={isSaving || editingTarget === selectedCategory.target_percentage}
+                        onClick={async () => {
+                          if (user) {
+                            setIsSaving(true);
+                            await updateCategoryTargetAction(user.uid, selectedCategory.id, editingTarget);
+                            selectedCategory.target_percentage = editingTarget;
+                            setIsSaving(false);
+                            modalRef.current?.close();
+                            window.location.reload();
+                          }
+                        }}
+                      >
+                        {isSaving ? <span className="loading loading-spinner loading-xs" /> : <FiCheck />}
+                        Save Changes
+                      </button>
+                    </div>
                   </div>
                 )}
               </>
