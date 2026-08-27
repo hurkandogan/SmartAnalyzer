@@ -37,7 +37,7 @@ class ScreenerSyncService:
             return 0
             
         pe = fund_dict.get("pe")
-        if pe is None or pe <= 0 or pe > 30:
+        if pe is None or pe <= 0 or pe > 60:
             return 0
             
         fcf = fund_dict.get("free_cashflow") or fund_dict.get("operating_cashflow")
@@ -45,7 +45,7 @@ class ScreenerSyncService:
             return 0
             
         beta = fund_dict.get("beta")
-        if beta is None or beta < 1.0 or beta > 1.8:
+        if beta is None or beta < 0.6 or beta > 2.0:
             return 0
             
         perf_1y = fund_dict.get("performance_1y")

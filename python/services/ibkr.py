@@ -260,7 +260,11 @@ class IBKRService:
             ticker = self.ib.reqMktData(qualified[0], "", True, False)
             # Wait up to 5 seconds for ticker data to populate
             for _ in range(50):
-                if getattr(ticker, "close", None) is not None or getattr(ticker, "last", None) is not None:
+                import math
+                has_last = getattr(ticker, "last", None) is not None and not (isinstance(ticker.last, float) and math.isnan(ticker.last))
+                has_close = getattr(ticker, "close", None) is not None and not (isinstance(ticker.close, float) and math.isnan(ticker.close))
+                has_bid_ask = getattr(ticker, "bid", None) is not None and getattr(ticker, "ask", None) is not None and not (isinstance(ticker.bid, float) and math.isnan(ticker.bid))
+                if has_last or has_close or has_bid_ask:
                     break
                 await asyncio.sleep(0.1)
                 
@@ -271,15 +275,26 @@ class IBKRService:
                 import math
                 if v is None: return None
                 if isinstance(v, float) and math.isnan(v): return None
+                if isinstance(v, float) and v <= -1.0: return None # Sometimes IBKR returns -1.0 for missing bid/ask
                 return v
 
-            last_val = getattr(ticker, "last", None)
-            close_val = getattr(ticker, "close", None)
+            last_val = clean_nan(getattr(ticker, "last", None))
+            close_val = clean_nan(getattr(ticker, "close", None))
+            bid_val = clean_nan(getattr(ticker, "bid", None))
+            ask_val = clean_nan(getattr(ticker, "ask", None))
+            
+            final_price = last_val
+            if final_price is None:
+                final_price = close_val
+            if final_price is None and bid_val is not None and ask_val is not None and ask_val > 0:
+                final_price = (bid_val + ask_val) / 2.0
+            elif final_price is None and bid_val is not None and bid_val > 0:
+                final_price = bid_val
             
             return {
                 "symbol": symbol,
-                "lastPrice": clean_nan(last_val) if clean_nan(last_val) is not None else clean_nan(close_val),
-                "closePrice": clean_nan(close_val),
+                "lastPrice": final_price,
+                "closePrice": close_val,
                 "high": clean_nan(getattr(ticker, "high", None)),
                 "low": clean_nan(getattr(ticker, "low", None)),
                 "volume": clean_nan(getattr(ticker, "volume", None)),

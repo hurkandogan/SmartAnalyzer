@@ -30,6 +30,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("smart_analyser.main")
 
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+
+class IBKRFilter(logging.Filter):
+    def filter(self, record):
+        msg = record.getMessage()
+        if "10091" in msg or "2104" in msg:
+            return False
+        return True
+
+logging.getLogger("ib_insync.wrapper").addFilter(IBKRFilter())
+
 app = FastAPI(title="SmartAnalyser Python Bridge", version="3.0.0")
 
 yahoo_service = YahooService()
@@ -848,106 +859,17 @@ async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db
     top_fundamental = fundamental_symbols[:2]
     top_value = value_symbols[:2]
     
-    # ── Step 2: Generate Reports and Send to Telegram ──
-    generated_pdfs = []
-    tele_pub = TelegramService()
-    
-    from datetime import datetime, timedelta
-    from database.models import GeneratedReportLog
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-    
-    async def process_report(item, scan_type, label):
-        symbol = item["symbol"]
-        
-        if not request.force_scan:
-            recent_report = db.query(GeneratedReportLog).filter(
-                GeneratedReportLog.symbol == symbol,
-                GeneratedReportLog.scan_type == scan_type,
-                GeneratedReportLog.generated_at >= thirty_days_ago
-            ).first()
-            if recent_report:
-                logger.info(f"[Scanner] Skipping {scan_type} report for {symbol} (already generated recently).")
-                return
-                
-        logger.info(f"[Scanner] Generating {label} PDF Report for {symbol} (Score: {item['score']})...")
-        try:
-            news = yahoo_service.get_ticker_news(symbol)
-            earnings_date = yahoo_service.get_earnings_date(symbol)
-            closes = [c["close"] for c in item["candles"]]
-            df_candles = pd.DataFrame(item["candles"])
-            
-            tech_data = {
-                "last_price": item["last_price"], "rsi": item["rsi"], "rvol": item["rvol"],
-                "atr": compute_atr(df_candles, 14),
-                "sma20": analytics_service.compute_sma(closes, 20),
-                "sma50": analytics_service.compute_sma(closes, 50),
-                "sma200": analytics_service.compute_sma(closes, 200),
-                "gc_coming": item["crosses"]["gc_coming"],
-                "dc_coming": item["crosses"]["dc_coming"],
-                "iv": item["iv"],
-                "scan_type": scan_type
-            }
-            
-            ai_comment = await generate_stock_analysis(symbol, tech_data, news)
-            pdf_path = generate_pdf_report(symbol, item["candles"], iv_history=[], ai_comment=ai_comment, earnings_date=earnings_date)
-            generated_pdfs.append(pdf_path)
-            
-            caption = f"📊 **{symbol} Günlük {label} Raporu**\n\nSinyal gücü yüksek hissemizin detaylı analizi ektedir."
-            await tele_pub.send_document(pdf_path, caption=caption)
-            
-            report_log = GeneratedReportLog(symbol=symbol, generated_at=datetime.utcnow(), scan_type=scan_type)
-            db.add(report_log)
-            db.commit()
-        except Exception as e:
-            logger.error(f"[Scanner] Failed {scan_type} report for {symbol}: {e}")
-
-    for item in top_fundamental:
-        await process_report(item, "FUNDAMENTAL", "Teknik Analiz")
-        
-    for item in top_value:
-        await process_report(item, "VALUE", "Değer/Büyüme")
-            
-    # ── Step 3: Run Portfolio Risk Analysis and Send Private Telegram ──
-    # ONLY run this on Monday (weekday() == 0) unless force_risk is True
-    from datetime import date as d_date
-    is_monday = d_date.today().weekday() == 0
-    if not is_monday and not request.force_risk:
-        logger.info("[Scanner] Today is not Monday. Skipping weekly portfolio risk analysis report.")
-    else:
-        for user_id, port_data in request.portfolios.items():
-            user_name = port_data.get("user_name", "Kullanıcı")
-            assets = port_data.get("assets", [])
-            
-            if not assets:
-                logger.info(f"[Scanner] No assets for {user_name}. Skipping risk report.")
-                continue
-                
-            logger.info(f"[Scanner] Generating Risk Report for {user_name}...")
-            try:
-                risk_comment = await generate_portfolio_risk_report(user_name, assets)
-                
-                # Determine correct Telegram bot keys
-                bot_token = port_data.get("telegram_bot_token") or os.getenv("TELEGRAM_PRIVATE_BOT_TOKEN")
-                chat_id = port_data.get("telegram_chat_id") or os.getenv("TELEGRAM_PRIVATE_CHAT_ID")
-                
-                tele_priv = TelegramService(bot_token=bot_token, chat_id=chat_id)
-                await tele_priv.send_message(risk_comment)
-                logger.info(f"[Scanner] Risk report sent to {chat_id} for {user_name}")
-            except Exception as e:
-                logger.error(f"[Scanner] Failed portfolio risk analysis for {user_name}: {e}")
-            
     return {
         "status": "success",
         "processed_watchlist_count": len(fundamental_symbols) + len(value_symbols),
-        "top_symbols_selected": [x["symbol"] for x in top_fundamental] + [x["symbol"] for x in top_value],
-        "generated_pdf_count": len(generated_pdfs)
+        "top_symbols_selected": [x["symbol"] for x in top_fundamental] + [x["symbol"] for x in top_value]
     }
 
 @app.get("/api/screener/value")
 async def get_value_screener(db: Session = Depends(get_db)):
     """Fetch value investing opportunities"""
-    from database.models import Fundamental, Candle
-    from sqlalchemy import func
+    from database.models import Fundamental
+    from sqlalchemy import func, desc
     
     # Get latest date for fundamentals
     latest_date_query = db.query(func.max(Fundamental.date)).scalar()
@@ -955,43 +877,28 @@ async def get_value_screener(db: Session = Depends(get_db)):
     if not latest_date_query:
         return []
         
-    records = db.query(Fundamental).filter(Fundamental.date == latest_date_query).all()
+    # Get top 20 symbols with score >= 75
+    records = db.query(Fundamental).filter(
+        Fundamental.date == latest_date_query,
+        Fundamental.score >= 75
+    ).order_by(desc(Fundamental.score)).limit(20).all()
     
     results = []
     for fund in records:
-        # Calculate a value score
-        score = 0
-        if fund.revenue_cagr_5y and fund.revenue_cagr_5y > 0.05: score += 1
-        if fund.net_income_cagr_5y and fund.net_income_cagr_5y > 0.05: score += 1
-        if fund.revenue_growth_fwd and fund.revenue_growth_fwd > 0.05: score += 1
-        if fund.earnings_growth_fwd and fund.earnings_growth_fwd > 0.05: score += 1
-        if fund.roic and fund.roic > 0.10: score += 1
+        results.append({
+            "symbol": fund.symbol,
+            "score": fund.score,
+            "revenue_cagr_5y": fund.revenue_cagr_5y,
+            "net_income_cagr_5y": fund.net_income_cagr_5y,
+            "revenue_growth_fwd": fund.revenue_growth_fwd,
+            "earnings_growth_fwd": fund.earnings_growth_fwd,
+            "roic": fund.roic,
+            "pe": fund.pe,
+            "forward_pe": fund.forward_pe,
+            "target_mean_price": fund.target_mean_price,
+            "price": None
+        })
         
-        # Get latest price
-        latest_candle = db.query(Candle).filter(Candle.symbol == fund.symbol).order_by(Candle.date.desc()).first()
-        last_price = latest_candle.close if latest_candle else None
-        
-        if fund.target_mean_price and last_price and last_price < fund.target_mean_price * 0.90:
-            score += 2 # Strong price disconnect
-            
-        if score >= 3:
-            results.append({
-                "symbol": fund.symbol,
-                "score": score,
-                "revenue_cagr_5y": fund.revenue_cagr_5y,
-                "net_income_cagr_5y": fund.net_income_cagr_5y,
-                "revenue_growth_fwd": fund.revenue_growth_fwd,
-                "earnings_growth_fwd": fund.earnings_growth_fwd,
-                "roic": fund.roic,
-                "pe": fund.pe,
-                "forward_pe": fund.forward_pe,
-                "target_mean_price": fund.target_mean_price,
-                "last_price": last_price,
-                "rsi": fund.rsi
-            })
-            
-    # Sort by score descending
-    results.sort(key=lambda x: x["score"], reverse=True)
     return results
 
 class OptionsSignalsRequest(BaseModel):

@@ -9,20 +9,21 @@ interface MacroEvent {
   country: string;
   date: string; // ISO format from FF API
   impact: string;
-  forecast?: string;
-  previous?: string;
+  actual?: string;
+  estimate?: string;
+  prior?: string;
 }
 
 export default function MacroWarning() {
   const [upcomingEvent, setUpcomingEvent] = useState<MacroEvent | null>(null);
+  const [announcedEvent, setAnnouncedEvent] = useState<MacroEvent | null>(null);
   const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
-    // Check if user has dismissed this specific warning recently
     const dismissedUntil = localStorage.getItem('macro_warning_dismissed_until');
     if (dismissedUntil && new Date(dismissedUntil) > new Date()) {
       setIsVisible(false);
-      return; // already dismissed
+      return;
     }
     async function fetchCalendar() {
       try {
@@ -32,17 +33,23 @@ export default function MacroWarning() {
           const data = snap.data();
           if (data.events && Array.isArray(data.events)) {
             const now = new Date();
-            const threshold = new Date(now.getTime() + 48 * 60 * 60 * 1000); // 48 hours
+            const upcomingThreshold = new Date(now.getTime() + 48 * 60 * 60 * 1000); // 48 hours
+            const pastThreshold = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours
 
-            // Find the closest high-impact event within 48 hours
+            // Find closest upcoming event
             const upcoming = data.events.find((ev: MacroEvent) => {
               const evDate = new Date(ev.date);
-              return evDate >= now && evDate <= threshold;
+              return evDate >= now && evDate <= upcomingThreshold;
+            });
+            
+            // Find recent announced event (has 'actual' and is within last 24h)
+            const announced = data.events.find((ev: MacroEvent) => {
+              const evDate = new Date(ev.date);
+              return ev.actual && evDate <= now && evDate >= pastThreshold;
             });
 
-            if (upcoming) {
-              setUpcomingEvent(upcoming);
-            }
+            if (upcoming) setUpcomingEvent(upcoming);
+            if (announced) setAnnouncedEvent(announced);
           }
         }
       } catch (err) {
@@ -52,12 +59,7 @@ export default function MacroWarning() {
     fetchCalendar();
   }, []);
 
-  if (!upcomingEvent || !isVisible) return null;
-
-  const eventDate = new Date(upcomingEvent.date);
-  const isToday = eventDate.toDateString() === new Date().toDateString();
-  const timeStr = eventDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const dateStr = isToday ? `Bugün ${timeStr}` : `Yarın ${timeStr}`;
+  if ((!upcomingEvent && !announcedEvent) || !isVisible) return null;
 
   const dismissWarning = () => {
     const twelveHoursLater = new Date();
@@ -66,29 +68,62 @@ export default function MacroWarning() {
     setIsVisible(false);
   };
 
-  return (
-    <div className="w-full px-4 pt-4">
-      <div className="max-w-7xl mx-auto bg-error/10 border border-error/20 rounded-2xl py-3 px-5 shadow-sm backdrop-blur-md flex items-center justify-between text-sm">
-        <div className="flex items-center gap-3">
-          <span className="text-xl animate-pulse">⚠️</span>
-          <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2">
-            <span className="font-bold text-error">Makro Uyarı:</span>
-            <span className="font-medium">{upcomingEvent.title}</span>
-            <span className="opacity-80">
-              ({dateStr})
-            </span>
-          </div>
-          <span className="hidden md:inline-block text-xs opacity-70 ml-2">
-            Yeni pozisyon açarken volatilite riskine (IV Spike) dikkat edin.
-          </span>
+  const renderUpcoming = () => {
+    if (!upcomingEvent) return null;
+    const eventDate = new Date(upcomingEvent.date);
+    const isToday = eventDate.toDateString() === new Date().toDateString();
+    const timeStr = eventDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dateStr = isToday ? `Today ${timeStr}` : `Tomorrow ${timeStr}`;
+
+    return (
+      <div className="flex items-center gap-3">
+        <span className="text-xl animate-pulse">⚠️</span>
+        <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2">
+          <span className="font-bold text-error">Macro Warning:</span>
+          <span className="font-medium">{upcomingEvent.title}</span>
+          <span className="opacity-80">({dateStr})</span>
         </div>
-        <button 
-          onClick={dismissWarning}
-          className="btn btn-ghost btn-xs btn-circle text-error/80 hover:bg-error/20 ml-2"
-        >
-          ✕
-        </button>
+        <span className="hidden md:inline-block text-xs opacity-70 ml-2">
+          Be cautious of volatility risk (IV Spike) when opening new positions.
+        </span>
       </div>
+    );
+  };
+
+  const renderAnnounced = () => {
+    if (!announcedEvent) return null;
+    
+    return (
+      <div className="flex items-center gap-3 w-full md:w-auto">
+        <span className="text-xl">📢</span>
+        <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2">
+          <span className="font-bold text-primary">Result Announced:</span>
+          <span className="font-medium">{announcedEvent.title}</span>
+        </div>
+        <div className="flex gap-3 text-xs bg-base-100/50 px-3 py-1 rounded-lg ml-2">
+          {announcedEvent.actual && <div><span className="opacity-60">Actual:</span> <span className="font-bold text-primary">{announcedEvent.actual}</span></div>}
+          {announcedEvent.estimate && <div><span className="opacity-60">Est:</span> <span className="font-bold">{announcedEvent.estimate}</span></div>}
+          {announcedEvent.prior && <div><span className="opacity-60">Prior:</span> <span className="font-bold">{announcedEvent.prior}</span></div>}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="w-full px-4 pt-4 flex flex-col gap-2">
+      {announcedEvent && (
+        <div className="max-w-7xl w-full mx-auto bg-primary/10 border border-primary/20 rounded-2xl py-3 px-5 shadow-sm backdrop-blur-md flex items-center justify-between text-sm">
+          {renderAnnounced()}
+          <button onClick={() => setAnnouncedEvent(null)} className="btn btn-ghost btn-xs btn-circle text-primary/80 hover:bg-primary/20 ml-2">✕</button>
+        </div>
+      )}
+      
+      {upcomingEvent && (
+        <div className="max-w-7xl w-full mx-auto bg-error/10 border border-error/20 rounded-2xl py-3 px-5 shadow-sm backdrop-blur-md flex items-center justify-between text-sm">
+          {renderUpcoming()}
+          <button onClick={dismissWarning} className="btn btn-ghost btn-xs btn-circle text-error/80 hover:bg-error/20 ml-2">✕</button>
+        </div>
+      )}
     </div>
   );
 }

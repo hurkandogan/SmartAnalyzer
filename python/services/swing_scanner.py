@@ -46,13 +46,13 @@ class SwingScannerService:
             action = ""
             
             # 1. Oversold Fundamental Gem
-            if rsi < 30 and score >= 75:
+            if rsi < 40 and score >= 75:
                 signal_type = "Oversold"
                 action = "STRONG BUY"
                 signal_msg = f"RSI is extremely oversold ({rsi:.1f}) but fundamentals are very strong (Score: {score})."
             
             # 2. Pullback to 50 SMA
-            elif sma_50 and sma_200 and score >= 70 and abs(close - sma_50) / close < 0.02 and close > sma_200:
+            elif sma_50 and sma_200 and score >= 70 and abs(close - sma_50) / close < 0.04 and close > sma_200:
                 signal_type = "Pullback"
                 action = "BUY"
                 signal_msg = f"Price (${close:.2f}) is resting on 50 SMA (${sma_50:.2f}) in a long-term uptrend."

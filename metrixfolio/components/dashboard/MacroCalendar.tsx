@@ -11,6 +11,9 @@ interface MacroEvent {
   impact: string;
   type?: string;
   is_watchlist?: boolean;
+  actual?: string;
+  estimate?: string;
+  prior?: string;
 }
 
 export function MacroCalendar() {
@@ -110,6 +113,14 @@ export function MacroCalendar() {
             <span className="badge badge-sm badge-outline opacity-80">{timeStr}</span>
             <span className={`badge badge-sm ${badgeColor} badge-outline`}>{badgeLabel}</span>
           </div>
+          
+          {(ev.actual || ev.estimate || ev.prior) && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs bg-base-300/30 p-2 rounded-lg w-fit border border-base-content/5">
+              {ev.actual && <div><span className="opacity-60 mr-1">Actual:</span><span className="font-bold text-primary">{ev.actual}</span></div>}
+              {ev.estimate && <div><span className="opacity-60 mr-1">Est:</span><span className="font-bold">{ev.estimate}</span></div>}
+              {ev.prior && <div><span className="opacity-60 mr-1">Prior:</span><span className="font-bold">{ev.prior}</span></div>}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -119,34 +130,34 @@ export function MacroCalendar() {
     <div className="card bg-base-100 shadow-xl border-t-4 border-t-primary h-full max-h-[800px] flex flex-col">
       <div className="card-body p-6 flex flex-col overflow-hidden">
         <h2 className="card-title text-xl mb-4 flex items-center gap-2 shrink-0">
-          <span>📅</span> Önümüzdeki Günlerin Takvimi
+          <span>📅</span> Upcoming Calendar
         </h2>
 
         {sortedEvents.length === 0 ? (
           <div className="text-center opacity-70 p-4 bg-base-200 rounded-xl">
-            Önümüzdeki günlerde yüksek etkili bir makro veri veya şirket bilançosu bulunmuyor.
+            No high impact macro data or earnings reports in the upcoming days.
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-6">
             
             {macroEvents.length > 0 && (
               <div className="flex flex-col gap-3">
-                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">Önemli Makro Veriler</h3>
+                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">Important Macro Events</h3>
                 {macroEvents.map((ev, i) => renderEvent(ev, i, 'badge-error', 'High Impact'))}
               </div>
             )}
 
             {watchlistEarnings.length > 0 && (
               <div className="flex flex-col gap-3">
-                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">İzlenen Bilançolar (Watchlist)</h3>
-                {watchlistEarnings.map((ev, i) => renderEvent(ev, i, 'badge-warning', 'Önemli Bilanço'))}
+                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">Watchlist Earnings</h3>
+                {watchlistEarnings.map((ev, i) => renderEvent(ev, i, 'badge-warning', 'Earnings'))}
               </div>
             )}
 
             {otherEarnings.length > 0 && (
               <div className="flex flex-col gap-3">
-                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">Diğer Bilançolar</h3>
-                {otherEarnings.map((ev, i) => renderEvent(ev, i, 'badge-info', 'Bilanço'))}
+                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">Other Earnings</h3>
+                {otherEarnings.map((ev, i) => renderEvent(ev, i, 'badge-ghost', 'Earnings'))}
               </div>
             )}
 
