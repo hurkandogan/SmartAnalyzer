@@ -147,9 +147,6 @@ export const StatCards: React.FC<StatCardsProps> = ({
         <div className="stat-value text-primary text-3xl font-extrabold tracking-tight lg:text-4xl">
           {formatCurrency(cTotalValue)}
         </div>
-        <div className="stat-desc mt-1.5 flex flex-col gap-1 w-full font-medium">
-          <div>{renderDiff(cTotalValue, cPrevTotalValue)}</div>
-        </div>
       </div>
 
       <div className="stat flex flex-col gap-1">
@@ -167,13 +164,6 @@ export const StatCards: React.FC<StatCardsProps> = ({
           className={`stat-value text-3xl font-extrabold tracking-tight lg:text-4xl ${cTotalProfit >= 0 ? 'text-success' : 'text-error'}`}
         >
           {formatCurrency(cTotalProfit)}
-        </div>
-        <div className="stat-desc mt-1 flex w-full flex-row items-center justify-between">
-          <span
-            className={`flex-shrink-0 text-sm font-bold ${profitPercentage >= 0 ? 'text-success' : 'text-error'}`}
-          >
-            {formatPercentage(profitPercentage)}
-          </span>
         </div>
       </div>
 

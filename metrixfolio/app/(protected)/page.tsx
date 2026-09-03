@@ -1,6 +1,7 @@
 'use client';
 
 import { StatCards } from '@/components/dashboard/StatCards';
+import { HistoricalPerformance } from '@/components/dashboard/HistoricalPerformance';
 import { GoalTable } from '@/components/dashboard/GoalTable';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { useIBKRSync } from '@/hooks/useIBKRSync';
@@ -116,6 +117,11 @@ export default function Dashboard() {
           profitPercentage={portfolio?.pnl_percentage || 0}
           prevTotalValue={lastHistory?.total_market_value}
           prevInvested={lastHistory?.total_cost_basis}
+        />
+
+        <HistoricalPerformance
+          history={history || []}
+          currentTotalValue={portfolio?.total_value || 0}
         />
 
         {portfolio?.categories && (

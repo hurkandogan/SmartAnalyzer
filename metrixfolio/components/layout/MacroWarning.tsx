@@ -17,14 +17,8 @@ interface MacroEvent {
 export default function MacroWarning() {
   const [upcomingEvent, setUpcomingEvent] = useState<MacroEvent | null>(null);
   const [announcedEvent, setAnnouncedEvent] = useState<MacroEvent | null>(null);
-  const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
-    const dismissedUntil = localStorage.getItem('macro_warning_dismissed_until');
-    if (dismissedUntil && new Date(dismissedUntil) > new Date()) {
-      setIsVisible(false);
-      return;
-    }
     async function fetchCalendar() {
       try {
         const docRef = doc(db, 'screener', 'macro_calendar');
@@ -37,16 +31,30 @@ export default function MacroWarning() {
             const pastThreshold = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours
 
             // Find closest upcoming event
-            const upcoming = data.events.find((ev: MacroEvent) => {
+            let upcoming = data.events.find((ev: MacroEvent) => {
               const evDate = new Date(ev.date);
               return evDate >= now && evDate <= upcomingThreshold;
             });
             
+            if (upcoming) {
+              const dismissedUntil = localStorage.getItem('macro_warning_upcoming_dismissed_until');
+              if (dismissedUntil && new Date(dismissedUntil) > now) {
+                upcoming = null;
+              }
+            }
+
             // Find recent announced event (has 'actual' and is within last 24h)
-            const announced = data.events.find((ev: MacroEvent) => {
+            let announced = data.events.find((ev: MacroEvent) => {
               const evDate = new Date(ev.date);
               return ev.actual && evDate <= now && evDate >= pastThreshold;
             });
+            
+            if (announced) {
+              const isDismissed = localStorage.getItem(`macro_warning_announced_dismissed_${announced.title}`);
+              if (isDismissed) {
+                announced = null;
+              }
+            }
 
             if (upcoming) setUpcomingEvent(upcoming);
             if (announced) setAnnouncedEvent(announced);
@@ -59,13 +67,20 @@ export default function MacroWarning() {
     fetchCalendar();
   }, []);
 
-  if ((!upcomingEvent && !announcedEvent) || !isVisible) return null;
+  if (!upcomingEvent && !announcedEvent) return null;
 
-  const dismissWarning = () => {
+  const dismissUpcoming = () => {
     const twelveHoursLater = new Date();
     twelveHoursLater.setHours(twelveHoursLater.getHours() + 12);
-    localStorage.setItem('macro_warning_dismissed_until', twelveHoursLater.toISOString());
-    setIsVisible(false);
+    localStorage.setItem('macro_warning_upcoming_dismissed_until', twelveHoursLater.toISOString());
+    setUpcomingEvent(null);
+  };
+
+  const dismissAnnounced = () => {
+    if (announcedEvent) {
+      localStorage.setItem(`macro_warning_announced_dismissed_${announcedEvent.title}`, 'true');
+      setAnnouncedEvent(null);
+    }
   };
 
   const renderUpcoming = () => {
@@ -114,14 +129,14 @@ export default function MacroWarning() {
       {announcedEvent && (
         <div className="max-w-7xl w-full mx-auto bg-primary/10 border border-primary/20 rounded-2xl py-3 px-5 shadow-sm backdrop-blur-md flex items-center justify-between text-sm">
           {renderAnnounced()}
-          <button onClick={() => setAnnouncedEvent(null)} className="btn btn-ghost btn-xs btn-circle text-primary/80 hover:bg-primary/20 ml-2">✕</button>
+          <button onClick={dismissAnnounced} className="btn btn-ghost btn-xs btn-circle text-primary/80 hover:bg-primary/20 ml-2">✕</button>
         </div>
       )}
       
       {upcomingEvent && (
         <div className="max-w-7xl w-full mx-auto bg-error/10 border border-error/20 rounded-2xl py-3 px-5 shadow-sm backdrop-blur-md flex items-center justify-between text-sm">
           {renderUpcoming()}
-          <button onClick={dismissWarning} className="btn btn-ghost btn-xs btn-circle text-error/80 hover:bg-error/20 ml-2">✕</button>
+          <button onClick={dismissUpcoming} className="btn btn-ghost btn-xs btn-circle text-error/80 hover:bg-error/20 ml-2">✕</button>
         </div>
       )}
     </div>
