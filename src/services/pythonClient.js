@@ -63,6 +63,17 @@ class PythonClientService {
     }
   }
 
+  async getScreenerUniverse() {
+    try {
+      const res = await fetch(`${PYTHON_SERVICE_URL}/api/screener/universe`);
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      logger.error(`[PythonClient] Failed to fetch screener universe: ${err.message}`);
+      return [];
+    }
+  }
+
   async analyzeTicker(symbol) {
     try {
       const res = await fetch(`${PYTHON_SERVICE_URL}/api/analyze-ticker?symbol=${encodeURIComponent(symbol)}`);
@@ -227,6 +238,19 @@ class PythonClientService {
     } catch (err) {
       logger.error(`[PythonClient] Failed to trigger market weather: ${err.message}`);
       throw err;
+    }
+  }
+
+  async getMarketBar() {
+    try {
+      const res = await fetch(`${PYTHON_SERVICE_URL}/api/market-bar`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return await res.json();
+    } catch (err) {
+      logger.error(`[PythonClient] Failed to fetch market bar: ${err.message}`);
+      return null;
     }
   }
 }

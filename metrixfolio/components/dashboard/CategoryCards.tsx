@@ -358,8 +358,7 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
               <div
                 key={cat.id}
                 onClick={() => handleCardClick(cat)}
-                className="card bg-base-100/50 backdrop-blur-md cursor-pointer border-2 shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md h-full"
-                style={{ borderColor: cat.color ? `${cat.color}40` : 'transparent' }}
+                className="card bg-base-100/50 backdrop-blur-md cursor-pointer border border-base-content/5 shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md h-full"
               >
                 <div className="card-body p-5 flex flex-col h-full">
                   <div className="mb-2">
@@ -413,8 +412,7 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
               <div
                 key={cat.id}
                 onClick={() => handleCardClick(cat)}
-                className="card bg-base-100/50 backdrop-blur-md cursor-pointer border-2 shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md h-full"
-                style={{ borderColor: cat.color ? `${cat.color}40` : 'transparent' }}
+                className="card bg-base-100/50 backdrop-blur-md cursor-pointer border border-base-content/5 shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md h-full"
               >
                 <div className="card-body p-5 flex flex-col h-full">
                   <div className="mb-2">
@@ -462,8 +460,7 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
             <div
               key={cat.id}
               onClick={() => handleCardClick(cat)}
-              className="card bg-base-100/50 backdrop-blur-md cursor-pointer border-2 shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md h-full"
-              style={{ borderColor: cat.color ? `${cat.color}40` : 'transparent' }}
+              className="card bg-base-100/50 backdrop-blur-md cursor-pointer border border-base-content/5 shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md h-full"
             >
               <div className="card-body p-5 flex flex-col h-full">
                 <div className="mb-2">

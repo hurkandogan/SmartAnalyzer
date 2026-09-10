@@ -6,7 +6,7 @@ import yfinance as yf
 from sqlalchemy.orm import Session
 from sqlalchemy import delete
 
-from database.models import Candle, Fundamental, Watchlist
+from database.models import Candle, Fundamental, Technical
 from services.ibkr import IBKRService
 from services.yahoo import YahooService
 from services.analytics import AnalyticsService
@@ -148,12 +148,6 @@ class SyncService:
         #     return result
         
         # 1. Determine how much history to fetch
-        watchlist_record = db.query(Watchlist).filter(Watchlist.symbol == symbol).first()
-        if not watchlist_record:
-            watchlist_record = Watchlist(symbol=symbol)
-            db.add(watchlist_record)
-            
-        watchlist_record.last_synced_at = now
 
         latest_candle = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.date.desc()).first()
         
@@ -163,7 +157,6 @@ class SyncService:
         if not latest_candle:
             needs_full_history = True
             duration = "1 Y"
-            watchlist_record.last_hard_update_at = now
             result["messages"].append("No existing candles, fetching 1 year history.")
             
         # 2. Fetch candles
@@ -180,7 +173,6 @@ class SyncService:
         if not needs_full_history and latest_candle:
             cached_dict = {"date": latest_candle.date.strftime("%Y-%m-%d"), "close": latest_candle.close}
             has_split = self.analytics.check_splits_and_dividends(cached_dict, candles)
-            watchlist_record.last_split_check_at = now
             
             if has_split:
                 result["messages"].append("Split or dividend detected. Wiping history and refetching 1 year.")
@@ -193,7 +185,6 @@ class SyncService:
                 if not candles:
                     candles = self.yahoo.get_historical_candles(symbol, period="1y")
                 needs_full_history = True
-                watchlist_record.last_hard_update_at = now
                 latest_candle = None # Reset so we insert everything
                 
         # 4. Insert missing candles
@@ -323,14 +314,35 @@ class SyncService:
                 db.add(fund_record)
                 
             fund_record.pe = fund_data.get("pe")
-            fund_record.forward_pe = fund_data.get("forward_pe")
             fund_record.peg = fund_data.get("peg")
-            fund_record.ev_to_revenue = fund_data.get("ev_to_revenue")
             fund_record.roic = fund_data.get("roic")
             fund_record.roe = fund_data.get("roe")
-            fund_record.rsi = rsi
-            fund_record.avg_volume = fund_data.get("avg_volume")
-            fund_record.rvol = rvol
+            
+            fund_record.revenue_growth_yoy = fund_data.get("revenue_growth")
+            
+            # Save the missing fields
+            fund_record.market_cap = fund_data.get("market_cap")
+            fund_record.eps = fund_data.get("eps")
+            fund_record.ebitda = fund_data.get("ebitda")
+            fund_record.free_cashflow = fund_data.get("free_cashflow")
+            fund_record.operating_cashflow = fund_data.get("operating_cashflow")
+            fund_record.net_debt = fund_data.get("net_debt")
+            fund_record.net_debt_to_ebitda = fund_data.get("net_debt_to_ebitda")
+            
+            # Upsert today's technical
+            tech_record = db.query(Technical).filter(
+                Technical.symbol == symbol, 
+                Technical.date == today
+            ).first()
+            
+            if not tech_record:
+                tech_record = Technical(symbol=symbol, date=today)
+                db.add(tech_record)
+                
+            tech_record.rsi = rsi
+            tech_record.volume = fund_data.get("volume")
+            tech_record.avg_volume = fund_data.get("avg_volume")
+            tech_record.rvol = rvol
             
             # Get IV from IBKR snapshot if possible
             snapshot = await self.ibkr.get_snapshot(symbol)
@@ -343,44 +355,25 @@ class SyncService:
                 iv_val = self.calculate_yfinance_iv(symbol)
                 
             if iv_val is not None:
-                fund_record.iv = iv_val
+                tech_record.iv = iv_val
                 
-            fund_record.cash_burn_rate = burn_rate
-            fund_record.cash_runway = runway
-            fund_record.revenue_growth_yoy = fund_data.get("revenue_growth")
-            fund_record.short_interest_pct = fund_data.get("short_pct_float")
+            tech_record.sma_200 = fund_data.get("sma_200")
+            tech_record.performance_1y = fund_data.get("performance_1y")
             
-            # Save the missing fields
-            fund_record.market_cap = fund_data.get("market_cap")
-            fund_record.beta = fund_data.get("beta")
-            fund_record.eps = fund_data.get("eps")
-            fund_record.forward_eps = fund_data.get("forward_eps")
-            fund_record.dividend_yield = fund_data.get("dividend_yield")
-            fund_record.profit_margin = fund_data.get("profit_margin")
-            fund_record.operating_margin = fund_data.get("operating_margin")
-            fund_record.gross_margin = fund_data.get("gross_margin")
-            fund_record.ev_to_ebitda = fund_data.get("ev_to_ebitda")
-            fund_record.current_ratio = fund_data.get("current_ratio")
-            fund_record.de_ratio = fund_data.get("de_ratio")
-            fund_record.payout_ratio = fund_data.get("payout_ratio")
-            fund_record.ebitda = fund_data.get("ebitda")
-            fund_record.free_cashflow = fund_data.get("free_cashflow")
-            fund_record.operating_cashflow = fund_data.get("operating_cashflow")
-            fund_record.fcf_growth_yoy = fund_data.get("fcf_growth_yoy")
-            fund_record.net_debt = fund_data.get("net_debt")
-            fund_record.net_debt_to_ebitda = fund_data.get("net_debt_to_ebitda")
-            fund_record.sma_200 = fund_data.get("sma_200")
-            fund_record.sector = fund_data.get("sector")
-            fund_record.industry = fund_data.get("industry")
-            fund_record.performance_1y = fund_data.get("performance_1y")
-            
-            # New Value Investing fields
-            fund_record.revenue_cagr_5y = fund_data.get("revenue_cagr_5y")
-            fund_record.net_income_cagr_5y = fund_data.get("net_income_cagr_5y")
-            fund_record.target_mean_price = fund_data.get("target_mean_price")
-            fund_record.target_high_price = fund_data.get("target_high_price")
-            fund_record.earnings_growth_fwd = fund_data.get("earnings_growth")
-            fund_record.revenue_growth_fwd = fund_data.get("revenue_growth")
+            ema10 = None
+            ema20 = None
+            sma50 = None
+            if len(recent_candles) >= 10:
+                closes = [c.close for c in recent_candles]
+                ema10 = self.analytics.compute_ema(closes, 10)
+                if len(recent_candles) >= 20:
+                    ema20 = self.analytics.compute_ema(closes, 20)
+                if len(recent_candles) >= 50:
+                    sma50 = self.analytics.compute_sma(closes, 50)
+                    
+            tech_record.ema_10 = ema10
+            tech_record.ema_20 = ema20
+            tech_record.sma_50 = sma50
             
             db.commit()
             result["messages"].append("Fundamentals updated.")
@@ -397,35 +390,20 @@ class SyncService:
                 "volume": fund_data.get("volume"),
                 "avg_volume": fund_data.get("avg_volume"),
                 "market_cap": fund_data.get("market_cap"),
-                "beta": fund_data.get("beta"),
                 "pe": fund_data.get("pe"),
-                "forward_pe": fund_data.get("forward_pe"),
                 "eps": fund_data.get("eps"),
-                "forward_eps": fund_data.get("forward_eps"),
                 "peg": fund_data.get("peg"),
-                "ev_to_ebitda": fund_data.get("ev_to_ebitda"),
-                "ev_to_revenue": fund_data.get("ev_to_revenue"),
-                "dividend_yield": fund_data.get("dividend_yield"),
-                "payout_ratio": fund_data.get("payout_ratio"),
-                "profit_margin": fund_data.get("profit_margin") * 100 if fund_data.get("profit_margin") is not None else None,
-                "operating_margin": fund_data.get("operating_margin") * 100 if fund_data.get("operating_margin") is not None else None,
-                "gross_margin": fund_data.get("gross_margin") * 100 if fund_data.get("gross_margin") is not None else None,
-                "revenue_growth": fund_data.get("revenue_growth") * 100 if fund_data.get("revenue_growth") is not None else None,
-                "earnings_growth": fund_data.get("earnings_growth") * 100 if fund_data.get("earnings_growth") is not None else None,
                 "roe": fund_data.get("roe") * 100 if fund_data.get("roe") is not None else None,
                 "roa": fund_data.get("roa") * 100 if fund_data.get("roa") is not None else None,
-                "current_ratio": fund_data.get("current_ratio"),
-                "de_ratio": fund_data.get("de_ratio"),
                 "free_cashflow": fund_data.get("free_cashflow"),
-                "short_ratio": fund_data.get("short_ratio"),
                 "week52_high": fund_data.get("week52_high"),
                 "week52_low": fund_data.get("week52_low"),
                 "rsi": rsi,
-                "iv": fund_record.iv * 100 if fund_record.iv is not None else None,
-                "revenue_cagr_5y": fund_record.revenue_cagr_5y,
-                "net_income_cagr_5y": fund_record.net_income_cagr_5y,
-                "target_mean_price": fund_record.target_mean_price,
-                "target_high_price": fund_record.target_high_price,
+                "iv": tech_record.iv * 100 if tech_record.iv is not None else None,
+                "ema_10": ema10,
+                "ema_20": ema20,
+                "sma_50": sma50,
+                "sma_200": tech_record.sma_200,
             }
             
             # Replace float('nan') or float('inf') or pd.isna values with None to prevent FastAPI serialization errors

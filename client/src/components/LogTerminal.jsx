@@ -38,7 +38,7 @@ export default function LogTerminal() {
   };
 
   return (
-    <div className="w-full max-w-5xl mx-auto mt-12 bg-[#0A0A0B] rounded-2xl border border-white/10 shadow-2xl overflow-hidden flex flex-col h-96">
+    <div className="w-full bg-[#0A0A0B] rounded-2xl border border-white/10 shadow-2xl overflow-hidden flex flex-col h-[500px]">
       <div className="flex items-center justify-between px-4 py-3 bg-white/5 border-b border-white/10">
         <div className="flex items-center gap-2">
           <Terminal className="w-5 h-5 text-white/50" />

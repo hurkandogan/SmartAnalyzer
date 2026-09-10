@@ -54,6 +54,13 @@ class AnalyticsService:
             return None
         return float(round(sum(prices[-period:]) / period, 2))
 
+    def compute_ema(self, prices: List[float], period: int) -> Optional[float]:
+        if len(prices) < period:
+            return None
+        prices_series = pd.Series(prices)
+        ema = prices_series.ewm(span=period, adjust=False).mean()
+        return float(round(ema.iloc[-1], 2))
+
     def detect_crosses(self, prices: List[float]) -> Dict[str, Any]:
         """Detects Golden Cross (MA50 crossing above MA200) and Death Cross (MA50 crossing below MA200).
            Also predicts if a cross is approaching within a ~2% threshold."""

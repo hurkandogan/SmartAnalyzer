@@ -8,7 +8,7 @@ import {
   ReactNode,
 } from 'react';
 
-type Currency = 'USD' | 'EUR' | 'TRY' | 'GBP';
+type Currency = 'USD' | 'EUR' | 'TRY';
 
 interface CurrencyContextType {
   currency: Currency;

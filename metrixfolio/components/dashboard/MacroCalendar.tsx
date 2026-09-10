@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { getEarningsCalendarAction, getMacroCalendarAction } from '@/actions/screener';
-import { FundamentalModal } from './FundamentalModal';
 
 interface MacroEvent {
   title: string;
@@ -10,7 +9,6 @@ interface MacroEvent {
   date: string;
   impact: string;
   type?: string;
-  is_watchlist?: boolean;
   actual?: string;
   estimate?: string;
   prior?: string;
@@ -19,21 +17,6 @@ interface MacroEvent {
 export function MacroCalendar() {
   const [events, setEvents] = useState<MacroEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  const handleEventClick = (ev: MacroEvent) => {
-    if (ev.type === 'earnings') {
-      const parts = ev.title.split(':');
-      if (parts.length > 1) {
-        setSelectedSymbol(parts[1].trim().toUpperCase());
-        setIsModalOpen(true);
-      } else {
-        setSelectedSymbol(ev.title.trim().toUpperCase());
-        setIsModalOpen(true);
-      }
-    }
-  };
 
   useEffect(() => {
     async function fetchCalendar() {
@@ -86,8 +69,7 @@ export function MacroCalendar() {
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   const macroEvents = sortedEvents.filter(ev => ev.type === 'macro');
-  const watchlistEarnings = sortedEvents.filter(ev => ev.type === 'earnings' && ev.is_watchlist);
-  const otherEarnings = sortedEvents.filter(ev => ev.type === 'earnings' && !ev.is_watchlist);
+  const earningsEvents = sortedEvents.filter(ev => ev.type === 'earnings');
 
   const renderEvent = (ev: MacroEvent, i: number, badgeColor: string, badgeLabel: string) => {
     const d = new Date(ev.date);
@@ -95,12 +77,10 @@ export function MacroCalendar() {
     const dayNum = d.getDate();
     const timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
     
-    const isClickable = ev.type === 'earnings' && ev.is_watchlist;
     return (
       <div 
         key={`${ev.title}-${i}`} 
-        className={`flex items-center bg-base-200/50 hover:bg-base-200 transition-colors p-3 rounded-xl border border-base-content/5 ${isClickable ? 'cursor-pointer' : ''}`}
-        onClick={() => isClickable && handleEventClick(ev)}
+        className="flex items-center bg-base-200/50 p-3 rounded-xl border border-base-content/5"
       >
         <div className={`flex flex-col items-center justify-center w-16 h-16 rounded-xl shrink-0 bg-${badgeColor.replace('badge-', '')}/10 text-${badgeColor.replace('badge-', '')}`}>
           <span className="text-xs uppercase font-bold opacity-80">{dayName.substring(0, 3)}</span>
@@ -147,28 +127,16 @@ export function MacroCalendar() {
               </div>
             )}
 
-            {watchlistEarnings.length > 0 && (
+            {earningsEvents.length > 0 && (
               <div className="flex flex-col gap-3">
-                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">Watchlist Earnings</h3>
-                {watchlistEarnings.map((ev, i) => renderEvent(ev, i, 'badge-warning', 'Earnings'))}
-              </div>
-            )}
-
-            {otherEarnings.length > 0 && (
-              <div className="flex flex-col gap-3">
-                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">Other Earnings</h3>
-                {otherEarnings.map((ev, i) => renderEvent(ev, i, 'badge-ghost', 'Earnings'))}
+                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">Earnings</h3>
+                {earningsEvents.map((ev, i) => renderEvent(ev, i, 'badge-ghost', 'Earnings'))}
               </div>
             )}
 
           </div>
         )}
       </div>
-      <FundamentalModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        symbol={selectedSymbol}
-      />
     </div>
   );
 }

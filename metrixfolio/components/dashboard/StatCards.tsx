@@ -142,14 +142,14 @@ export const StatCards: React.FC<StatCardsProps> = ({
 
   return (
     <div className="stats stats-vertical lg:stats-horizontal bg-base-100/50 backdrop-blur-md w-full shadow lg:grid lg:grid-cols-4">
-      <div className="stat">
+      <div className="stat !gap-0">
         <div className="stat-title font-semibold opacity-70">Total Balance</div>
         <div className="stat-value text-primary text-3xl font-extrabold tracking-tight lg:text-4xl">
           {formatCurrency(cTotalValue)}
         </div>
       </div>
 
-      <div className="stat flex flex-col gap-1">
+      <div className="stat !gap-0">
         <div className="stat-title font-semibold opacity-70">
           Invested Capital
         </div>
@@ -158,7 +158,7 @@ export const StatCards: React.FC<StatCardsProps> = ({
         </div>
       </div>
 
-      <div className="stat">
+      <div className="stat !gap-0">
         <div className="stat-title font-semibold opacity-70">Total P&L</div>
         <div
           className={`stat-value text-3xl font-extrabold tracking-tight lg:text-4xl ${cTotalProfit >= 0 ? 'text-success' : 'text-error'}`}
@@ -167,21 +167,21 @@ export const StatCards: React.FC<StatCardsProps> = ({
         </div>
       </div>
 
-      <div className="stat">
+      <div className="stat !gap-0">
         <div className="stat-title flex items-center justify-between font-semibold opacity-70">
           <span>Goal Target</span>
           <div className="flex items-center gap-1">
             <span className="text-xs opacity-50">{ccy === 'USD' ? '$' : ccy === 'EUR' ? '€' : '₺'}</span>
             <input
               type="number"
-              className="input input-ghost input-xs focus:text-primary h-6 w-24 [appearance:textfield] pr-3 text-right font-bold focus:bg-transparent [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="input input-ghost input-xs focus:text-primary h-5 min-h-0 w-24 [appearance:textfield] pr-3 text-right font-bold focus:bg-transparent [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
               value={localGoal}
               onChange={(e) => setLocalGoal(e.target.value)}
               onBlur={handleBlur}
             />
           </div>
         </div>
-        <div className="stat-value text-secondary text-3xl font-extrabold tracking-tight lg:text-4xl">
+        <div className="stat-value text-secondary text-3xl font-extrabold tracking-tight lg:text-4xl -mt-1">
           {goalPercentage.toFixed(1)}%
         </div>
         <div className="stat-desc mt-1">

@@ -35,6 +35,34 @@ export async function getIBKRConfigAction(userId: string): Promise<IBKRConfig | 
   }
 }
 
+export async function getIBKRSummaryAction(userId: string) {
+  if (!userId) return null;
+  try {
+    const doc = await adminDb
+      .collection(CollectionType.USERS)
+      .doc(userId)
+      .collection(CollectionType.CONFIG)
+      .doc('ibkr_summary')
+      .get();
+      
+    if (!doc.exists) return null;
+    const data = doc.data();
+    if (!data) return null;
+    
+    return {
+      netLiquidation: data.netLiquidation || 0,
+      buyingPower: data.buyingPower || 0,
+      excessLiquidity: data.excessLiquidity || 0,
+      maintenanceMargin: data.maintenanceMargin || 0,
+      initialMargin: data.initialMargin || 0,
+      updated_at: data.updated_at ? data.updated_at.toMillis() : null,
+    };
+  } catch (err) {
+    console.error('getIBKRSummaryAction error:', err);
+    return null;
+  }
+}
+
 export async function saveIBKRConfigAction(
   userId: string,
   queryId: string,

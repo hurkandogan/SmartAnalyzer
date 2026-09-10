@@ -32,15 +32,20 @@ export async function getAllUserIds() {
 }
 
 export async function getUserFlexCredentials(userId) {
-  const doc = await db.collection('users').doc(userId).collection('config').doc('ibkr').get();
-  return doc.exists ? doc.data() : null;
+  const doc = await db.collection('users').doc(userId).collection('configuration').doc('main').get();
+  if (!doc.exists) return null;
+  const data = doc.data();
+  return {
+    flex_token: data.ibkr_token || data.flex_token,
+    flex_query_id: data.ibkr_query_id || data.flex_query_id
+  };
 }
 
 export async function setUserIBKRSummary(userId, summary) {
   await db
     .collection('users')
     .doc(userId)
-    .collection('config')
+    .collection('configuration')
     .doc('ibkr_summary')
     .set({
       ...summary,
@@ -155,7 +160,7 @@ export async function addWatchlistComment(symbol, commentId, data) {
 }
 
 export async function getUserTelegramConfig(userId) {
-  const doc = await db.collection('users').doc(userId).collection('config').doc('telegram').get();
+  const doc = await db.collection('users').doc(userId).collection('configuration').doc('telegram').get();
   return doc.exists ? doc.data() : null;
 }
 
@@ -192,4 +197,9 @@ export async function saveIvCrushOpportunities(signals) {
   
   await batch.commit();
   logger.info(`Saved ${signals.length} IV Crush opportunities to Firestore (cleaned up obsolete ones).`);
+}
+
+export async function setMarketBarData(data) {
+  const db = getDb();
+  await db.collection('screener').doc('market_bar').set(data);
 }

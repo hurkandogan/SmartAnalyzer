@@ -7,7 +7,7 @@ from database.db import get_db
 from database.models import ScreenerUniverse, Fundamental, JobLog
 from pydantic import BaseModel
 
-from services.screener_sync import ScreenerSyncService
+
 
 router = APIRouter(prefix="/api/screener", tags=["screener"])
 
@@ -83,24 +83,7 @@ async def add_to_universe(req: AddUniverseRequest, db: Session = Depends(get_db)
             db.add(new_item)
             added.append(sym)
             
-        # Also pre-fill/update sector/industry in Fundamental if we got it
-        industry = details.get("industry")
-        sector = details.get("category")
-        if industry or sector:
-            # Check if fundamental entry for today exists
-            today = datetime.utcnow().date()
-            fund = db.query(Fundamental).filter(Fundamental.symbol == sym, Fundamental.date == today).first()
-            if fund:
-                fund.sector = sector
-                fund.industry = industry
-            else:
-                new_fund = Fundamental(
-                    symbol=sym,
-                    date=today,
-                    sector=sector,
-                    industry=industry
-                )
-                db.add(new_fund)
+
                 
     db.commit()
     
@@ -126,85 +109,81 @@ def remove_from_universe(symbol: str, db: Session = Depends(get_db)):
         return {"status": "success", "message": f"{symbol} dropped from universe."}
     raise HTTPException(status_code=404, detail="Symbol not found")
 
-@router.post("/sync")
-async def trigger_sync(chunk_size: int = 50):
-    from main import ibkr_service
-    sync_service = ScreenerSyncService(ibkr_service=ibkr_service)
-    import asyncio
-    # Run in background so request doesn't block
-    asyncio.create_task(sync_service.sync_chunk(chunk_size=chunk_size))
-    return {"status": "success", "message": f"Sync started for {chunk_size} symbols"}
+
 
 @router.get("/opportunities")
 def get_opportunities(min_score: int = 75, db: Session = Depends(get_db)):
-    today = datetime.utcnow().date()
+    from database.models import Technical
     
-    # We want to get the latest fundamental record for each symbol that has score >= min_score
-    # In SQLite, we can just get the most recent ones.
+    techs = db.query(Technical).filter(
+        Technical.score >= min_score,
+        Technical.score.isnot(None)
+    ).order_by(Technical.score.desc()).all()
     
-    # Query all that have a score >= min_score and order by score desc
-    # For a real system we'd filter by latest date. Let's do a simple subquery or just fetch and group in python for safety since SQLite window functions can be tricky.
-    
-    funds = db.query(Fundamental).filter(
-        Fundamental.score >= min_score,
-        Fundamental.score.isnot(None)
-    ).order_by(Fundamental.score.desc()).all()
-    
-    # Keep only the latest date per symbol
-    latest_funds = {}
-    for f in funds:
-        if f.symbol not in latest_funds or f.date > latest_funds[f.symbol].date:
-            latest_funds[f.symbol] = f
+    latest_techs = {}
+    for t in techs:
+        if t.symbol not in latest_techs or t.date > latest_techs[t.symbol].date:
+            latest_techs[t.symbol] = t
+            
+    symbols = list(latest_techs.keys())
+    universe_data = {}
+    if symbols:
+        universe_items = db.query(ScreenerUniverse).filter(ScreenerUniverse.symbol.in_(symbols)).all()
+        for item in universe_items:
+            universe_data[item.symbol] = item
             
     results = []
-    for f in latest_funds.values():
-        if f.score >= min_score:
-            results.append({
-                "symbol": f.symbol,
-                "score": f.score,
-                "pe": f.pe,
-                "peg": f.peg,
-                "roic": f.roic,
-                "roe": f.roe,
-                "fcf": f.free_cashflow,
-                "net_debt_to_ebitda": f.net_debt_to_ebitda,
-                "sector": f.sector,
-                "industry": f.industry,
-                "market_cap": f.market_cap,
-                "performance_1y": f.performance_1y,
-                "date": f.date.strftime("%Y-%m-%d")
-            })
+    for t in latest_techs.values():
+        sym = t.symbol
+        f = db.query(Fundamental).filter(Fundamental.symbol == sym, Fundamental.date == t.date).first()
+        u = universe_data.get(sym)
+        
+        results.append({
+            "symbol": sym,
+            "score": t.score,
+            "pe": f.pe if f else None,
+            "peg": f.peg if f else None,
+            "roic": f.roic if f else None,
+            "roe": f.roe if f else None,
+            "fcf": f.free_cashflow if f else None,
+            "net_debt_to_ebitda": f.net_debt_to_ebitda if f else None,
+            "sector": u.sector if u else None,
+            "industry": u.industry if u else None,
+            "market_cap": f.market_cap if f else None,
+            "performance_1y": t.performance_1y,
+            "date": t.date.strftime("%Y-%m-%d")
+        })
             
-    # Sort by score again
     results.sort(key=lambda x: x["score"], reverse=True)
     return results
 
 @router.get("/heatmap")
 def get_heatmap(db: Session = Depends(get_db)):
-    # Group latest fundamentals by Sector -> Industry -> Symbol
-    funds = db.query(Fundamental).filter(
-        Fundamental.sector.isnot(None)
+    from database.models import Technical
+    
+    universe = db.query(ScreenerUniverse).filter(
+        ScreenerUniverse.is_active == 1,
+        ScreenerUniverse.sector.isnot(None)
     ).all()
     
-    # Keep latest per symbol
-    latest_funds = {}
-    for f in funds:
-        if f.symbol not in latest_funds or f.date > latest_funds[f.symbol].date:
-            latest_funds[f.symbol] = f
-            
     tree = {}
-    for f in latest_funds.values():
-        sec = f.sector or "Unknown Sector"
-        ind = f.industry or "Unknown Industry"
+    for u in universe:
+        sym = u.symbol
+        sec = u.sector or "Unknown Sector"
+        ind = u.industry or "Unknown Industry"
+        
+        t = db.query(Technical).filter(Technical.symbol == sym).order_by(Technical.date.desc()).first()
+        f = db.query(Fundamental).filter(Fundamental.symbol == sym).order_by(Fundamental.date.desc()).first()
+        
         if sec not in tree:
             tree[sec] = {}
         if ind not in tree[sec]:
             tree[sec][ind] = []
             
         tree[sec][ind].append({
-            "symbol": f.symbol,
-            "performance_1y": f.performance_1y or 0,
-            "market_cap": f.market_cap or 0
+            "symbol": sym,
+            "performance_1y": t.performance_1y if t else 0,
+            "market_cap": f.market_cap if f else 0
         })
         
     return tree

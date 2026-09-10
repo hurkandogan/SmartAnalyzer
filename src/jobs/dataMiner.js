@@ -1,9 +1,8 @@
-import { getWatchlist } from '../services/firebase.js';
 import { pythonClient } from '../services/pythonClient.js';
 import { dbLogger } from '../utils/logger.js';
 
 /**
- * Runs the daily data mining process for all tickers in the watchlist.
+ * Runs the daily data mining process for all tickers in the screener universe.
  * Fetches daily candles and fundamentals sequentially with a 15s delay.
  */
 export async function runDataMiner() {
@@ -12,16 +11,16 @@ export async function runDataMiner() {
   try {
     await dbLogger(source, 'info', 'Starting daily candle and fundamentals miner.');
     
-    // 1. Get the entire watchlist from Firebase
-    const watchlistDict = await getWatchlist();
-    const symbols = Object.values(watchlistDict).map((item) => item.symbol);
+    // 1. Get the entire screener universe from Postgres via Python Service
+    const universe = await pythonClient.getScreenerUniverse();
+    const symbols = universe.filter(u => u.is_active).map(u => u.symbol);
     
     if (!symbols || symbols.length === 0) {
-      await dbLogger(source, 'info', 'Watchlist is empty. Nothing to mine.');
+      await dbLogger(source, 'info', 'Universe is empty. Nothing to mine.');
       return;
     }
     
-    await dbLogger(source, 'info', `Found ${symbols.length} symbols to mine. Starting process...`);
+    await dbLogger(source, 'info', `Found ${symbols.length} active symbols to mine. Starting process...`);
  
     // 2. Process each symbol sequentially to avoid hitting rate limits
     let successCount = 0;
@@ -55,14 +54,6 @@ export async function runDataMiner() {
     }
 
     await dbLogger(source, 'success', `Miner completed. Success: ${successCount}, Errors: ${errorCount}`);
-    
-    // 4. Schedule Stock Analysis to run 10 minutes later
-    await dbLogger(source, 'info', 'Scheduling Stock Analysis to run in 10 minutes...');
-    setTimeout(() => {
-      import('./dailyStockAnalysis.js').then(module => {
-        module.runDailyStockAnalysis().catch(err => console.error("Chained Stock Analysis failed:", err));
-      });
-    }, 10 * 60 * 1000); // 10 minutes
     
   } catch (error) {
     await dbLogger(source, 'error', `Fatal error in data miner: ${error.message}`);

@@ -37,7 +37,6 @@ export const NavBar = () => {
     { href: '/transactions', label: 'Transactions' },
     { href: '/options', label: 'Options' },
     { href: '/screener', label: 'Screener' },
-    { href: '/watchlist', label: 'Watchlist' },
     { href: '/debts', label: 'Debts' },
     { href: '/family', label: 'Family' },
     { href: '/settings', label: 'Settings' },

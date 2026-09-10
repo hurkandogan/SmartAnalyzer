@@ -1,0 +1,481 @@
+{
+  "users": {
+    "244PuHZOcWhq6E699kJAUCsK6uI3": {
+      "mainConfig": {
+        "goal_amount": 25000,
+        "widgets": {
+          "growth_goals": {
+            "growthRate": 10,
+            "baseAmount": 5000,
+            "milestones": [
+              {
+                "step": 1,
+                "value": 5500,
+                "date": "2026-05-15"
+              },
+              {
+                "step": 2,
+                "value": 6050,
+                "date": "2026-05-15"
+              },
+              {
+                "step": 3,
+                "value": 6655,
+                "date": "2026-05-15"
+              },
+              {
+                "step": 4,
+                "value": 7320.5,
+                "date": "2026-05-15"
+              },
+              {
+                "step": 5,
+                "value": 8052.55,
+                "date": "2026-05-15"
+              },
+              {
+                "step": 6,
+                "value": 8857.805,
+                "date": "2026-05-15"
+              },
+              {
+                "step": 7,
+                "value": 9743.585500000001,
+                "date": "2026-05-15"
+              },
+              {
+                "step": 8,
+                "value": 10717.944050000002,
+                "date": "2026-05-15"
+              },
+              {
+                "step": 9,
+                "value": 11789.738455000002,
+                "date": "2026-05-15"
+              },
+              {
+                "step": 10,
+                "value": 12968.712300500003,
+                "date": "2026-05-15"
+              },
+              {
+                "step": 11,
+                "value": 14265.583530550004,
+                "date": "2026-05-15"
+              },
+              {
+                "step": 12,
+                "value": 15692.141883605005,
+                "date": "2026-05-19"
+              },
+              {
+                "step": 13,
+                "value": 17261.356071965507,
+                "date": "2026-08-17"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "xZy4l4CANfYxpLRfkCxhvfVOURh2": {
+      "mainConfig": {
+        "base_currency": "USD",
+        "connections": {},
+        "goal_amount": 25000,
+        "widgets": {
+          "growth_goals": {
+            "growthRate": 10,
+            "milestones": [
+              {
+                "value": 1100,
+                "step": 1,
+                "date": "2025-12-07"
+              },
+              {
+                "step": 2,
+                "date": "2025-12-07",
+                "value": 1210
+              },
+              {
+                "value": 1331,
+                "date": "2025-12-07",
+                "step": 3
+              },
+              {
+                "date": "2025-12-07",
+                "value": 1464.1,
+                "step": 4
+              },
+              {
+                "value": 1610.51,
+                "date": "2025-12-07",
+                "step": 5
+              },
+              {
+                "step": 6,
+                "value": 1771.561,
+                "date": "2025-12-07"
+              },
+              {
+                "date": "2025-12-11",
+                "value": 1948.7170999999998,
+                "step": 7
+              },
+              {
+                "date": "2026-01-07",
+                "step": 8,
+                "value": 2143.5888099999997
+              },
+              {
+                "step": 9,
+                "value": 2357.947691,
+                "date": "2026-01-30"
+              },
+              {
+                "value": 2593.7424601,
+                "step": 10,
+                "date": "2026-01-30"
+              },
+              {
+                "value": 2853.1167061099995,
+                "date": "2026-01-30",
+                "step": 11
+              },
+              {
+                "step": 12,
+                "date": "2026-01-30",
+                "value": 3138.4283767209995
+              },
+              {
+                "step": 13,
+                "value": 3452.2712143930994,
+                "date": "2026-01-30"
+              },
+              {
+                "step": 14,
+                "date": "2026-01-30",
+                "value": 3797.4983358324093
+              },
+              {
+                "value": 4177.24816941565,
+                "date": "2026-03-27",
+                "step": 15
+              },
+              {
+                "date": "2026-03-27",
+                "value": 4594.972986357216,
+                "step": 16
+              },
+              {
+                "date": "2026-03-27",
+                "value": 5054.470284992937,
+                "step": 17
+              },
+              {
+                "value": 5559.917313492231,
+                "date": "2026-03-31",
+                "step": 18
+              },
+              {
+                "value": 6115.9090448414545,
+                "date": "2026-04-14",
+                "step": 19
+              },
+              {
+                "date": "2026-04-16",
+                "value": 6727.4999493256,
+                "step": 20
+              },
+              {
+                "step": 21,
+                "date": "2026-04-16",
+                "value": 7400.24994425816
+              },
+              {
+                "step": 22,
+                "value": 8140.274938683976,
+                "date": "2026-04-16"
+              },
+              {
+                "value": 8954.302432552373,
+                "step": 23,
+                "date": "2026-04-16"
+              },
+              {
+                "step": 24,
+                "date": "2026-05-11",
+                "value": 9849.73267580761
+              },
+              {
+                "date": "2026-05-22",
+                "value": 10834.705943388371,
+                "step": 25
+              },
+              {
+                "step": 26,
+                "date": "2026-05-26",
+                "value": 11918.17653772721
+              },
+              {
+                "step": 27,
+                "value": 13109.99419149993,
+                "date": "2026-08-13"
+              },
+              {
+                "step": 28,
+                "value": 14420.993610649924,
+                "date": "2026-08-17"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "currencies": {
+    "CHF_USD": {
+      "from": "CHF",
+      "id": "CHF_USD",
+      "to": "USD",
+      "source": "YAHOO",
+      "date": "09/09/2026",
+      "rate": 1.2347966432571411
+    },
+    "EUR_USD": {
+      "from": "EUR",
+      "id": "EUR_USD",
+      "to": "USD",
+      "source": "YAHOO",
+      "date": "09/09/2026",
+      "rate": 1.163873314857483
+    },
+    "GBP_EUR": {
+      "from": "GBP",
+      "source": "IBKR_XML",
+      "rate": 1.1527,
+      "date": "08/01/2026",
+      "to": "EUR"
+    },
+    "GBP_USD": {
+      "from": "GBP",
+      "id": "GBP_USD",
+      "to": "USD",
+      "source": "YAHOO",
+      "date": "09/09/2026",
+      "rate": 1.3555278778076172
+    },
+    "HKD_EUR": {
+      "rate": 0.11007,
+      "to": "EUR",
+      "source": "IBKR_XML",
+      "from": "HKD",
+      "date": "08/01/2026"
+    },
+    "HKD_USD": {
+      "from": "HKD",
+      "id": "HKD_USD",
+      "to": "USD",
+      "source": "YAHOO",
+      "date": "15/05/2026",
+      "rate": 0.12770397526388264
+    },
+    "HUF_EUR": {
+      "source": "IBKR_XML",
+      "date": "08/01/2026",
+      "from": "HUF",
+      "rate": 0.0025973,
+      "to": "EUR"
+    },
+    "IDR_EUR": {
+      "rate": 0.000051083,
+      "to": "EUR",
+      "date": "08/01/2026",
+      "from": "IDR",
+      "source": "IBKR_XML"
+    },
+    "ILS_EUR": {
+      "to": "EUR",
+      "rate": 0.27034,
+      "source": "IBKR_XML",
+      "date": "08/01/2026",
+      "from": "ILS"
+    },
+    "INR_EUR": {
+      "from": "INR",
+      "source": "IBKR_XML",
+      "to": "EUR",
+      "rate": 0.0095399,
+      "date": "08/01/2026"
+    },
+    "JPY_EUR": {
+      "from": "JPY",
+      "rate": 0.0054674,
+      "date": "08/01/2026",
+      "to": "EUR",
+      "source": "IBKR_XML"
+    },
+    "JPY_USD": {
+      "from": "JPY",
+      "id": "JPY_USD",
+      "to": "USD",
+      "source": "YAHOO",
+      "date": "15/05/2026",
+      "rate": 0.006299887164191386
+    },
+    "KRW_EUR": {
+      "date": "08/01/2026",
+      "from": "KRW",
+      "rate": 0.00059087,
+      "source": "IBKR_XML",
+      "to": "EUR"
+    },
+    "KWD_EUR": {
+      "from": "KWD",
+      "date": "08/01/2026",
+      "rate": 2.8065,
+      "source": "IBKR_XML",
+      "to": "EUR"
+    },
+    "MXN_EUR": {
+      "date": "08/01/2026",
+      "to": "EUR",
+      "from": "MXN",
+      "source": "IBKR_XML",
+      "rate": 0.047718
+    },
+    "MYR_EUR": {
+      "from": "MYR",
+      "rate": 0.21112,
+      "date": "08/01/2026",
+      "to": "EUR",
+      "source": "IBKR_XML"
+    },
+    "NOK_EUR": {
+      "to": "EUR",
+      "from": "NOK",
+      "date": "08/01/2026",
+      "rate": 0.085062,
+      "source": "IBKR_XML"
+    },
+    "NZD_EUR": {
+      "from": "NZD",
+      "date": "08/01/2026",
+      "rate": 0.49332,
+      "source": "IBKR_XML",
+      "to": "EUR"
+    },
+    "OMR_EUR": {
+      "source": "IBKR_XML",
+      "from": "OMR",
+      "rate": 2.2278,
+      "to": "EUR",
+      "date": "08/01/2026"
+    },
+    "PHP_EUR": {
+      "rate": 0.014497,
+      "to": "EUR",
+      "from": "PHP",
+      "source": "IBKR_XML",
+      "date": "08/01/2026"
+    },
+    "PLN_EUR": {
+      "source": "IBKR_XML",
+      "to": "EUR",
+      "date": "08/01/2026",
+      "from": "PLN",
+      "rate": 0.23745
+    },
+    "RUB_EUR": {
+      "rate": 0.010706,
+      "source": "IBKR_XML",
+      "to": "EUR",
+      "from": "RUB",
+      "date": "08/01/2026"
+    },
+    "RUS_EUR": {
+      "date": "08/01/2026",
+      "to": "EUR",
+      "from": "RUS",
+      "source": "IBKR_XML",
+      "rate": 0.010706
+    },
+    "SAR_EUR": {
+      "rate": 0.22872,
+      "source": "IBKR_XML",
+      "date": "08/01/2026",
+      "from": "SAR",
+      "to": "EUR"
+    },
+    "SEK_EUR": {
+      "source": "IBKR_XML",
+      "rate": 0.093024,
+      "date": "08/01/2026",
+      "from": "SEK",
+      "to": "EUR"
+    },
+    "TRY_USD": {
+      "from": "TRY",
+      "id": "TRY_USD",
+      "to": "USD",
+      "source": "YAHOO",
+      "date": "09/09/2026",
+      "rate": 0.020631104707717896
+    },
+    "TWD_EUR": {
+      "source": "IBKR_XML",
+      "rate": 0.027177,
+      "date": "08/01/2026",
+      "from": "TWD",
+      "to": "EUR"
+    },
+    "USD_CHF": {
+      "from": "USD",
+      "id": "USD_CHF",
+      "to": "CHF",
+      "source": "YAHOO",
+      "date": "09/09/2026",
+      "rate": 0.8098499501603798
+    },
+    "USD_EUR": {
+      "to": "EUR",
+      "from": "USD",
+      "id": "USD_EUR",
+      "source": "YAHOO",
+      "date": "09/09/2026",
+      "rate": 0.8592000411337299
+    },
+    "USD_GBP": {
+      "from": "USD",
+      "id": "USD_GBP",
+      "to": "GBP",
+      "source": "YAHOO",
+      "date": "09/09/2026",
+      "rate": 0.7377199808073034
+    },
+    "USD_HKD": {
+      "from": "USD",
+      "id": "USD_HKD",
+      "source": "YAHOO",
+      "to": "HKD",
+      "date": "15/05/2026",
+      "rate": 7.8306097984313965
+    },
+    "USD_JPY": {
+      "from": "USD",
+      "id": "USD_JPY",
+      "source": "YAHOO",
+      "to": "JPY",
+      "date": "15/05/2026",
+      "rate": 158.73300170898438
+    },
+    "USD_TRY": {
+      "from": "USD",
+      "id": "USD_TRY",
+      "to": "TRY",
+      "source": "YAHOO",
+      "date": "09/09/2026",
+      "rate": 48.47050190317292
+    }
+  }
+}

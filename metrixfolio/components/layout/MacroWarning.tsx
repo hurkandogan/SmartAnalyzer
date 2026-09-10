@@ -125,7 +125,7 @@ export default function MacroWarning() {
   };
 
   return (
-    <div className="w-full px-4 pt-4 flex flex-col gap-2">
+    <div className="w-full px-4 pt-2 flex flex-col gap-2">
       {announcedEvent && (
         <div className="max-w-7xl w-full mx-auto bg-primary/10 border border-primary/20 rounded-2xl py-3 px-5 shadow-sm backdrop-blur-md flex items-center justify-between text-sm">
           {renderAnnounced()}

@@ -10,16 +10,16 @@ export async function getCategoriesAction(userId: string): Promise<Category[]> {
     const configDoc = await adminDb
       .collection(CollectionType.USERS)
       .doc(userId)
-      .collection('configuration')
-      .doc('category_targets')
+      .collection('settings')
+      .doc('preferences')
       .get();
 
     const customTargets = configDoc.exists ? configDoc.data() : {};
 
     // Map over FIXED_CATEGORIES to apply custom targets
     return FIXED_CATEGORIES.map((cat) => {
-      if (customTargets && typeof customTargets[cat.id] === 'number') {
-        return { ...cat, target_percentage: customTargets[cat.id] };
+      if (customTargets && customTargets.category_targets && typeof customTargets.category_targets[cat.id] === 'number') {
+        return { ...cat, target_percentage: customTargets.category_targets[cat.id] };
       }
       return cat;
     });
@@ -42,11 +42,13 @@ export async function updateCategoryTargetAction(
     const targetRef = adminDb
       .collection(CollectionType.USERS)
       .doc(userId)
-      .collection('configuration')
-      .doc('category_targets');
+      .collection('settings')
+      .doc('preferences');
       
     await targetRef.set({
-      [categoryId]: targetPercentage,
+      category_targets: {
+        [categoryId]: targetPercentage
+      },
       updated_at: new Date().toISOString()
     }, { merge: true });
 

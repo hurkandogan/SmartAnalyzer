@@ -7,8 +7,8 @@ const CONFIG_PATH = (userId: string) =>
   adminDb
     .collection('users')
     .doc(userId)
-    .collection('configuration')
-    .doc('main');
+    .collection('settings')
+    .doc('preferences');
 
 export interface GrowthWidgetData {
   growthRate: number;

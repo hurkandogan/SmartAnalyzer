@@ -43,6 +43,9 @@ logging.getLogger("ib_insync.wrapper").addFilter(IBKRFilter())
 
 app = FastAPI(title="SmartAnalyser Python Bridge", version="3.0.0")
 
+from screener_routes import router as screener_router
+app.include_router(screener_router)
+
 yahoo_service = YahooService()
 
 kraken_service = KrakenService(
@@ -109,10 +112,7 @@ async def startup_event():
     # Attempt to connect to IBKR on startup
     await ibkr_service.connect()
     
-    # Start the continuous Screener sync loop
-    from services.screener_sync import ScreenerSyncService
-    screener_sync_service = ScreenerSyncService(ibkr_service=ibkr_service)
-    asyncio.create_task(screener_sync_service.start_background_loop())
+    logger.info("Application startup complete.")
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -158,12 +158,12 @@ async def get_portfolio(db: Session = Depends(get_db)):
                                 curr_iv = greeks["iv"]
                                 break
                     if curr_iv is None:
-                        from database.models import Fundamental
-                        latest_fund = db.query(Fundamental.iv).filter(
-                            Fundamental.symbol == sym,
-                            Fundamental.iv.isnot(None),
-                            Fundamental.iv > 0
-                        ).order_by(Fundamental.date.desc()).first()
+                        from database.models import Technical
+                        latest_fund = db.query(Technical.iv).filter(
+                            Technical.symbol == sym,
+                            Technical.iv.isnot(None),
+                            Technical.iv > 0
+                        ).order_by(Technical.date.desc()).first()
                         if latest_fund:
                             curr_iv = latest_fund[0]
                     
@@ -171,12 +171,12 @@ async def get_portfolio(db: Session = Depends(get_db)):
                     if curr_iv is not None and curr_iv > 0:
                         import datetime
                         one_year_ago = datetime.date.today() - datetime.timedelta(days=365)
-                        from database.models import Fundamental
-                        records = db.query(Fundamental.iv).filter(
-                            Fundamental.symbol == sym,
-                            Fundamental.date >= one_year_ago,
-                            Fundamental.iv.isnot(None),
-                            Fundamental.iv > 0
+                        from database.models import Technical
+                        records = db.query(Technical.iv).filter(
+                            Technical.symbol == sym,
+                            Technical.date >= one_year_ago,
+                            Technical.iv.isnot(None),
+                            Technical.iv > 0
                         ).all()
                         ivs = [r[0] for r in records]
                         if curr_iv not in ivs:
@@ -429,6 +429,43 @@ async def get_currencies(targets: str = "EUR,TRY,GBP,CHF"):
     logger.info(f"Currency rates fetched successfully: {rates}")
     return rates
 
+@app.get("/api/market-bar")
+async def get_market_bar():
+    import yfinance as yf
+    symbols = ["SPY", "QQQ", "DIA", "EUR=X", "TRY=X"]
+    data = {"indices": {}, "currencies": {}}
+    
+    for sym in symbols:
+        try:
+            ticker = yf.Ticker(sym)
+            hist = ticker.history(period="5d")
+            if len(hist) >= 1:
+                current_price = float(hist['Close'].iloc[-1])
+                change_pct = 0.0
+                if len(hist) >= 2:
+                    prev_price = float(hist['Close'].iloc[-2])
+                    if prev_price > 0:
+                        change_pct = ((current_price - prev_price) / prev_price) * 100
+                
+                # Format to 2 decimal places
+                current_price = round(current_price, 2)
+                change_pct = round(change_pct, 2)
+                    
+                if sym == "SPY":
+                    data["indices"]["SPY"] = {"price": current_price, "change_pct": change_pct}
+                elif sym == "QQQ":
+                    data["indices"]["QQQ"] = {"price": current_price, "change_pct": change_pct}
+                elif sym == "DIA":
+                    data["indices"]["DIA"] = {"price": current_price, "change_pct": change_pct}
+                elif sym == "EUR=X":
+                    data["currencies"]["USD/EUR"] = {"price": current_price, "change_pct": change_pct}
+                elif sym == "TRY=X":
+                    data["currencies"]["USD/TRY"] = {"price": current_price, "change_pct": change_pct}
+        except Exception as e:
+            logger.error(f"Error fetching market bar data for {sym}: {e}")
+            
+    return data
+
 @app.get("/api/daily-sync")
 async def daily_sync(symbol: str, db: Session = Depends(get_db), sync: SyncService = Depends(get_sync_service)):
     """
@@ -441,71 +478,6 @@ async def daily_sync(symbol: str, db: Session = Depends(get_db), sync: SyncServi
         logger.error(f"Error during daily sync for {symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/analyze")
-async def analyze_watchlist(request: AnalyzeRequest):
-    """
-    Performs stock analysis:
-    - Checks 1 random/specific ticker for corporate action adjustments (split/dividend).
-    - If adjustment is found, triggers full history fetch for that ticker.
-    - Computes RSI, SMA20/50/200, and cross detection.
-    """
-    logger.info(f"Starting stock analysis for {len(request.symbols)} symbols: {request.symbols}")
-    results = {}
-    split_checked = False
-    
-    for symbol in request.symbols:
-        logger.info(f"[Analysis] Processing {symbol}...")
-        # Fetch historical daily data (1 year)
-        # Try IBKR first, fallback to Yahoo
-        candles = await ibkr_service.get_historical_candles(symbol)
-        source = "IBKR"
-        if not candles:
-            candles = yahoo_service.get_historical_candles(symbol)
-            source = "Yahoo"
-            
-        if not candles:
-            results[symbol] = {"error": "Failed to fetch price history"}
-            continue
-            
-        closes = [c["close"] for c in candles]
-        
-        # Check split/dividend on the first candidate we have cached data for
-        needs_history_update = False
-        if not split_checked and symbol in request.cached_candles:
-            cached_info = request.cached_candles[symbol]
-            cached_dict = {"date": cached_info.date, "close": cached_info.close}
-            has_split = analytics_service.check_splits_and_dividends(cached_dict, candles)
-            if has_split:
-                needs_history_update = True
-                # We stop checking splits/dividends for other tickers today to respect rate limits
-                split_checked = True
-                logger.info(f"Triggering full historical refresh for {symbol} due to split/dividend detection.")
-        
-        # Compute indicators
-        rsi = analytics_service.compute_rsi(closes)
-        sma20 = analytics_service.compute_sma(closes, 20)
-        sma50 = analytics_service.compute_sma(closes, 50)
-        sma200 = analytics_service.compute_sma(closes, 200)
-        crosses = analytics_service.detect_crosses(closes)
-        
-        results[symbol] = {
-            "symbol": symbol,
-            "source": source,
-            "last_price": closes[-1] if closes else None,
-            "rsi": rsi,
-            "sma20": sma20,
-            "sma50": sma50,
-            "sma200": sma200,
-            "golden_cross": crosses["golden_cross"],
-            "death_cross": crosses["death_cross"],
-            "needs_history_update": needs_history_update,
-            # Return candles only if history update is required
-            "candles": candles if needs_history_update else None
-        }
-        logger.info(f"[Analysis] Finished processing {symbol}. Source: {source}, Needs Update: {needs_history_update}")
-        
-    logger.info("Stock analysis completed for all requested symbols.")
-    return results
 
 @app.get("/api/ticker-data")
 async def get_ticker_data(symbol: str, db: Session = Depends(get_db)):
@@ -537,19 +509,10 @@ async def get_ticker_data(symbol: str, db: Session = Depends(get_db)):
             {
                 "time": f.date.strftime("%Y-%m-%d"),
                 "pe": f.pe,
-                "forward_pe": f.forward_pe,
                 "peg": f.peg,
-                "ev_to_revenue": f.ev_to_revenue,
                 "roic": f.roic,
                 "roe": f.roe,
-                "rsi": f.rsi,
-                "avg_volume": f.avg_volume,
-                "rvol": f.rvol,
-                "iv": f.iv,
-                "cash_burn_rate": f.cash_burn_rate,
-                "cash_runway": f.cash_runway,
-                "revenue_growth_yoy": f.revenue_growth_yoy,
-                "short_interest_pct": f.short_interest_pct
+                "revenue_growth_yoy": f.revenue_growth_yoy
             } for f in fundamentals
         ]
     }
@@ -604,345 +567,7 @@ async def mine_ticker(request: MineTickerRequest, db: Session = Depends(get_db))
         logger.error(f"Failed to mine ticker {request.symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/analyze-ticker")
-async def analyze_ticker(symbol: str, db: Session = Depends(get_db)):
-    """
-    Reads the latest data from DB (NO external scraping), computes advanced analytics,
-    predicts crosses, generates AI comments, and returns a StockAnalysis dict.
-    """
-    logger.info(f"Analyzing {symbol} using local database...")
-    from database.models import Candle, Fundamental
-    
-    symbol = symbol.upper()
-    
-    # 1. Get recent candles
-    candles = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.date.desc()).limit(250).all()
-    if not candles:
-        logger.error(f"No candles found for {symbol} in DB.")
-        raise HTTPException(status_code=404, detail=f"No candles found for {symbol}. Run data miner first.")
-        
-    candles.reverse() # chronological
-    closes = [c.close for c in candles]
-    latest_candle = candles[-1]
-    
-    # 2. Get latest fundamentals
-    fund_record = db.query(Fundamental).filter(Fundamental.symbol == symbol).order_by(Fundamental.date.desc()).first()
-    if not fund_record:
-        logger.error(f"No fundamentals found for {symbol} in DB.")
-        raise HTTPException(status_code=404, detail=f"No fundamentals found for {symbol}.")
-        
-    logger.info(f"Found {len(candles)} candles and fundamentals for {symbol}. Computing crosses and generating AI insights...")
-    # 3. Compute analytics
-    crosses = analytics_service.detect_crosses(closes)
-    
-    # Pack fundamentals dictionary
-    fund_dict = {
-        "pe": fund_record.pe,
-        "forward_pe": fund_record.forward_pe,
-        "peg": fund_record.peg,
-        "ev_to_revenue": fund_record.ev_to_revenue,
-        "roic": fund_record.roic,
-        "roe": fund_record.roe,
-        "rsi": fund_record.rsi,
-        "avg_volume": fund_record.avg_volume,
-        "rvol": fund_record.rvol,
-        "cash_burn_rate": fund_record.cash_burn_rate,
-        "cash_runway": fund_record.cash_runway,
-        "revenue_growth": fund_record.revenue_growth_yoy,
-        "short_ratio": fund_record.short_interest_pct,
-        "iv": fund_record.iv,
-        "de_ratio": None # We need to ensure de_ratio is fetched somewhere, but it's not in DB schema yet. It might be missing.
-    }
-    
-    # Determine cross_signal for UI
-    cross_signal = None
-    if crosses["golden_cross"]: cross_signal = "GC"
-    elif crosses["death_cross"]: cross_signal = "DC"
-    elif crosses["gc_coming"]: cross_signal = "GC_COMING"
-    elif crosses["dc_coming"]: cross_signal = "DC_COMING"
-    
-    # 4. Generate Insights
-    insights_html = analytics_service.generate_insights(fund_dict, crosses)
-    
-    # 5. Build response that looks like what NodeJS expects for `StockAnalysis`
-    response_data = {
-        "status": "success",
-        "symbol": symbol,
-        "date": latest_candle.date.strftime("%Y-%m-%d"),
-        "fundamentals": {
-            "date": latest_candle.date.strftime("%Y-%m-%d"),
-            "symbol": symbol,
-            "last_price": latest_candle.close,
-            "volume": latest_candle.volume,
-            "pe": fund_record.pe,
-            "forward_pe": fund_record.forward_pe,
-            "peg": fund_record.peg,
-            "ev_to_revenue": fund_record.ev_to_revenue,
-            "roic": fund_record.roic,
-            "roe": fund_record.roe,
-            "rsi": fund_record.rsi,
-            "avg_volume": fund_record.avg_volume,
-            "rvol": fund_record.rvol,
-            "cash_burn_rate": fund_record.cash_burn_rate,
-            "cash_runway": fund_record.cash_runway,
-            "revenue_growth": fund_record.revenue_growth_yoy,
-            "short_interest_pct": fund_record.short_interest_pct,
-            "iv": fund_record.iv * 100 if fund_record.iv is not None else None,
-            "market_cap": fund_record.market_cap,
-            "beta": fund_record.beta,
-            "eps": fund_record.eps,
-            "forward_eps": fund_record.forward_eps,
-            "dividend_yield": fund_record.dividend_yield,
-            "profit_margin": fund_record.profit_margin,
-            "operating_margin": fund_record.operating_margin,
-            "gross_margin": fund_record.gross_margin,
-            "ev_to_ebitda": fund_record.ev_to_ebitda,
-            "current_ratio": fund_record.current_ratio,
-            "de_ratio": fund_record.de_ratio,
-            "payout_ratio": fund_record.payout_ratio,
-            "ebitda": fund_record.ebitda,
-            "free_cashflow": fund_record.free_cashflow,
-            "operating_cashflow": fund_record.operating_cashflow,
-            "fcf_growth_yoy": fund_record.fcf_growth_yoy,
-            "net_debt": fund_record.net_debt,
-            "net_debt_to_ebitda": fund_record.net_debt_to_ebitda,
-            "sma_200": fund_record.sma_200,
-            "sector": fund_record.sector,
-            "industry": fund_record.industry,
-            "performance_1y": fund_record.performance_1y,
-            "cross_signal": cross_signal
-        },
-        "comments": insights_html if insights_html else None
-    }
-    
-    return response_data
 
-from services.telegram import TelegramService
-from services.pdf_generator import generate_pdf_report, compute_atr
-from services.agent_analyst import generate_stock_analysis, generate_portfolio_risk_report, generate_market_weather
-from services.macro import MacroService
-import pandas as pd
-
-from screener_routes import router as screener_router
-app.include_router(screener_router)
-
-class ScanAlertRequest(BaseModel):
-    watchlist: List[str]
-    portfolios: Dict[str, Dict[str, Any]]
-    force_risk: Optional[bool] = False
-    force_scan: Optional[bool] = False
-
-class ScanIvCrushRequest(BaseModel):
-    watchlist: List[str]
-    send_telegram: Optional[bool] = False
-
-@app.post("/api/scan-iv-crush")
-async def scan_iv_crush(request: ScanIvCrushRequest, db: Session = Depends(get_db)):
-    from services.iv_crush_scanner import IVCrushScannerService
-    logger.info(f"Starting IV Crush scan for {len(request.watchlist)} symbols.")
-    try:
-        scanner = IVCrushScannerService()
-        signals = await scanner.scan_signals(db, request.watchlist, request.send_telegram)
-        return {"status": "success", "signals": signals}
-    except Exception as e:
-        logger.error(f"Error in IV Crush scan: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-@app.post("/api/scan-swing")
-async def scan_swing(db: Session = Depends(get_db)):
-    from services.swing_scanner import SwingScannerService
-    from services.telegram import TelegramService
-    logger.info("Starting Swing Scanner...")
-    try:
-        telegram = TelegramService()
-        scanner = SwingScannerService(telegram)
-        signals = await scanner.scan_signals(db, send_telegram=True)
-        return {"status": "success", "signals": signals}
-    except Exception as e:
-        logger.error(f"Error in Swing Scan: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/scan-and-alert")
-async def scan_and_alert(request: ScanAlertRequest, db: Session = Depends(get_db)):
-    """
-    1. Scan watchlist and compute scores for technical signals.
-    2. Pick top 2 most active/interesting symbols.
-    3. Generate matplotlib charts, fetch Yahoo news, generate AI comments.
-    4. Compile ReportLab PDF and post it to Telegram public channel.
-    5. Perform risk analysis on all portfolios and send private reports.
-    """
-    logger.info("Starting Daily Event-Driven Scan & Alert Process...")
-    from database.models import Candle, Fundamental
-    
-    # ── Step 1: Scan and score watchlist ──
-    fundamental_symbols = []
-    value_symbols = []
-    
-    for symbol in request.watchlist:
-        symbol = symbol.upper()
-        
-        logger.info(f"[Scanner] Scanning {symbol}...")
-        try:
-            candles = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.date.desc()).limit(250).all()
-            if not candles:
-                candles_data = yahoo_service.get_historical_candles(symbol)
-            else:
-                candles.reverse()
-                candles_data = [{"date": c.date.strftime("%Y-%m-%d"), "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in candles]
-                
-            if not candles_data or len(candles_data) < 20:
-                continue
-                
-            closes = [c["close"] for c in candles_data]
-            rsi = analytics_service.compute_rsi(closes)
-            crosses = analytics_service.detect_crosses(closes)
-            
-            fund = db.query(Fundamental).filter(Fundamental.symbol == symbol).order_by(Fundamental.date.desc()).first()
-            rvol = fund.rvol if fund else 1.0
-            iv = fund.iv if (fund and fund.iv) else 0.0
-            
-            # --- Fundamental Scoring ---
-            f_score = 0
-            if crosses["golden_cross"]: f_score += 12
-            elif crosses["gc_coming"]: f_score += 8
-            if crosses["death_cross"]: f_score += 6
-            elif crosses["dc_coming"]: f_score += 4
-            
-            if rsi is not None:
-                if rsi <= 30: f_score += 12
-                elif rsi <= 40: f_score += 8
-                elif rsi <= 45: f_score += 4
-                elif rsi >= 70: f_score += 8
-                elif rsi >= 60: f_score += 4
-                
-            if rvol is not None:
-                if rvol >= 1.8: f_score += 6
-                elif rvol >= 1.3: f_score += 3
-            if iv is not None:
-                if iv >= 0.60: f_score += 10
-                elif iv >= 0.40: f_score += 6
-                elif iv >= 0.30: f_score += 3
-                
-            fundamental_symbols.append({
-                "symbol": symbol, "score": f_score, "candles": candles_data, "rsi": rsi, "rvol": rvol, "iv": iv, "crosses": crosses, "last_price": closes[-1]
-            })
-            
-            # --- Value Scoring ---
-            v_score = 0
-            if fund:
-                # 1. Consistent Growth
-                if fund.revenue_cagr_5y and fund.revenue_cagr_5y > 0.05: v_score += 10
-                if fund.net_income_cagr_5y and fund.net_income_cagr_5y > 0.05: v_score += 10
-                if fund.revenue_growth_fwd and fund.revenue_growth_fwd > 0.05: v_score += 5
-                if fund.earnings_growth_fwd and fund.earnings_growth_fwd > 0.05: v_score += 5
-                
-                # 2. Profitability
-                if fund.roic and fund.roic > 0.10: v_score += 10
-                
-                # 3. Market Mispricing (Price Drop or Underperformance)
-                last_price = closes[-1]
-                if fund.target_mean_price and last_price < fund.target_mean_price * 0.85: v_score += 15 # 15% below target
-                if rsi is not None and rsi < 40: v_score += 10 # Oversold
-                
-                if v_score >= 30: # Only consider if there's actual value potential
-                    value_symbols.append({
-                        "symbol": symbol, "score": v_score, "candles": candles_data, "rsi": rsi, "rvol": rvol, "iv": iv, "crosses": crosses, "last_price": last_price
-                    })
-                    
-        except Exception as e:
-            logger.error(f"[Scanner] Error scanning {symbol}: {e}")
-            
-    # Sort
-    fundamental_symbols.sort(key=lambda x: x["score"], reverse=True)
-    value_symbols.sort(key=lambda x: x["score"], reverse=True)
-    
-    top_fundamental = fundamental_symbols[:2]
-    top_value = value_symbols[:2]
-    
-    return {
-        "status": "success",
-        "processed_watchlist_count": len(fundamental_symbols) + len(value_symbols),
-        "top_symbols_selected": [x["symbol"] for x in top_fundamental] + [x["symbol"] for x in top_value]
-    }
-
-@app.get("/api/screener/value")
-async def get_value_screener(db: Session = Depends(get_db)):
-    """Fetch value investing opportunities"""
-    from database.models import Fundamental
-    from sqlalchemy import func, desc
-    
-    # Get latest date for fundamentals
-    latest_date_query = db.query(func.max(Fundamental.date)).scalar()
-    
-    if not latest_date_query:
-        return []
-        
-    # Get top 20 symbols with score >= 75
-    records = db.query(Fundamental).filter(
-        Fundamental.date == latest_date_query,
-        Fundamental.score >= 75
-    ).order_by(desc(Fundamental.score)).limit(20).all()
-    
-    results = []
-    for fund in records:
-        results.append({
-            "symbol": fund.symbol,
-            "score": fund.score,
-            "revenue_cagr_5y": fund.revenue_cagr_5y,
-            "net_income_cagr_5y": fund.net_income_cagr_5y,
-            "revenue_growth_fwd": fund.revenue_growth_fwd,
-            "earnings_growth_fwd": fund.earnings_growth_fwd,
-            "roic": fund.roic,
-            "pe": fund.pe,
-            "forward_pe": fund.forward_pe,
-            "target_mean_price": fund.target_mean_price,
-            "price": None
-        })
-        
-    return results
-
-class OptionsSignalsRequest(BaseModel):
-    watchlist: List[str]
-    send_telegram: Optional[bool] = False
-
-@app.post("/api/options-signals")
-async def get_options_signals(request: OptionsSignalsRequest, db: Session = Depends(get_db)):
-    """
-    Scans watchlist symbols and returns high-probability option selling signals.
-    """
-    from services.options_signals import OptionsSignalsService
-    service = OptionsSignalsService()
-    signals = await service.scan_signals(db, request.watchlist, send_telegram=request.send_telegram)
-    return {
-        "status": "success",
-        "signals": signals
-    }
-
-@app.post("/api/market-weather")
-async def api_market_weather():
-    """
-    Fetches macro data and generates an AI 'Market Weather' report, sending it to the public Telegram channel.
-    """
-    logger.info("[Weather] Triggering Market Weather Report...")
-    try:
-        # 1. Fetch Macro Data
-        macro_data = MacroService.get_market_weather_data()
-        
-        # 2. Generate AI Report
-        weather_report = await generate_market_weather(macro_data)
-        
-        # 3. Send to Telegram
-        tele_pub = TelegramService(
-            bot_token=os.getenv("TELEGRAM_PUBLIC_BOT_TOKEN"),
-            chat_id=os.getenv("TELEGRAM_PUBLIC_CHANNEL_ID")
-        )
-        await tele_pub.send_message(weather_report)
-        logger.info("[Weather] Market Weather Report successfully sent.")
-        
-        return {"status": "success", "message": "Market Weather report sent."}
-    except Exception as e:
-        logger.error(f"[Weather] Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

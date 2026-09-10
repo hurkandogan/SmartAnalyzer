@@ -6,7 +6,6 @@ import { GoalTable } from '@/components/dashboard/GoalTable';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { useIBKRSync } from '@/hooks/useIBKRSync';
 import { CategoryCards } from '@/components/dashboard/CategoryCards';
-import { MagicSearchBar } from '@/components/dashboard/MagicSearchBar';
 import { MacroCalendar } from '@/components/dashboard/MacroCalendar';
 
 import { useAuth } from '@/context/AuthProvider';
@@ -14,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { getUserPreferenceAction, saveUserPreferenceAction } from '@/actions/user';
 
 import DistributionHeatmap from '@/components/dashboard/DistributionHeatmap';
+import { AccountSummaryWidget } from '@/components/dashboard/AccountSummaryWidget';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -59,10 +59,7 @@ export default function Dashboard() {
   return (
     <>
       <div className="flex flex-col gap-6">
-        <div className="relative flex flex-col items-center justify-center w-full min-h-[4rem]">
-          <div className="w-full max-w-3xl">
-            <MagicSearchBar />
-          </div>
+        <div className="relative flex flex-col items-center justify-center w-full min-h-[2rem]">
           {isConfigured && (
             <div className="md:absolute right-0 top-1/2 md:-translate-y-1/2 mt-2 md:mt-0">
               <span className="text-xs opacity-50 flex items-center gap-1">
@@ -118,6 +115,8 @@ export default function Dashboard() {
           prevTotalValue={lastHistory?.total_market_value}
           prevInvested={lastHistory?.total_cost_basis}
         />
+
+        <AccountSummaryWidget selectedCurrency={dashboardCurrency} />
 
         <HistoricalPerformance
           history={history || []}

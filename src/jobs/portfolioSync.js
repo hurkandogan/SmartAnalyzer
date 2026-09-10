@@ -8,6 +8,7 @@ import {
   getUserFlexCredentials,
   setUserIBKRSummary,
   getDb,
+  setMarketBarData
 } from '../services/firebase.js';
 import { fetchAndParseFlexQuery } from '../services/flexQuery.js';
 import { logger } from '../utils/logger.js';
@@ -89,6 +90,16 @@ export async function runPortfolioSync() {
     await syncOtherUsers(currencies);
   } catch (err) {
     logger.error(`Other users sync failed: ${err.message}`);
+  }
+
+  try {
+    const marketBarData = await pythonClient.getMarketBar();
+    if (marketBarData) {
+      await setMarketBarData(marketBarData);
+      logger.info('── Market Bar updated ──');
+    }
+  } catch (err) {
+    logger.error(`Market Bar update failed: ${err.message}`);
   }
 
   logger.info('── Portfolio Sync done ──');
@@ -239,15 +250,17 @@ async function syncPrivateUser(currencies) {
     const summary = {
       netLiquidation: cashBalances.NetLiquidation || 0,
       buyingPower: cashBalances.BuyingPower || 0,
-      excessLiquidity: cashBalances.ExcessLiquidity || 0
+      excessLiquidity: cashBalances.ExcessLiquidity || 0,
+      maintenanceMargin: cashBalances.MaintMarginReq || 0,
+      initialMargin: cashBalances.InitMarginReq || 0
     };
     await setUserIBKRSummary(userId, summary);
-    logger.info(`[Private] Saved account summary for ${userId}: NetLiq=${summary.netLiquidation}, BuyingPower=${summary.buyingPower}, ExcessLiq=${summary.excessLiquidity}`);
+    logger.info(`[Private] Saved account summary for ${userId}: NetLiq=${summary.netLiquidation}, BuyingPower=${summary.buyingPower}, ExcessLiq=${summary.excessLiquidity}, MaintMargin=${summary.maintenanceMargin}, InitMargin=${summary.initialMargin}`);
 
     // Sum up all cash lines to a single USD position
     let totalCashUsd = 0;
     for (const [currency, balance] of Object.entries(cashBalances)) {
-      if (['NetLiquidation', 'BuyingPower', 'ExcessLiquidity'].includes(currency)) {
+      if (['NetLiquidation', 'BuyingPower', 'ExcessLiquidity', 'MaintMarginReq', 'InitMarginReq'].includes(currency)) {
         continue;
       }
       const rateToUsd = currencies[currency] || 1.0;
@@ -400,13 +413,17 @@ async function syncFlexUser(userId, flexCreds, currencies) {
       const netLiquidation = parseFloat(acctInfo.netLiquidation) || 0;
       const buyingPower = parseFloat(acctInfo.buyingPower) || 0;
       const excessLiquidity = parseFloat(acctInfo.excessLiquidity) || 0;
+      const maintenanceMargin = parseFloat(acctInfo.maintMarginReq) || 0;
+      const initialMargin = parseFloat(acctInfo.initMarginReq) || 0;
       
       await setUserIBKRSummary(userId, {
         netLiquidation,
         buyingPower,
-        excessLiquidity
+        excessLiquidity,
+        maintenanceMargin,
+        initialMargin
       });
-      logger.info(`[Flex] Saved account summary for ${userId}: NetLiq=${netLiquidation}, BuyingPower=${buyingPower}, ExcessLiq=${excessLiquidity}`);
+      logger.info(`[Flex] Saved account summary for ${userId}: NetLiq=${netLiquidation}, BuyingPower=${buyingPower}, ExcessLiq=${excessLiquidity}, MaintMargin=${maintenanceMargin}, InitMargin=${initialMargin}`);
     }
 
     const cashReports = toArray(statement?.CashReport?.CashReportCurrency);
