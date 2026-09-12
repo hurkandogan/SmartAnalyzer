@@ -246,7 +246,7 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
         </form>
       </dialog>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         {sortedCategories.map((cat) => {
           const isUncategorized = cat.id === 'uncategorized';
           const isShortCategory = cat.target_percentage < 0;

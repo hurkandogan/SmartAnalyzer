@@ -3,6 +3,7 @@ import { runPortfolioSync } from '../jobs/portfolioSync.js';
 import { runCurrencyUpdate } from '../jobs/currencyUpdate.js';
 import { runDataMiner } from '../jobs/dataMiner.js';
 import { runMarketWeather } from '../jobs/marketWeather.js';
+import { runAnalysisBot } from '../jobs/analysisBot.js';
 import { logger } from '../utils/logger.js';
 
 export const jobRoutes = new Hono();
@@ -55,6 +56,15 @@ jobRoutes.post(
 jobRoutes.get(
   '/data-miner',
   wrapJob('data-miner', runDataMiner),
+);
+
+jobRoutes.post(
+  '/analysis-bot',
+  wrapJob('analysis-bot', runAnalysisBot),
+);
+jobRoutes.get(
+  '/analysis-bot',
+  wrapJob('analysis-bot', runAnalysisBot),
 );
 
 // Fallback compatibility path

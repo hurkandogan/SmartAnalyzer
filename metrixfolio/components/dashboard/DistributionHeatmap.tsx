@@ -15,21 +15,11 @@ interface GroupedData {
 }
 
 export default function DistributionHeatmap({ assets }: DistributionHeatmapProps) {
-  const [sectorsOpen, setSectorsOpen] = useState(true);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const savedSectors = localStorage.getItem('heatmap_sectors_open');
-    if (savedSectors !== null) setSectorsOpen(savedSectors === 'true');
-    
     setMounted(true);
   }, []);
-
-  const toggleSectors = () => {
-    const newVal = !sectorsOpen;
-    setSectorsOpen(newVal);
-    localStorage.setItem('heatmap_sectors_open', String(newVal));
-  };
 
   if (!mounted) return null;
 
@@ -129,21 +119,18 @@ export default function DistributionHeatmap({ assets }: DistributionHeatmapProps
   };
 
   return (
-    <div className="flex flex-col gap-4 w-full mt-8">
-      {/* Sectors Accordion */}
-      <div className="collapse collapse-arrow bg-base-100 rounded-3xl shadow-sm border border-base-200 overflow-visible">
-        <input type="checkbox" checked={sectorsOpen} onChange={toggleSectors} /> 
-        <div className="collapse-title text-xl font-bold flex items-center gap-3 pr-10">
-          Sectors Distribution
+    <div className="card bg-base-100 shadow-xl overflow-hidden w-full">
+      <div className="card-body p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <h2 className="card-title text-xl mb-0">Sectors Distribution</h2>
           <span className="text-sm font-normal text-base-content/60 bg-base-200 px-2 py-1 rounded-full">Target: {TARGET_SECTOR_WEIGHT.toFixed(1)}%</span>
         </div>
-        <div className="collapse-content overflow-visible">
-          {sectors.length === 0 ? (
-            <div className="text-center py-4 text-base-content/60">No sector data available. Try syncing IBKR.</div>
-          ) : (
-            renderGrid(sectors, TARGET_SECTOR_WEIGHT)
-          )}
-        </div>
+        
+        {sectors.length === 0 ? (
+          <div className="text-center py-4 text-base-content/60">No sector data available. Try syncing IBKR.</div>
+        ) : (
+          renderGrid(sectors, TARGET_SECTOR_WEIGHT)
+        )}
       </div>
     </div>
   );

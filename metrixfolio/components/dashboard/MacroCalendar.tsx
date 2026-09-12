@@ -107,10 +107,10 @@ export function MacroCalendar() {
   };
 
   return (
-    <div className="card bg-base-100 shadow-xl border-t-4 border-t-primary h-full max-h-[800px] flex flex-col">
+    <div className="card bg-base-100 shadow-xl h-full max-h-[800px] flex flex-col">
       <div className="card-body p-6 flex flex-col overflow-hidden">
         <h2 className="card-title text-xl mb-4 flex items-center gap-2 shrink-0">
-          <span>📅</span> Upcoming Calendar
+          <span>📅</span> Upcoming Events
         </h2>
 
         {sortedEvents.length === 0 ? (
@@ -129,7 +129,6 @@ export function MacroCalendar() {
 
             {earningsEvents.length > 0 && (
               <div className="flex flex-col gap-3">
-                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">Earnings</h3>
                 {earningsEvents.map((ev, i) => renderEvent(ev, i, 'badge-ghost', 'Earnings'))}
               </div>
             )}

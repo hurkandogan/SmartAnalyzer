@@ -50,6 +50,7 @@ class Technical(Base):
     sma_200 = Column(Float, nullable=True)
     score = Column(Integer, nullable=True)
     performance_1y = Column(Float, nullable=True)
+    rs = Column(Float, nullable=True)
     
     __table_args__ = (
         UniqueConstraint('symbol', 'date', name='uq_technical_symbol_date'),
@@ -128,3 +129,15 @@ class OptionSignalLog(Base):
     symbol = Column(String(20), nullable=False, index=True)
     signal_type = Column(String(20), nullable=False)
     generated_at = Column(DateTime, nullable=False, index=True)
+
+class AnalysisScore(Base):
+    __tablename__ = "analysis_scores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    analysis_type = Column(String(50), nullable=False, index=True) # fundamentals, qullamaggie, options_sell, options_buy
+    score = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False) # candidate, watch, no_setup
+    reason = Column(String, nullable=True) # JSON reasoning
+    created_at = Column(DateTime, nullable=False, index=True)
+

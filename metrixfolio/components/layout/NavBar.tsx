@@ -36,7 +36,7 @@ export const NavBar = () => {
     { href: '/positions', label: 'Positions' },
     { href: '/transactions', label: 'Transactions' },
     { href: '/options', label: 'Options' },
-    { href: '/screener', label: 'Screener' },
+    { href: '/analysis', label: 'Analysis' },
     { href: '/debts', label: 'Debts' },
     { href: '/family', label: 'Family' },
     { href: '/settings', label: 'Settings' },

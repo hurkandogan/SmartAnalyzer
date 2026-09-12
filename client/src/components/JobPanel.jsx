@@ -26,9 +26,9 @@ const JOBS = [
     color: 'from-purple-500 to-pink-400'
   },
   {
-    id: 'screener-sync',
-    name: 'Screener Sync',
-    desc: 'Universe → Background sync',
+    id: 'analysis-bot',
+    name: 'Analysis Bot',
+    desc: 'Run Qullamaggie analysis',
     icon: '🚀',
     color: 'from-fuchsia-500 to-rose-400'
   },

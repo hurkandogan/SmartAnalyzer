@@ -12,7 +12,7 @@ import { useAuth } from '@/context/AuthProvider';
 import { useEffect, useState } from 'react';
 import { getUserPreferenceAction, saveUserPreferenceAction } from '@/actions/user';
 
-import DistributionHeatmap from '@/components/dashboard/DistributionHeatmap';
+import { HeatmapTabs } from '@/components/dashboard/HeatmapTabs';
 import { AccountSummaryWidget } from '@/components/dashboard/AccountSummaryWidget';
 
 export default function Dashboard() {
@@ -123,25 +123,27 @@ export default function Dashboard() {
           currentTotalValue={portfolio?.total_value || 0}
         />
 
-        {portfolio?.categories && (
-          <CategoryCards
-            selectedCurrency={dashboardCurrency}
-            categories={portfolio.categories}
-            history={history || []}
-            assets={assets}
-            totalPortfolioValue={portfolio.total_value}
-          />
-        )}
-
-        <DistributionHeatmap assets={assets} />
-
         <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <GoalTable selectedCurrency={dashboardCurrency} currentValue={portfolio?.total_value || 0} />
+          <div className="lg:col-span-2 flex flex-col gap-6">
+            {portfolio?.categories && (
+              <CategoryCards
+                selectedCurrency={dashboardCurrency}
+                categories={portfolio.categories}
+                history={history || []}
+                assets={assets}
+                totalPortfolioValue={portfolio.total_value}
+              />
+            )}
           </div>
           <div className="lg:col-span-1">
             <MacroCalendar />
           </div>
+        </div>
+
+        <HeatmapTabs assets={assets} />
+
+        <div className="w-full">
+          <GoalTable selectedCurrency={dashboardCurrency} currentValue={portfolio?.total_value || 0} />
         </div>
       </div>
     </>

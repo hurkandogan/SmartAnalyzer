@@ -733,13 +733,13 @@ export default function OptionManager() {
                             const collision = opt.expiry_date ? new Date(opt.expiry_date) >= new Date(status.date) : false;
                             return (
                               <span className={`text-[9px] font-semibold flex items-center gap-0.5 mt-0.5 ${collision ? 'text-error animate-pulse' : isClose ? 'text-warning' : 'text-success'}`}>
-                                ⚠️ Bilanço: {status.days} gün {collision ? '(Çakışma!)' : 'kaldı'}
+                                ⚠️ Earnings: {status.days} days {collision ? '(Collision!)' : 'left'}
                               </span>
                             );
                           } else {
                             return (
                               <span className="text-[9px] opacity-40 mt-0.5">
-                                📅 Önceki Bilanço: {toDisplayDate(status.date)}
+                                📅 Previous Earnings: {toDisplayDate(status.date)}
                               </span>
                             );
                           }

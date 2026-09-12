@@ -52,7 +52,7 @@ async def fetch_earnings():
                         if now <= d_date <= two_weeks_later:
                             # Found an upcoming earnings!
                             events.append({
-                                "title": f"Bilanço: {sym}",
+                                "title": f"{sym}",
                                 "country": "US",
                                 "impact": "High",
                                 "date": datetime(d_date.year, d_date.month, d_date.day, 16, 0).isoformat() + "Z", # Approximating 16:00 UTC (Post-market)

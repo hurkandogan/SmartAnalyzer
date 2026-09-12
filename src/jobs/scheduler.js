@@ -5,6 +5,7 @@ import { runDataMiner } from './dataMiner.js';
 import { runMarketWeather } from './marketWeather.js';
 import { runMacroCalendarSync } from './macroCalendarSync.js';
 import { runEarningsCalendarSync } from './earningsCalendarSync.js';
+import { runAnalysisBot } from './analysisBot.js';
 import { logger, dbLogger } from '../utils/logger.js';
 
 /**
@@ -33,9 +34,15 @@ export function startScheduler() {
     }
   });
 
-  // ── Daily Stock Analysis ──
-  // Note: This is no longer scheduled via cron.
-  // It is chained automatically after the Data Miner finishes.
+  // ── Daily Stock Analysis (Qullamaggie etc): daily at 14:00 ──
+  cron.schedule('0 14 * * 1-5', async () => {
+    logger.info('[CRON] Analysis Bot triggered');
+    try {
+      await runAnalysisBot();
+    } catch (error) {
+      logger.error(`[CRON] Analysis Bot failed: ${error.message}`);
+    }
+  });
 
   // ── Currency Update: daily at 08:00 ──
   cron.schedule('0 8 * * *', async () => {
@@ -91,7 +98,7 @@ export function startScheduler() {
     }
   });
 
-  logger.info('Scheduler started — 6 jobs registered');
+  logger.info('Scheduler started — 7 jobs registered');
 }
 
-export { runPortfolioSync, runCurrencyUpdate, runDataMiner, runMarketWeather, runMacroCalendarSync, runEarningsCalendarSync };
+export { runPortfolioSync, runCurrencyUpdate, runDataMiner, runMarketWeather, runMacroCalendarSync, runEarningsCalendarSync, runAnalysisBot };
