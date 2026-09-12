@@ -86,10 +86,18 @@ export async function runAnalysisBot() {
       `);
       
       const scoreRes = await client.query(`
-        SELECT symbol, analysis_type, score, status, reason 
+        SELECT symbol, analysis_type, score, status, reason, price 
         FROM analysis_scores 
         WHERE created_at >= CURRENT_DATE
       `);
+      
+      const uyumluRes = await client.query(`
+        SELECT DISTINCT symbol 
+        FROM analysis_scores 
+        WHERE created_at >= CURRENT_DATE - INTERVAL '5 days' 
+          AND score >= 50
+      `);
+      const uyumluSymbols = new Set(uyumluRes.rows.map(r => r.symbol));
       
       const technicalsMap = new Map();
       techRes.rows.forEach(r => technicalsMap.set(r.symbol, r));
@@ -105,6 +113,8 @@ export async function runAnalysisBot() {
       const { FieldValue } = await import('firebase-admin/firestore');
       const analysisTypes = ['qullamaggie'];
       
+      let syncedAnalysisCount = 0;
+      
       for (const sym of allSymbols) {
         const docRef = firestore.collection('assets').doc(sym);
         const data = {};
@@ -115,9 +125,14 @@ export async function runAnalysisBot() {
         
         const currentScores = scoresMap.get(sym) || {};
         data.analysis = {};
+        const isUyumlu = uyumluSymbols.has(sym);
+        
+        if (isUyumlu) {
+            syncedAnalysisCount++;
+        }
         
         for (const type of analysisTypes) {
-          if (currentScores[type]) {
+          if (isUyumlu && currentScores[type]) {
             data.analysis[type] = currentScores[type];
           } else {
             data.analysis[type] = FieldValue.delete();
@@ -129,8 +144,8 @@ export async function runAnalysisBot() {
       }
       
       await batch.commit();
-      logger.info(`[AnalysisBot] Synced ${allSymbols.size} symbols to Firebase.`);
-      await dbLogger('analysis-bot', 'success', `Analysis finished and synced ${allSymbols.size} symbols.`);
+      logger.info(`[AnalysisBot] Processed ${allSymbols.size} symbols. Synced ${syncedAnalysisCount} active analyses to Firebase.`);
+      await dbLogger('analysis-bot', 'success', `Analysis finished. Processed ${allSymbols.size} symbols, synced ${syncedAnalysisCount} active analyses.`);
       
     } finally {
       client.release();

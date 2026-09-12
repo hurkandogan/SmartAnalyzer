@@ -139,5 +139,6 @@ class AnalysisScore(Base):
     score = Column(Integer, nullable=False)
     status = Column(String(20), nullable=False) # candidate, watch, no_setup
     reason = Column(String, nullable=True) # JSON reasoning
+    price = Column(Float, nullable=True)
     created_at = Column(DateTime, nullable=False, index=True)
 

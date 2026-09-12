@@ -1,6 +1,8 @@
 import React from 'react';
 import { getAnalysisCandidatesAction } from '@/actions/analysis';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AnalysisPage() {
   const assets = await getAnalysisCandidatesAction();
 
@@ -91,6 +93,8 @@ export default async function AnalysisPage() {
                     <div className="flex flex-wrap gap-2 text-xs font-mono">
                       <span className="bg-base-200 px-2 py-1 rounded">EMA10: {asset.technicals.ema_10?.toFixed(2)}</span>
                       <span className="bg-base-200 px-2 py-1 rounded">EMA20: {asset.technicals.ema_20?.toFixed(2)}</span>
+                      <span className="bg-base-200 px-2 py-1 rounded">SMA50: {asset.technicals.sma_50?.toFixed(2)}</span>
+                      <span className="bg-base-200 px-2 py-1 rounded">SMA200: {asset.technicals.sma_200?.toFixed(2)}</span>
                     </div>
                   </div>
                 )}

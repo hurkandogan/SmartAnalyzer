@@ -122,20 +122,25 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
         "tightness_score": tightness_score,
         "vol_score": vol_score,
         "earnings_score": earnings_score,
-        "rs_ratio": float(rs_ratio),
+        "rs_ratio": None if pd.isna(rs_ratio) else float(rs_ratio),
         "days_to_earnings": int(days_to_earnings),
-        "avg_dollar_vol": float(avg_dollar_vol)
+        "avg_dollar_vol": None if pd.isna(avg_dollar_vol) else float(avg_dollar_vol)
     }
     
+    sma50 = df['Close'].rolling(window=50).mean().iloc[-1]
+    sma200 = df['Close'].rolling(window=200).mean().iloc[-1]
+
     return {
         "score": int(total_score),
         "status": status,
         "reason": json.dumps(reason),
-        "ema10": float(current_ema10),
-        "ema20": float(current_ema20),
-        "rs": float(rs_ratio),
-        "current_vol": float(current_vol),
-        "avg_vol_20d": float(avg_vol_20d)
+        "ema10": None if pd.isna(current_ema10) else float(current_ema10),
+        "ema20": None if pd.isna(current_ema20) else float(current_ema20),
+        "sma50": None if pd.isna(sma50) else float(sma50),
+        "sma200": None if pd.isna(sma200) else float(sma200),
+        "rs": None if pd.isna(rs_ratio) else float(rs_ratio),
+        "current_vol": None if pd.isna(current_vol) else float(current_vol),
+        "avg_vol_20d": None if pd.isna(avg_vol_20d) else float(avg_vol_20d)
     }
 
 
@@ -208,11 +213,6 @@ def main():
                 if not analysis:
                     continue
                 
-                # Demo override for AAPL and MSFT
-                if sym in ['AAPL', 'MSFT']:
-                    analysis['score'] = 100
-                    analysis['status'] = 'candidate'
-                
                 try:
                     import json
                     r = json.loads(analysis["reason"])
@@ -224,46 +224,35 @@ def main():
                     )
                 except Exception as e:
                     logger.info(f"[{sym}] Score: {analysis['score']} ({analysis['status']})")
-                # 5-day grace period check
-                should_save = False
-                if analysis['score'] >= 50:
-                    should_save = True
-                else:
-                    five_days_ago = datetime.now() - timedelta(days=5)
-                    recent_high = db.query(AnalysisScore).filter(
-                        AnalysisScore.symbol == sym,
-                        AnalysisScore.analysis_type == 'qullamaggie',
-                        AnalysisScore.created_at >= five_days_ago,
-                        AnalysisScore.score >= 50
-                    ).first()
-                    if recent_high:
-                        should_save = True
+                # Save to AnalysisScore unconditionally
+                today = datetime.now().date()
+                today_start = datetime.combine(today, datetime.min.time())
+                existing_score = db.query(AnalysisScore).filter(
+                    AnalysisScore.symbol == sym,
+                    AnalysisScore.analysis_type == 'qullamaggie',
+                    AnalysisScore.created_at >= today_start
+                ).first()
                 
-                if should_save:
-                    today = datetime.now().date()
-                    today_start = datetime.combine(today, datetime.min.time())
-                    existing_score = db.query(AnalysisScore).filter(
-                        AnalysisScore.symbol == sym,
-                        AnalysisScore.analysis_type == 'qullamaggie',
-                        AnalysisScore.created_at >= today_start
-                    ).first()
-                    
-                    if existing_score:
-                        existing_score.score = analysis["score"]
-                        existing_score.status = analysis["status"]
-                        existing_score.reason = analysis["reason"]
-                        existing_score.created_at = datetime.now()
-                    else:
-                        new_score = AnalysisScore(
-                            symbol=sym,
-                            analysis_type='qullamaggie',
-                            score=analysis["score"],
-                            status=analysis["status"],
-                            reason=analysis["reason"],
-                            created_at=datetime.now()
-                        )
-                        db.add(new_score)
-                    db.commit()    
+                current_price = float(df['Close'].iloc[-1]) if not df.empty else None
+                
+                if existing_score:
+                    existing_score.score = analysis["score"]
+                    existing_score.status = analysis["status"]
+                    existing_score.reason = analysis["reason"]
+                    existing_score.price = current_price
+                    existing_score.created_at = datetime.now()
+                else:
+                    new_score = AnalysisScore(
+                        symbol=sym,
+                        analysis_type='qullamaggie',
+                        score=analysis["score"],
+                        status=analysis["status"],
+                        reason=analysis["reason"],
+                        price=current_price,
+                        created_at=datetime.now()
+                    )
+                    db.add(new_score)
+                db.commit()
                 # Update Technicals
                 today = datetime.now().date()
                 existing_tech = db.query(Technical).filter(
@@ -274,6 +263,8 @@ def main():
                 if existing_tech:
                     existing_tech.ema_10 = analysis["ema10"]
                     existing_tech.ema_20 = analysis["ema20"]
+                    existing_tech.sma_50 = analysis["sma50"]
+                    existing_tech.sma_200 = analysis["sma200"]
                     existing_tech.rs = analysis["rs"]
                 else:
                     new_tech = Technical(
@@ -281,6 +272,8 @@ def main():
                         date=today,
                         ema_10=analysis["ema10"],
                         ema_20=analysis["ema20"],
+                        sma_50=analysis["sma50"],
+                        sma_200=analysis["sma200"],
                         rs=analysis["rs"],
                         volume=analysis["current_vol"],
                         avg_volume=analysis["avg_vol_20d"]
