@@ -20,75 +20,105 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
     if len(df) < 130: # Need at least 6 months of data
         return None
         
+    # Filter out weekends/holidays with 0 volume
+    df = df[df['Volume'] > 0].copy()
+    if len(df) < 60:
+        return None
+        
     current_price = df['Close'].iloc[-1]
     
-    # 1. Trend / Surf (0-30 points)
-    # EMA10 and EMA20 above, moving averages rising
-    ema10 = df['Close'].ewm(span=10, adjust=False).mean()
-    ema20 = df['Close'].ewm(span=20, adjust=False).mean()
-    
-    current_ema10 = ema10.iloc[-1]
-    current_ema20 = ema20.iloc[-1]
-    
-    # Slopes
-    ema10_slope = (ema10.iloc[-1] - ema10.iloc[-5]) / 5
-    ema20_slope = (ema20.iloc[-1] - ema20.iloc[-5]) / 5
+    # 1. Trend / Surf (0-35 points)
+    # Price must be above EMA10, EMA20, SMA50, SMA200
+    current_ema10 = df['Close'].ewm(span=10, adjust=False).mean().iloc[-1]
+    current_ema20 = df['Close'].ewm(span=20, adjust=False).mean().iloc[-1]
+    current_sma50 = df['Close'].rolling(window=50).mean().iloc[-1]
+    current_sma200 = df['Close'].rolling(window=200).mean().iloc[-1]
     
     trend_score = 0
     if current_price > current_ema10 and current_price > current_ema20:
-        trend_score += 10
-    if ema10_slope > 0:
-        trend_score += 10
-    if ema20_slope > 0:
-        trend_score += 10
+        trend_score += 15
+    if current_price > current_sma50:
+        trend_score += 15
+    if current_price > current_sma200:
+        trend_score += 5
         
-    # 2. RS - Relative Strength (0-20 points)
-    # 3-6 months vs index
-    stock_return_3m = float((current_price - df['Close'].iloc[-63]) / df['Close'].iloc[-63])
-    spy_return_3m = float((spy_df['Close'].iloc[-1] - spy_df['Close'].iloc[-63]) / spy_df['Close'].iloc[-63])
-    
+    # 2. RS (0-25 points)
+    # 3 month return vs SPY
+    stock_return_3m = (current_price - df['Close'].iloc[-60]) / df['Close'].iloc[-60] if len(df) >= 60 else 0
+    spy_return_3m = (spy_df['Close'].iloc[-1] - spy_df['Close'].iloc[-60]) / spy_df['Close'].iloc[-60] if len(spy_df) >= 60 else 0
     rs_ratio = float((1 + stock_return_3m) / (1 + spy_return_3m))
     
     rs_score = 0
-    if rs_ratio > 1.3: rs_score = 20
+    if rs_ratio > 1.3: rs_score = 25
+    elif rs_ratio > 1.2: rs_score = 20
     elif rs_ratio > 1.15: rs_score = 15
     elif rs_ratio > 1.05: rs_score = 10
     elif rs_ratio > 1.0: rs_score = 5
     
-    # 3. Base/Tightness (0-20 points)
-    # Tight consolidation vs wide swings
-    recent_10d_std = df['Close'].iloc[-10:].std() / current_price
-    past_50d_std = df['Close'].iloc[-60:-10].std() / df['Close'].iloc[-60:-10].mean()
+    # For candle-like data (tightness, volume), always use the last CLOSED day.
+    # If the last row in df is today's date, we assume it's an incomplete intra-day candle
+    # and we use the previous row for closed metrics.
+    last_date = df['Date'].iloc[-1] if 'Date' in df.columns else df.index[-1]
+    if hasattr(last_date, 'date'):
+        last_date_obj = last_date.date()
+    else:
+        last_date_obj = datetime.strptime(str(last_date)[:10], "%Y-%m-%d").date()
+        
+    is_today = (last_date_obj == datetime.now().date())
+    
+    # Base/Tightness (0-20 points)
+    if is_today and len(df) > 60:
+        recent_10d_std = df['Close'].iloc[-11:-1].std() / df['Close'].iloc[-2]
+        past_50d_std = df['Close'].iloc[-61:-11].std() / df['Close'].iloc[-61:-11].mean()
+    else:
+        recent_10d_std = df['Close'].iloc[-10:].std() / current_price
+        past_50d_std = df['Close'].iloc[-60:-10].std() / df['Close'].iloc[-60:-10].mean()
     
     tightness_score = 0
-    if recent_10d_std < past_50d_std * 0.5: tightness_score = 20 # Very tight
+    if recent_10d_std < past_50d_std * 0.5: tightness_score = 20
     elif recent_10d_std < past_50d_std * 0.8: tightness_score = 10
     elif recent_10d_std < past_50d_std: tightness_score = 5
     
-    # 4. Volume (0-15 points)
-    current_vol = df['Volume'].iloc[-1]
-    avg_vol_20d = df['Volume'].iloc[-20:].mean()
+    # Volume & Extension (0-20 points)
+    if is_today and len(df) > 20:
+        current_vol = float(df['Volume'].iloc[-2])
+        avg_vol_20d = float(df['Volume'].iloc[-21:-1].mean())
+    else:
+        current_vol = float(df['Volume'].iloc[-1])
+        avg_vol_20d = float(df['Volume'].iloc[-20:].mean())
     
+    rvol = current_vol / avg_vol_20d if avg_vol_20d > 0 else 0
+    ext_pct = (current_price - current_ema10) / current_ema10 if current_ema10 > 0 else 0
+    
+    is_momentum = False
     vol_score = 0
-    if current_vol > avg_vol_20d * 1.5: vol_score = 15
-    elif current_vol > avg_vol_20d * 1.2: vol_score = 10
-    elif current_vol > avg_vol_20d: vol_score = 5
     
-    # 5. Earnings Distance (0-15 points)
+    if rvol >= 1.5:
+        # Breakout / Momentum day
+        is_momentum = True
+        if ext_pct <= 0.05:
+            vol_score = 20
+        elif ext_pct <= 0.08:
+            vol_score = 10
+        else:
+            vol_score = 0
+    else:
+        # Consolidation day
+        if rvol < 0.5: vol_score = 20
+        elif rvol < 0.75: vol_score = 15
+        elif rvol < 1.0: vol_score = 10
+        elif rvol < 1.5: vol_score = 5
+    
+    # Earnings Distance (No longer part of total score, just for info)
     earnings_score = 0
     days_to_earnings = 999
     if earnings_date:
         # Convert pandas Timestamp or other to naive datetime for comparison
         if hasattr(earnings_date, 'tz_localize') and earnings_date.tz is not None:
             earnings_date = earnings_date.tz_localize(None)
-        
         days_to_earnings = (earnings_date.date() - datetime.now().date()).days
-        if days_to_earnings > 30: earnings_score = 15
-        elif days_to_earnings > 14: earnings_score = 10
-        elif days_to_earnings > 7: earnings_score = 5
-        # less than 7 is 0
 
-    total_score = trend_score + rs_score + tightness_score + vol_score + earnings_score
+    total_score = trend_score + rs_score + tightness_score + vol_score
     
     # HARD FILTERS
     is_no_setup = False
@@ -109,10 +139,18 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
     if total_score < 50:
         is_no_setup = True
         
+    # Extension filter for non-breakouts
+    if not is_momentum and ext_pct > 0.08:
+        is_no_setup = True
+        
     status = "no_setup"
     if not is_no_setup:
-        if total_score >= 70 and current_price > current_ema10:
-            status = "candidate"
+        # Candidate rules: score >= 70, EMA10 >= EMA20, vol_score >= 10
+        if total_score >= 70 and current_ema10 >= current_ema20 and (vol_score >= 10 or is_momentum):
+            if not is_momentum and ext_pct > 0.05:
+                status = "watch" # too extended to be candidate, but setup is good
+            else:
+                status = "candidate"
         else:
             status = "watch"
             
@@ -124,6 +162,8 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
         "earnings_score": earnings_score,
         "rs_ratio": None if pd.isna(rs_ratio) else float(rs_ratio),
         "days_to_earnings": int(days_to_earnings),
+        "ext_pct": float(ext_pct),
+        "is_momentum": is_momentum,
         "avg_dollar_vol": None if pd.isna(avg_dollar_vol) else float(avg_dollar_vol)
     }
     
@@ -168,6 +208,29 @@ def main():
             logger.error("Failed to fetch SPY data. Aborting.")
             return
 
+        # Fetch Earnings Calendar from Firebase
+        earnings_dict = {}
+        try:
+            from services.firebase import get_db as get_firebase_db
+            fdb = get_firebase_db()
+            if fdb:
+                logger.info("Fetching Earnings Calendar from Firebase...")
+                doc = fdb.collection("screener").document("earnings_calendar").get()
+                if doc.exists:
+                    events = doc.to_dict().get("events", [])
+                    for e in events:
+                        if e.get("type") == "earnings" and e.get("title") and e.get("date"):
+                            try:
+                                d_str = e["date"].replace("Z", "+00:00")
+                                earnings_dict[e["title"]] = datetime.fromisoformat(d_str)
+                            except ValueError:
+                                pass
+                logger.info(f"Loaded earnings dates for {len(earnings_dict)} symbols from Firebase.")
+            else:
+                logger.warning("Could not initialize Firebase for earnings. Earnings distances will be missing.")
+        except Exception as e:
+            logger.error(f"Error fetching earnings from Firebase: {e}")
+
         for sym in symbols:
             try:
                 logger.info(f"Analyzing {sym}...")
@@ -187,27 +250,10 @@ def main():
                     ticker = yf.Ticker(sym)
                     df = ticker.history(period="1y")
                 
-                if df.empty or len(df) < 130:
+                if df is None or df.empty or len(df) < 130:
                     continue
                     
-                # Try to get next earnings date
-                earnings_date = None
-                try:
-                    if len(candles) < 130: # If we hit external API, we have ticker
-                        cal = ticker.calendar
-                    else:
-                        cal = yf.Ticker(sym).calendar
-                    if cal is not None and not cal.empty:
-                        # Depends on yfinance version, sometimes it's a dict, sometimes dataframe
-                        if isinstance(cal, pd.DataFrame) and 'Earnings Date' in cal.columns:
-                            dates = cal['Earnings Date']
-                            if len(dates) > 0:
-                                earnings_date = dates[0]
-                        elif isinstance(cal, dict) and 'Earnings Date' in cal:
-                            earnings_date = cal['Earnings Date'][0]
-                except Exception as e:
-                    logger.debug(f"Could not get earnings date for {sym}: {e}")
-                    
+                earnings_date = earnings_dict.get(sym)
                 analysis = calculate_qullamaggie(sym, df, spy, earnings_date)
                 
                 if not analysis:

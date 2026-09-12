@@ -142,12 +142,26 @@ async def get_volume_metrics(symbol: str, period: int = 20, db=None) -> dict:
         close_db = True
         
     try:
-        df = await _ensure_data(symbol, min_candles=period, db=db)
-        if df.empty or len(df) < period:
+        df = await _ensure_data(symbol, min_candles=period + 1, db=db)
+        if df.empty:
             return {"current_vol": None, "avg_vol": None, "rvol": None}
             
-        current_vol = df['volume'].iloc[-1]
-        avg_vol = df['volume'].iloc[-period:].mean()
+        last_date = df.index[-1]
+        if hasattr(last_date, 'date'):
+            last_date_obj = last_date.date()
+        else:
+            last_date_obj = datetime.strptime(str(last_date)[:10], "%Y-%m-%d").date()
+            
+        if last_date_obj == datetime.now().date():
+            calc_df = df.iloc[:-1]
+        else:
+            calc_df = df
+            
+        if calc_df.empty or len(calc_df) < period:
+            return {"current_vol": None, "avg_vol": None, "rvol": None}
+            
+        current_vol = calc_df['volume'].iloc[-1]
+        avg_vol = calc_df['volume'].iloc[-period:].mean()
         rvol = current_vol / avg_vol if avg_vol > 0 else 0
         
         return {

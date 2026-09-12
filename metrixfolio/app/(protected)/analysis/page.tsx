@@ -54,8 +54,15 @@ export default async function AnalysisPage() {
                     <h2 className="card-title text-2xl font-black">{asset.symbol}</h2>
                     <p className="text-xs font-mono opacity-60">Qullamaggie Score: {qullamaggie.score}</p>
                   </div>
-                  <div className={`badge ${badgeStyle} uppercase font-bold text-xs tracking-wider p-3`}>
-                    {qullamaggie.status.replace('_', ' ')}
+                  <div className="flex flex-col items-end gap-1">
+                    <div className={`badge ${badgeStyle} uppercase font-bold text-xs tracking-wider p-3`}>
+                      {qullamaggie.status.replace('_', ' ')}
+                    </div>
+                    {reasons.is_momentum && (
+                      <div className="badge badge-error animate-pulse text-white uppercase font-black text-xs tracking-wider px-2 py-3 shadow-lg">
+                        🔥 MOMENTUM
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -64,11 +71,11 @@ export default async function AnalysisPage() {
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div className="bg-base-100 rounded-lg p-2 text-center shadow-inner">
                     <div className="text-[10px] uppercase font-bold opacity-60 mb-1">Trend</div>
-                    <div className="font-mono font-bold text-lg">{reasons.trend_score || 0}/30</div>
+                    <div className="font-mono font-bold text-lg">{reasons.trend_score || 0}/35</div>
                   </div>
                   <div className="bg-base-100 rounded-lg p-2 text-center shadow-inner">
                     <div className="text-[10px] uppercase font-bold opacity-60 mb-1">RS</div>
-                    <div className="font-mono font-bold text-lg">{reasons.rs_score || 0}/20</div>
+                    <div className="font-mono font-bold text-lg">{reasons.rs_score || 0}/25</div>
                   </div>
                   <div className="bg-base-100 rounded-lg p-2 text-center shadow-inner">
                     <div className="text-[10px] uppercase font-bold opacity-60 mb-1">Base</div>
@@ -76,9 +83,16 @@ export default async function AnalysisPage() {
                   </div>
                   <div className="bg-base-100 rounded-lg p-2 text-center shadow-inner">
                     <div className="text-[10px] uppercase font-bold opacity-60 mb-1">Volume</div>
-                    <div className="font-mono font-bold text-lg">{reasons.vol_score || 0}/15</div>
+                    <div className="font-mono font-bold text-lg">{reasons.vol_score || 0}/20</div>
                   </div>
                 </div>
+                
+                {qullamaggie.price !== undefined && (
+                  <div className="flex justify-between items-center text-sm font-medium bg-base-100 p-2 rounded-lg mb-2 shadow-sm border border-base-200">
+                    <span>Latest Price:</span>
+                    <span className="font-bold text-primary">${Number(qullamaggie.price).toFixed(2)}</span>
+                  </div>
+                )}
                 
                 {reasons.days_to_earnings !== undefined && (
                   <div className="flex justify-between items-center text-xs opacity-70 bg-base-100 p-2 rounded-lg">

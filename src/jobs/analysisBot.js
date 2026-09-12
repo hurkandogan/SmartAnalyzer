@@ -132,8 +132,9 @@ export async function runAnalysisBot() {
         }
         
         for (const type of analysisTypes) {
-          if (isUyumlu && currentScores[type]) {
-            data.analysis[type] = currentScores[type];
+          const scoreData = currentScores[type];
+          if (isUyumlu && scoreData && scoreData.status !== 'no_setup' && scoreData.score >= 60) {
+            data.analysis[type] = scoreData;
           } else {
             data.analysis[type] = FieldValue.delete();
           }
