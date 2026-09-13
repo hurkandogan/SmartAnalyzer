@@ -56,8 +56,8 @@ export function startScheduler() {
     }
   });
 
-  // ── Candle & Fundamentals Miner: daily at 16:00 ──
-  cron.schedule('0 16 * * 1-5', async () => {
+  // 5. Candle & Fundamentals Miner (03:00 Server Time)
+  cron.schedule('0 3 * * 1-5', async () => {
     logger.info('[CRON] Candle & Fundamentals Miner triggered');
     try {
       await runDataMiner();

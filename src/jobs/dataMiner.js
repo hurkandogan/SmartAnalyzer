@@ -47,9 +47,9 @@ export async function runDataMiner() {
         await dbLogger(source, 'error', `Exception while mining ${symbol}: ${err.message}`);
       }
 
-      // 3. Wait for 15 seconds before processing the next ticker, unless it's the last one
+      // 3. Wait for 5 seconds before processing the next ticker, unless it's the last one
       if (i < symbols.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 15000));
+        await new Promise((resolve) => setTimeout(resolve, 5000));
       }
     }
 

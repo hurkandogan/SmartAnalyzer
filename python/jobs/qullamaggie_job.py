@@ -29,31 +29,49 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
     
     # 1. Trend / Surf (0-35 points)
     # Price must be above EMA10, EMA20, SMA50, SMA200
-    current_ema10 = df['Close'].ewm(span=10, adjust=False).mean().iloc[-1]
+    ema10_series = df['Close'].ewm(span=10, adjust=False).mean()
+    current_ema10 = ema10_series.iloc[-1]
+    ema10_5d_ago = ema10_series.iloc[-6] if len(ema10_series) >= 6 else current_ema10
+    
     current_ema20 = df['Close'].ewm(span=20, adjust=False).mean().iloc[-1]
     current_sma50 = df['Close'].rolling(window=50).mean().iloc[-1]
-    current_sma200 = df['Close'].rolling(window=200).mean().iloc[-1]
     
     trend_score = 0
-    if current_price > current_ema10 and current_price > current_ema20:
-        trend_score += 15
-    if current_price > current_sma50:
-        trend_score += 15
-    if current_price > current_sma200:
-        trend_score += 5
+    if current_ema10 >= current_ema20:
+        trend_score += 12
+    if current_price >= current_ema10:
+        trend_score += 10
+    if current_price >= current_ema20:
+        trend_score += 8
+    if current_ema10 > ema10_5d_ago:
+        trend_score += 3
+    if current_price >= current_sma50:
+        trend_score += 2
         
     # 2. RS (0-25 points)
-    # 3 month return vs SPY
-    stock_return_3m = (current_price - df['Close'].iloc[-60]) / df['Close'].iloc[-60] if len(df) >= 60 else 0
-    spy_return_3m = (spy_df['Close'].iloc[-1] - spy_df['Close'].iloc[-60]) / spy_df['Close'].iloc[-60] if len(spy_df) >= 60 else 0
-    rs_ratio = float((1 + stock_return_3m) / (1 + spy_return_3m))
+    stock_return_63d = (current_price - df['Close'].iloc[-63]) / df['Close'].iloc[-63] if len(df) >= 63 else 0
+    spy_return_63d = (spy_df['Close'].iloc[-1] - spy_df['Close'].iloc[-63]) / spy_df['Close'].iloc[-63] if len(spy_df) >= 63 else 0
+    rs_63 = stock_return_63d - spy_return_63d
     
+    stock_return_20d = (current_price - df['Close'].iloc[-20]) / df['Close'].iloc[-20] if len(df) >= 20 else 0
+    spy_return_20d = (spy_df['Close'].iloc[-1] - spy_df['Close'].iloc[-20]) / spy_df['Close'].iloc[-20] if len(spy_df) >= 20 else 0
+    rs_20 = stock_return_20d - spy_return_20d
+    
+    stock_return_126d = (current_price - df['Close'].iloc[-126]) / df['Close'].iloc[-126] if len(df) >= 126 else 0
+    spy_return_126d = (spy_df['Close'].iloc[-1] - spy_df['Close'].iloc[-126]) / spy_df['Close'].iloc[-126] if len(spy_df) >= 126 else 0
+    rs_126 = stock_return_126d - spy_return_126d
+
     rs_score = 0
-    if rs_ratio > 1.3: rs_score = 25
-    elif rs_ratio > 1.2: rs_score = 20
-    elif rs_ratio > 1.15: rs_score = 15
-    elif rs_ratio > 1.05: rs_score = 10
-    elif rs_ratio > 1.0: rs_score = 5
+    if rs_63 > 0: rs_score += 8
+    if rs_20 > 0: rs_score += 6
+    if rs_126 > 0: rs_score += 4
+    
+    # 70th and 90th percentile approximations
+    # Since we process sequentially, we approximate percentiles with absolute outperformance
+    if rs_63 >= 0.10: rs_score += 5  # Beat SPY by 10% (approx 70th percentile)
+    if rs_63 >= 0.25: rs_score += 2  # Beat SPY by 25% (approx 90th percentile)
+    
+    rs_ratio = float((1 + stock_return_63d) / (1 + spy_return_63d))
     
     # For candle-like data (tightness, volume), always use the last CLOSED day.
     # If the last row in df is today's date, we assume it's an incomplete intra-day candle
@@ -66,18 +84,55 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
         
     is_today = (last_date_obj == datetime.now().date())
     
-    # Base/Tightness (0-20 points)
-    if is_today and len(df) > 60:
-        recent_10d_std = df['Close'].iloc[-11:-1].std() / df['Close'].iloc[-2]
-        past_50d_std = df['Close'].iloc[-61:-11].std() / df['Close'].iloc[-61:-11].mean()
+    # Base / Tightness (0-20) + flags for hard gates
+    df["RangePct"] = (df["High"] - df["Low"]) / df["Close"].replace(0, pd.NA)
+    df["RVOL_hist"] = df["Volume"] / df["Volume"].rolling(window=20, min_periods=20).mean().shift(1)
+    min_bars = 35
+    if len(df) < min_bars:
+        is_tight = False
+        is_dry = False
+        tightness_score = 0
+        highs_spread = None
     else:
-        recent_10d_std = df['Close'].iloc[-10:].std() / current_price
-        past_50d_std = df['Close'].iloc[-60:-10].std() / df['Close'].iloc[-60:-10].mean()
-    
-    tightness_score = 0
-    if recent_10d_std < past_50d_std * 0.5: tightness_score = 20
-    elif recent_10d_std < past_50d_std * 0.8: tightness_score = 10
-    elif recent_10d_std < past_50d_std: tightness_score = 5
+        if is_today and len(df) > 30:
+            recent = slice(-11, -1)
+            past = slice(-31, -11)
+        else:
+            recent = slice(-10, None)
+            past = slice(-30, -10)
+        recent_10d_range = df["RangePct"].iloc[recent].mean()
+        past_20d_range = df["RangePct"].iloc[past].mean()
+        recent_10d_median_rvol = df["RVOL_hist"].iloc[recent].median()
+        recent_10d_highs = df["High"].iloc[recent]
+        is_tight = (
+            pd.notna(past_20d_range)
+            and pd.notna(recent_10d_range)
+            and past_20d_range > 0
+            and recent_10d_range > 0
+            and recent_10d_range < past_20d_range * 0.75
+        )
+        is_dry = pd.notna(recent_10d_median_rvol) and (recent_10d_median_rvol <= 0.8)
+        above_emas = (current_price >= current_ema10) and (current_price >= current_ema20)
+        above_sma50 = True
+        if current_sma50 is not None:
+            above_sma50 = current_price >= current_sma50
+        tightness_score = 0
+        if is_tight:
+            tightness_score += 8
+        if is_dry:
+            tightness_score += 7
+        if above_emas:
+            tightness_score += 3
+        mean_high = recent_10d_highs.mean()
+        if mean_high and mean_high > 0 and len(recent_10d_highs) >= 8:
+            highs_spread = float((recent_10d_highs.max() - recent_10d_highs.min()) / mean_high)
+            if highs_spread < 0.04:
+                tightness_score += 2
+        else:
+            highs_spread = None
+        if not above_sma50:
+            tightness_score = min(tightness_score, 10)
+    tightness_score = int(max(0, min(20, tightness_score)))
     
     # Volume & Extension (0-20 points)
     if is_today and len(df) > 20:
@@ -89,25 +144,26 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
     
     rvol = current_vol / avg_vol_20d if avg_vol_20d > 0 else 0
     ext_pct = (current_price - current_ema10) / current_ema10 if current_ema10 > 0 else 0
+    # Buy Signal / Momentum Flag (Does NOT add to score)
+    # Pivot break (close > recent highs max or near it), RVOL >= 1.5, Trend/RS OK, extPct <= 0.05
+    # Use recent_10d_highs properly bounded by length checks above
+    recent_max = recent_10d_highs.max() if 'recent_10d_highs' in locals() and len(recent_10d_highs) > 0 else current_price
+    is_pivot_break = current_price >= (recent_max * 0.99)
+    trend_rs_ok = (current_ema10 >= current_ema20) and (rs_score >= 15)
     
     is_momentum = False
-    vol_score = 0
-    
-    if rvol >= 1.5:
-        # Breakout / Momentum day
+    if is_pivot_break and rvol >= 1.5 and trend_rs_ok and ext_pct <= 0.05:
         is_momentum = True
-        if ext_pct <= 0.05:
-            vol_score = 20
-        elif ext_pct <= 0.08:
-            vol_score = 10
-        else:
-            vol_score = 0
-    else:
-        # Consolidation day
-        if rvol < 0.5: vol_score = 20
-        elif rvol < 0.75: vol_score = 15
-        elif rvol < 1.0: vol_score = 10
-        elif rvol < 1.5: vol_score = 5
+    
+    # Volume Score (0-20 points) - Reverse Scale
+    # Penalize high volume on setup day, reward dry volume
+    vol_score = 0
+    if rvol <= 0.6: vol_score = 20
+    elif rvol <= 0.8: vol_score = 16
+    elif rvol <= 1.0: vol_score = 12
+    elif rvol <= 1.5: vol_score = 6
+    elif rvol <= 2.0: vol_score = 2
+    else: vol_score = 0
     
     # Earnings Distance (No longer part of total score, just for info)
     earnings_score = 0
@@ -120,37 +176,55 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
 
     total_score = trend_score + rs_score + tightness_score + vol_score
     
-    # HARD FILTERS
+    # HARD FILTERS (EMIT rules)
     is_no_setup = False
     
-    # 1. Price < EMA10 and EMA20
-    if current_price < current_ema10 and current_price < current_ema20:
-        is_no_setup = True
-        
-    # 2. Avg Vol < 1M or low dollar volume
     avg_dollar_vol = avg_vol_20d * current_price
     if avg_dollar_vol < 10_000_000: # 10M
         is_no_setup = True
         
-    # 3. Earnings < 1 week
     if days_to_earnings < 7:
         is_no_setup = True
         
-    if total_score < 50:
+    # EMA10 >= EMA20, close >= her ikisi
+    if current_ema10 < current_ema20 or current_price < current_ema10 or current_price < current_ema20:
         is_no_setup = True
         
-    # Extension filter for non-breakouts
-    if not is_momentum and ext_pct > 0.08:
+    # extPct <= 5%
+    if ext_pct > 0.05:
+        is_no_setup = True
+        
+    # RS >= 15 and rs_63 > 0
+    if rs_score < 15 or rs_63 <= 0:
+        is_no_setup = True
+        
+    # Base >= 12 + sıkışma + dry + EMAs
+    above_emas_strict = (current_price >= current_ema10) and (current_price >= current_ema20)
+    if tightness_score < 12 or not is_tight or not is_dry or not above_emas_strict:
+        is_no_setup = True
+        
+    # Setup RVOL < 1.5
+    if not is_momentum and rvol >= 1.5:
+        is_no_setup = True
+        
+    # Ham skor >= 70
+    if not is_momentum and total_score < 70:
         is_no_setup = True
         
     status = "no_setup"
     if not is_no_setup:
-        # Candidate rules: score >= 70, EMA10 >= EMA20, vol_score >= 10
-        if total_score >= 70 and current_ema10 >= current_ema20 and (vol_score >= 10 or is_momentum):
-            if not is_momentum and ext_pct > 0.05:
-                status = "watch" # too extended to be candidate, but setup is good
-            else:
-                status = "candidate"
+        # CANDIDATE rules (otherwise WATCH)
+        # Skor >= 70, Base >= 15, Trend >= 28
+        can_be_candidate = True
+        if total_score < 70: can_be_candidate = False
+        if tightness_score < 15: can_be_candidate = False
+        if trend_score < 28: can_be_candidate = False
+        
+        # Buy signals cannot be candidate, they are just buy signals in watch (breakout day)
+        if is_momentum: can_be_candidate = False
+        
+        if can_be_candidate:
+            status = "candidate"
         else:
             status = "watch"
             
@@ -159,11 +233,13 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
         "rs_score": rs_score,
         "tightness_score": tightness_score,
         "vol_score": vol_score,
-        "earnings_score": earnings_score,
         "rs_ratio": None if pd.isna(rs_ratio) else float(rs_ratio),
         "days_to_earnings": int(days_to_earnings),
         "ext_pct": float(ext_pct),
         "is_momentum": is_momentum,
+        "is_tight": bool(is_tight),
+        "is_dry": bool(is_dry),
+        "highs_spread": float(highs_spread) if highs_spread is not None else None,
         "avg_dollar_vol": None if pd.isna(avg_dollar_vol) else float(avg_dollar_vol)
     }
     
@@ -264,9 +340,9 @@ def main():
                     r = json.loads(analysis["reason"])
                     logger.info(
                         f"[{sym}] Score: {analysis['score']} ({analysis['status']}) | "
-                        f"Trend: {r.get('trend_score', 0)}/30 | RS: {r.get('rs_score', 0)}/20 | "
-                        f"Base: {r.get('tightness_score', 0)}/20 | Vol: {r.get('vol_score', 0)}/15 | "
-                        f"Earnings: {r.get('earnings_score', 0)}/15"
+                        f"Trend: {r.get('trend_score', 0)}/35 | RS: {r.get('rs_score', 0)}/25 | "
+                        f"Base: {r.get('tightness_score', 0)}/20 | Vol: {r.get('vol_score', 0)}/20 | "
+                        f"Ext: {r.get('ext_pct', 0):.2f}"
                     )
                 except Exception as e:
                     logger.info(f"[{sym}] Score: {analysis['score']} ({analysis['status']})")

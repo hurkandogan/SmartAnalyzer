@@ -329,6 +329,22 @@ class SyncService:
             fund_record.net_debt = fund_data.get("net_debt")
             fund_record.net_debt_to_ebitda = fund_data.get("net_debt_to_ebitda")
             
+            # Leg B new fields
+            fund_record.forward_pe = fund_data.get("forward_pe")
+            fund_record.ps_ratio = fund_data.get("ps_ratio")
+            fund_record.pb_ratio = fund_data.get("price_to_book")
+            fund_record.gross_margin = fund_data.get("gross_margin")
+            fund_record.operating_margin = fund_data.get("operating_margin")
+            fund_record.net_margin = fund_data.get("net_margin")
+            fund_record.total_cash = fund_data.get("total_cash")
+            fund_record.total_debt = fund_data.get("total_debt")
+            fund_record.net_cash = fund_data.get("total_cash") - fund_data.get("total_debt") if fund_data.get("total_cash") is not None and fund_data.get("total_debt") is not None else None
+            fund_record.current_ratio = fund_data.get("current_ratio")
+            fund_record.debt_to_equity = fund_data.get("debt_to_equity")
+            fund_record.dividend_yield = fund_data.get("dividend_yield")
+            fund_record.payout_ratio = fund_data.get("payout_ratio")
+            fund_record.beta = fund_data.get("beta")
+            
             # Upsert today's technical
             tech_record = db.query(Technical).filter(
                 Technical.symbol == symbol, 
@@ -404,6 +420,19 @@ class SyncService:
                 "ema_20": ema20,
                 "sma_50": sma50,
                 "sma_200": tech_record.sma_200,
+                "forward_pe": fund_data.get("forward_pe"),
+                "ps_ratio": fund_data.get("ps_ratio"),
+                "pb_ratio": fund_data.get("price_to_book"),
+                "gross_margin": fund_data.get("gross_margin"),
+                "operating_margin": fund_data.get("operating_margin"),
+                "net_margin": fund_data.get("net_margin"),
+                "total_cash": fund_data.get("total_cash"),
+                "total_debt": fund_data.get("total_debt"),
+                "current_ratio": fund_data.get("current_ratio"),
+                "debt_to_equity": fund_data.get("debt_to_equity"),
+                "dividend_yield": fund_data.get("dividend_yield"),
+                "payout_ratio": fund_data.get("payout_ratio"),
+                "beta": fund_data.get("beta")
             }
             
             # Replace float('nan') or float('inf') or pd.isna values with None to prevent FastAPI serialization errors

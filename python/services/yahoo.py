@@ -31,6 +31,7 @@ class YahooService:
                 "forward_pe": info.get("forwardPE") or None,
                 "peg": info.get("pegRatio") or None,
                 "price_to_book": info.get("priceToBook") or None,
+                "ps_ratio": info.get("priceToSalesTrailing12Months") or None,
                 "ev": info.get("enterpriseValue") or None,
                 "ev_to_ebitda": info.get("enterpriseToEbitda") or None,
                 "ev_to_revenue": info.get("enterpriseToRevenue") or None,
@@ -56,10 +57,10 @@ class YahooService:
                 "roa": info.get("returnOnAssets") or None,
                 "gross_margin": info.get("grossMargins") or None,
                 "operating_margin": info.get("operatingMargins") or None,
-                "profit_margin": info.get("profitMargins") or None,
+                "net_margin": info.get("profitMargins") or None,
 
                 # Financial health
-                "de_ratio": info.get("debtToEquity") or None,
+                "debt_to_equity": info.get("debtToEquity") or None,
                 "current_ratio": info.get("currentRatio") or None,
                 "quick_ratio": info.get("quickRatio") or None,
                 "free_cashflow": info.get("freeCashflow") or None,

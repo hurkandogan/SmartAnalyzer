@@ -70,7 +70,49 @@ export async function runAnalysisBot() {
       }
     });
     
-    logger.info(`[AnalysisBot] Python script finished successfully.`);
+    logger.info(`[AnalysisBot] Python Qullamaggie script finished successfully.`);
+
+    // RUN FUNDAMENTALS SCRIPT
+    const fundScript = path.resolve(process.cwd(), 'python/jobs/fundamentals_job.py');
+    logger.info(`[AnalysisBot] Running Python Fundamentals script: ${fundScript}`);
+    
+    await new Promise((resolve, reject) => {
+      let pyProcess = spawn(pythonEnv, [fundScript], {
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      });
+      
+      pyProcess.on('error', (err) => {
+        logger.warn(`Failed with venv, trying global python: ${err.message}`);
+        pyProcess = spawn('python3', [fundScript], {
+          env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        });
+        setupListeners(pyProcess);
+      });
+      
+      if (pyProcess.pid) {
+        setupListeners(pyProcess);
+      }
+      
+      function setupListeners(child) {
+        child.stdout.on('data', (data) => {
+          const lines = data.toString().split('\n').filter(Boolean);
+          for (const line of lines) {
+             logger.info(`[Python Fund] ${line}`);
+          }
+        });
+        child.stderr.on('data', (data) => {
+          const lines = data.toString().split('\n').filter(Boolean);
+          for (const line of lines) {
+             logger.info(`[Python Fund] ${line}`);
+          }
+        });
+        child.on('close', (code) => {
+          if (code !== 0) reject(new Error(`Python script exited with code ${code}`));
+          else resolve();
+        });
+      }
+    });
+    logger.info(`[AnalysisBot] Python Fundamentals script finished successfully.`);
 
     logger.info('[AnalysisBot] Syncing Postgres results to Firebase...');
     const firestore = getDb();
@@ -91,14 +133,6 @@ export async function runAnalysisBot() {
         WHERE created_at >= CURRENT_DATE
       `);
       
-      const uyumluRes = await client.query(`
-        SELECT DISTINCT symbol 
-        FROM analysis_scores 
-        WHERE created_at >= CURRENT_DATE - INTERVAL '5 days' 
-          AND score >= 50
-      `);
-      const uyumluSymbols = new Set(uyumluRes.rows.map(r => r.symbol));
-      
       const technicalsMap = new Map();
       techRes.rows.forEach(r => technicalsMap.set(r.symbol, r));
       
@@ -111,7 +145,7 @@ export async function runAnalysisBot() {
       const allSymbols = new Set([...technicalsMap.keys(), ...scoresMap.keys()]);
       
       const { FieldValue } = await import('firebase-admin/firestore');
-      const analysisTypes = ['qullamaggie'];
+      const analysisTypes = ['qullamaggie', 'fundamentals'];
       
       let syncedAnalysisCount = 0;
       
@@ -125,22 +159,36 @@ export async function runAnalysisBot() {
         
         const currentScores = scoresMap.get(sym) || {};
         data.analysis = {};
-        const isUyumlu = uyumluSymbols.has(sym);
         
-        if (isUyumlu) {
-            syncedAnalysisCount++;
+        // Determine if ANY analysis passes our threshold (>= 70)
+        let anyPassed = false;
+        
+        const qulla = currentScores['qullamaggie'];
+        if (qulla && qulla.score >= 70 && qulla.status !== 'no_setup') {
+            anyPassed = true;
         }
         
-        for (const type of analysisTypes) {
-          const scoreData = currentScores[type];
-          if (isUyumlu && scoreData && scoreData.status !== 'no_setup' && scoreData.score >= 60) {
-            data.analysis[type] = scoreData;
-          } else {
-            data.analysis[type] = FieldValue.delete();
-          }
+        const fund = currentScores['fundamentals'];
+        if (fund && fund.score >= 70) {
+            anyPassed = true;
+        }
+        
+        if (anyPassed) {
+            syncedAnalysisCount++;
+            for (const type of analysisTypes) {
+                if (currentScores[type]) {
+                    data.analysis[type] = currentScores[type];
+                }
+            }
+        } else {
+            // Delete old analyses if it didn't pass today
+            for (const type of analysisTypes) {
+                data.analysis[type] = FieldValue.delete();
+            }
         }
         
         data.updated_at = new Date();
+        data.analysis_timestamp = new Date(); // Explicitly add this for UI to use easily if needed
         batch.set(docRef, data, { merge: true });
       }
       
