@@ -239,6 +239,7 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
         "is_momentum": is_momentum,
         "is_tight": bool(is_tight),
         "is_dry": bool(is_dry),
+        "rvol": float(rvol),
         "highs_spread": float(highs_spread) if highs_spread is not None else None,
         "avg_dollar_vol": None if pd.isna(avg_dollar_vol) else float(avg_dollar_vol)
     }

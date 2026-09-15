@@ -140,6 +140,25 @@ export default async function AnalysisPage() {
                           </div>
                         </div>
 
+                        <div className="space-y-2 mb-4 text-xs border-t border-base-200 pt-3">
+                          <div className="flex justify-between">
+                            <span className="opacity-60">Base (Tight)</span>
+                            <span className="font-semibold">{reasons.is_tight ? '✅ Yes' : '❌ No'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="opacity-60">Volume (Dry)</span>
+                            <span className="font-semibold">{reasons.is_dry ? '✅ Yes' : '❌ No'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="opacity-60">RVOL</span>
+                            <span className="font-mono">{reasons.rvol !== undefined ? reasons.rvol.toFixed(2) : '-'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="opacity-60">Ext % (EMA10)</span>
+                            <span className="font-mono">{reasons.ext_pct !== undefined ? (reasons.ext_pct * 100).toFixed(1) + '%' : '-'}</span>
+                          </div>
+                        </div>
+
                         <div className="mt-auto flex justify-between items-center text-sm font-medium">
                           <span className="opacity-70">Total Score</span>
                           <span className="font-black text-xl">{qullamaggie.score}</span>
