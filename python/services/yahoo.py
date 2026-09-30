@@ -3,92 +3,124 @@ from typing import Dict, Any, Optional, List
 import yfinance as yf
 import pandas as pd
 
+from utils.fundamentals_metrics import (
+    coerce_float,
+    resolve_pe,
+    resolve_peg,
+    yahoo_debt_to_equity_to_ratio,
+)
+
 logger = logging.getLogger("smart_analyser.yahoo")
 
 class YahooService:
     def get_fundamentals(self, symbol: str) -> Optional[Dict[str, Any]]:
         try:
             ticker = yf.Ticker(symbol)
-            info = ticker.info
+            info = {}
+            try:
+                if hasattr(ticker, "get_info"):
+                    info = ticker.get_info() or {}
+            except Exception as info_err:
+                logger.debug(f"ticker.get_info failed for {symbol}: {info_err}")
+            if not info:
+                info = ticker.info or {}
             if not info:
                 return None
+
+            last_price = coerce_float(info.get("currentPrice")) or coerce_float(info.get("regularMarketPrice"))
+            trailing_eps = coerce_float(info.get("trailingEps"))
+            pe = resolve_pe(
+                trailing_pe=info.get("trailingPE"),
+                price=last_price,
+                trailing_eps=trailing_eps,
+            )
+            peg = resolve_peg(
+                peg=info.get("pegRatio") or info.get("trailingPegRatio"),
+                pe=pe,
+                earnings_growth=info.get("earningsGrowth") or info.get("earningsQuarterlyGrowth"),
+            )
+            if pe is None:
+                logger.warning(f"[{symbol}] PE missing after trailingPE and price/EPS fallback")
+            if peg is None:
+                logger.warning(f"[{symbol}] PEG missing after pegRatio and PE/growth fallback")
             
             # Map parameters with safe gets
             res = {
                 # Price / market data
-                "last_price": info.get("currentPrice") or info.get("regularMarketPrice") or None,
-                "close_price": info.get("previousClose") or info.get("regularMarketPreviousClose") or None,
-                "open": info.get("open") or info.get("regularMarketOpen") or None,
-                "high": info.get("dayHigh") or info.get("regularMarketDayHigh") or None,
-                "low": info.get("dayLow") or info.get("regularMarketDayLow") or None,
-                "volume": info.get("volume") or info.get("regularMarketVolume") or None,
-                "week52_high": info.get("fiftyTwoWeekHigh") or None,
-                "week52_low": info.get("fiftyTwoWeekLow") or None,
-                "avg_volume": info.get("averageVolume") or info.get("averageDailyVolume10Day") or None,
+                "last_price": last_price,
+                "close_price": coerce_float(info.get("previousClose")) or coerce_float(info.get("regularMarketPreviousClose")),
+                "open": coerce_float(info.get("open")) or coerce_float(info.get("regularMarketOpen")),
+                "high": coerce_float(info.get("dayHigh")) or coerce_float(info.get("regularMarketDayHigh")),
+                "low": coerce_float(info.get("dayLow")) or coerce_float(info.get("regularMarketDayLow")),
+                "volume": coerce_float(info.get("volume")) or coerce_float(info.get("regularMarketVolume")),
+                "week52_high": coerce_float(info.get("fiftyTwoWeekHigh")),
+                "week52_low": coerce_float(info.get("fiftyTwoWeekLow")),
+                "avg_volume": coerce_float(info.get("averageVolume")) or coerce_float(info.get("averageDailyVolume10Day")),
                 
                 # Valuation
-                "pe": info.get("trailingPE") or None,
-                "forward_pe": info.get("forwardPE") or None,
-                "peg": info.get("pegRatio") or None,
-                "price_to_book": info.get("priceToBook") or None,
-                "ps_ratio": info.get("priceToSalesTrailing12Months") or None,
-                "ev": info.get("enterpriseValue") or None,
-                "ev_to_ebitda": info.get("enterpriseToEbitda") or None,
-                "ev_to_revenue": info.get("enterpriseToRevenue") or None,
+                "pe": pe,
+                "forward_pe": coerce_float(info.get("forwardPE")),
+                "peg": peg,
+                "price_to_book": coerce_float(info.get("priceToBook")),
+                "ps_ratio": coerce_float(info.get("priceToSalesTrailing12Months")),
+                "ev": coerce_float(info.get("enterpriseValue")),
+                "ev_to_ebitda": coerce_float(info.get("enterpriseToEbitda")),
+                "ev_to_revenue": coerce_float(info.get("enterpriseToRevenue")),
 
                 # Earnings
-                "eps": info.get("trailingEps") or None,
-                "forward_eps": info.get("forwardEps") or None,
-                "earnings_growth": info.get("earningsGrowth") or None,
-                "revenue_growth": info.get("revenueGrowth") or None,
-                "target_mean_price": info.get("targetMeanPrice") or None,
-                "target_high_price": info.get("targetHighPrice") or None,
+                "eps": trailing_eps,
+                "forward_eps": coerce_float(info.get("forwardEps")),
+                "earnings_growth": coerce_float(info.get("earningsGrowth")),
+                "revenue_growth": coerce_float(info.get("revenueGrowth")),
+                "target_mean_price": coerce_float(info.get("targetMeanPrice")),
+                "target_high_price": coerce_float(info.get("targetHighPrice")),
 
                 # Historical CAGR
                 "revenue_cagr_5y": self._calculate_cagr_5y(ticker, "Total Revenue"),
                 "net_income_cagr_5y": self._calculate_cagr_5y(ticker, "Net Income"),
 
                 # Market
-                "market_cap": info.get("marketCap") or None,
-                "beta": info.get("beta") or None,
+                "market_cap": coerce_float(info.get("marketCap")),
+                "beta": coerce_float(info.get("beta")),
 
                 # Profitability
-                "roe": info.get("returnOnEquity") or None,
-                "roa": info.get("returnOnAssets") or None,
-                "gross_margin": info.get("grossMargins") or None,
-                "operating_margin": info.get("operatingMargins") or None,
-                "net_margin": info.get("profitMargins") or None,
+                "roe": coerce_float(info.get("returnOnEquity")),
+                "roa": coerce_float(info.get("returnOnAssets")),
+                "gross_margin": coerce_float(info.get("grossMargins")),
+                "operating_margin": coerce_float(info.get("operatingMargins")),
+                "net_margin": coerce_float(info.get("profitMargins")),
 
-                # Financial health
-                "debt_to_equity": info.get("debtToEquity") or None,
-                "current_ratio": info.get("currentRatio") or None,
-                "quick_ratio": info.get("quickRatio") or None,
-                "free_cashflow": info.get("freeCashflow") or None,
-                "total_cash": info.get("totalCash") or None,
+                # Financial health — D/E stored as ratio (Yahoo sends percent)
+                "debt_to_equity": yahoo_debt_to_equity_to_ratio(info.get("debtToEquity")),
+                "current_ratio": coerce_float(info.get("currentRatio")),
+                "quick_ratio": coerce_float(info.get("quickRatio")),
+                "free_cashflow": coerce_float(info.get("freeCashflow")),
+                "total_cash": coerce_float(info.get("totalCash")),
+                "total_debt": coerce_float(info.get("totalDebt")),
 
                 # Dividends
-                "dividend_yield": info.get("dividendYield") or None,
-                "payout_ratio": info.get("payoutRatio") or None,
+                "dividend_yield": coerce_float(info.get("dividendYield")),
+                "payout_ratio": coerce_float(info.get("payoutRatio")),
 
                 # Short interest
-                "short_ratio": info.get("shortRatio") or None,
-                "short_pct_float": info.get("shortPercentOfFloat") or None,
+                "short_ratio": coerce_float(info.get("shortRatio")),
+                "short_pct_float": coerce_float(info.get("shortPercentOfFloat")),
                 
                 # Added fundamental metrics
-                "roic": info.get("returnOnCapitalEmployed") or self._calculate_roic(ticker),
+                "roic": coerce_float(info.get("returnOnCapitalEmployed")) or self._calculate_roic(ticker),
                 
                 # Screener / Heatmap additions
-                "operating_cashflow": info.get("operatingCashflow") or None,
-                "ebitda": info.get("ebitda") or None,
-                "sma_200": info.get("twoHundredDayAverage") or None,
+                "operating_cashflow": coerce_float(info.get("operatingCashflow")),
+                "ebitda": coerce_float(info.get("ebitda")),
+                "sma_200": coerce_float(info.get("twoHundredDayAverage")),
                 "sector": info.get("sector") or None,
                 "industry": info.get("industry") or None,
-                "performance_1y": info.get("52WeekChange") or None,
+                "performance_1y": coerce_float(info.get("52WeekChange")),
             }
             
             # Calculate Net Debt
-            total_debt = info.get("totalDebt")
-            total_cash = info.get("totalCash")
+            total_debt = res.get("total_debt")
+            total_cash = res.get("total_cash")
             if total_debt is not None and total_cash is not None:
                 res["net_debt"] = total_debt - total_cash
             else:

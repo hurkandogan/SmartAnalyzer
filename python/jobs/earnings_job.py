@@ -8,7 +8,7 @@ import httpx
 import yfinance as yf
 from datetime import datetime, timedelta
 from database.db import SessionLocal
-from database.models import ScreenerUniverse, Watchlist
+from database.models import ScreenerUniverse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("earnings_job")
@@ -16,10 +16,9 @@ logger = logging.getLogger("earnings_job")
 async def fetch_earnings():
     db = SessionLocal()
     try:
-        # Get all unique symbols from Universe and Watchlist
+        # Get all unique symbols from Universe
         universe = [u.symbol for u in db.query(ScreenerUniverse).filter(ScreenerUniverse.is_active == 1).all()]
-        watchlist = [w.symbol for w in db.query(Watchlist).all()]
-        symbols = list(set(universe + watchlist))
+        symbols = list(set(universe))
         
         if not symbols:
             logger.info("No symbols found to fetch earnings.")
@@ -57,7 +56,7 @@ async def fetch_earnings():
                                 "impact": "High",
                                 "date": datetime(d_date.year, d_date.month, d_date.day, 16, 0).isoformat() + "Z", # Approximating 16:00 UTC (Post-market)
                                 "type": "earnings",
-                                "is_watchlist": sym in watchlist
+                                "is_watchlist": False
                             })
                             break # Only need the closest one
             except Exception as e:

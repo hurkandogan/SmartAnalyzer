@@ -161,3 +161,34 @@ export async function deleteMemberTransactionAction(
     return { success: false, message: error.message };
   }
 }
+
+export async function updateMemberTransactionAction(
+  userId: string,
+  memberId: string,
+  transactionId: string,
+  payload: Partial<Omit<FamilyTransaction, 'id' | 'created_at'>>
+) {
+  try {
+    const docRef = adminDb
+      .collection('users')
+      .doc(userId)
+      .collection('family_members')
+      .doc(memberId)
+      .collection('transactions')
+      .doc(transactionId);
+
+    const updateData: any = { ...payload };
+    if (payload.symbol) {
+      updateData.symbol = payload.symbol.toUpperCase();
+    }
+    
+    // Only update if payload is not empty
+    if (Object.keys(updateData).length > 0) {
+      await docRef.update(updateData);
+    }
+    
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, message: error.message };
+  }
+}

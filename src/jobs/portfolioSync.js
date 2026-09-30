@@ -334,8 +334,11 @@ async function syncPrivateUser(currencies) {
       continue;
     }
 
-    const isCrypto = asset.type === 'CRYPTO';
-    const price = await fetchPrice(asset.symbol, asset.currency || 'USD', asset.exchange || 'SMART', isCrypto ? 'CRYPTO' : 'STK', 0, currencies);
+    let secType = 'STK';
+    if (asset.type === 'CRYPTO') secType = 'CRYPTO';
+    else if (asset.type === 'OPTION') secType = 'OPT';
+    
+    const price = await fetchPrice(asset.symbol, asset.currency || 'USD', asset.exchange || 'SMART', secType, 0, currencies);
     if (price && price > 0) {
       await setUserAsset(userId, asset.id, { current_price: String(price) });
       logger.info(`[Private] MANUAL ${asset.id} updated → ${price}`);
@@ -371,8 +374,11 @@ async function syncOtherUsers(currencies) {
             await setUserAsset(userId, asset.id, { current_price: String(currentPrice) });
             continue;
           }
-          const isCrypto = asset.type === 'CRYPTO';
-          const price = await fetchPrice(asset.symbol, asset.currency || 'USD', asset.exchange || 'SMART', isCrypto ? 'CRYPTO' : 'STK', 0, currencies);
+          let secType = 'STK';
+          if (asset.type === 'CRYPTO') secType = 'CRYPTO';
+          else if (asset.type === 'OPTION') secType = 'OPT';
+          
+          const price = await fetchPrice(asset.symbol, asset.currency || 'USD', asset.exchange || 'SMART', secType, 0, currencies);
           if (price && price > 0) {
             await setUserAsset(userId, asset.id, { current_price: String(price) });
           }

@@ -12,6 +12,7 @@ from services.kraken import KrakenService
 from services.analytics import AnalyticsService
 from services.sync import SyncService
 from services.macro import MacroService
+from services.telegram import TelegramService
 from sqlalchemy.orm import Session
 from database.db import get_db
 
@@ -428,6 +429,55 @@ async def get_currencies(targets: str = "EUR,TRY,GBP,CHF"):
             
     logger.info(f"Currency rates fetched successfully: {rates}")
     return rates
+
+@app.post("/api/market-weather")
+async def trigger_market_weather():
+    """
+    Fetches the market weather data and sends a summary directly to Telegram.
+    No AI commentary, just raw macro data.
+    """
+    logger.info("Triggering market weather generation...")
+    try:
+        macro_data = MacroService.get_market_weather_data()
+        
+        if not macro_data:
+            raise HTTPException(status_code=500, detail="Failed to fetch macro data")
+            
+        message = "🌤️ *Günlük Piyasa Hava Durumu*\n\n"
+        
+        for name, data in macro_data.items():
+            if data is None:
+                continue
+                
+            price = data.get("price", 0)
+            change_pct = data.get("change_pct", 0)
+            
+            # Format nicely
+            if change_pct > 0:
+                emoji = "🟢"
+                sign = "+"
+            elif change_pct < 0:
+                emoji = "🔴"
+                sign = ""
+            else:
+                emoji = "⚪"
+                sign = ""
+                
+            message += f"{emoji} *{name}*: {price:,.2f} ({sign}{change_pct:.2f}%)\n"
+            
+        telegram = TelegramService()
+        success = await telegram.send_message(message)
+        
+        if success:
+            logger.info("Market weather sent to Telegram successfully.")
+            return {"status": "success", "message": "Market weather dispatched to Telegram."}
+        else:
+            logger.error("Failed to send market weather to Telegram.")
+            raise HTTPException(status_code=500, detail="Failed to send Telegram message")
+            
+    except Exception as e:
+        logger.error(f"Error generating market weather: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/market-bar")
 async def get_market_bar():

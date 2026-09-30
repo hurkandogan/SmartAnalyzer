@@ -249,7 +249,10 @@ class IBKRService:
                 else:
                     contract = Stock(symbol, exchange, currency)
             else:
-                contract = Contract(symbol=symbol, secType=sec_type, currency=currency, exchange=exchange)
+                if sec_type == "OPT" and len(symbol) > 10:
+                    contract = Contract(localSymbol=symbol, secType="OPT", currency=currency, exchange=exchange)
+                else:
+                    contract = Contract(symbol=symbol, secType=sec_type, currency=currency, exchange=exchange)
                 
             qualified = await self.ib.qualifyContractsAsync(contract)
             if not qualified:

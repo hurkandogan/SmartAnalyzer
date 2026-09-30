@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, date
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 import math
 import yfinance as yf
@@ -10,6 +10,7 @@ from database.models import Candle, Fundamental, Technical
 from services.ibkr import IBKRService
 from services.yahoo import YahooService
 from services.analytics import AnalyticsService
+from utils.market_time import trading_today
 
 logger = logging.getLogger("smart_analyser.sync")
 
@@ -82,7 +83,7 @@ class SyncService:
             if not last_price:
                 return None
                 
-            today = date.today()
+            today = trading_today()
             best_exp = None
             min_diff = 9999
             
@@ -140,7 +141,7 @@ class SyncService:
         """
         result = {"symbol": symbol, "status": "success", "messages": []}
         
-        now = datetime.utcnow()
+        now = datetime.now()
         # Skip weekends (5 = Saturday, 6 = Sunday)
         # if now.weekday() >= 5:
         #     result["status"] = "skipped"
@@ -302,8 +303,8 @@ class SyncService:
                 fund_data.get("total_cash")
             )
             
-            # Upsert today's fundamental
-            today = date.today()
+            # Upsert this US session's fundamental snapshot
+            today = trading_today()
             fund_record = db.query(Fundamental).filter(
                 Fundamental.symbol == symbol, 
                 Fundamental.date == today

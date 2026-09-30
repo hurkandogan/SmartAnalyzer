@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import ManagementTerminal from './components/ManagementTerminal';
 import ScreenerAdmin from './components/ScreenerAdmin';
+import AnalysisTable from './components/AnalysisTable';
 
 function App() {
   const [connection, setConnection] = useState({ connected: false });
   const [tickerData, setTickerData] = useState(null);
   const [error, setError] = useState(null);
+  const [activePage, setActivePage] = useState('dashboard');
 
   // Initial fetch for IBKR status
   useEffect(() => {
@@ -36,21 +38,27 @@ function App() {
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-purple-900/20 blur-[120px]" />
       </div>
 
-      <Header connected={connection.connected} />
+      <Header connected={connection.connected} activePage={activePage} setActivePage={setActivePage} />
 
       <main className="relative z-10 pt-32 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto flex flex-col items-center">
         
-        {/* Header Section */}
-        <div className="w-full text-center md:text-left space-y-2 mb-8 border-b border-white/10 pb-6">
-          <h2 className="text-3xl md:text-5xl font-bold tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white to-white/60">
-            Management Terminal
-          </h2>
-          <p className="text-white/40 text-sm md:text-base font-medium tracking-wide">
-            Manage background syncs, watchlists, and view real-time system logs.
-          </p>
-        </div>
+        {activePage === 'dashboard' ? (
+          <>
+            {/* Header Section */}
+            <div className="w-full text-center md:text-left space-y-2 mb-8 border-b border-white/10 pb-6">
+              <h2 className="text-3xl md:text-5xl font-bold tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white to-white/60">
+                Management Terminal
+              </h2>
+              <p className="text-white/40 text-sm md:text-base font-medium tracking-wide">
+                Manage background syncs, watchlists, and view real-time system logs.
+              </p>
+            </div>
 
-        <ManagementTerminal />
+            <ManagementTerminal />
+          </>
+        ) : (
+          <AnalysisTable />
+        )}
 
       </main>
 

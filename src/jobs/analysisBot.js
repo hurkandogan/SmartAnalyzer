@@ -122,24 +122,43 @@ export async function runAnalysisBot() {
     
     try {
       const techRes = await client.query(`
-        SELECT symbol, rsi, rs, ema_10, ema_20, sma_50, sma_200, volume, avg_volume 
+        SELECT symbol, rsi, rs, ema_10, ema_20, sma_50, sma_200, volume, avg_volume, date
         FROM technicals 
-        WHERE date = CURRENT_DATE
+        WHERE date >= CURRENT_DATE - INTERVAL '5 days'
+        ORDER BY date DESC
       `);
       
       const scoreRes = await client.query(`
-        SELECT symbol, analysis_type, score, status, reason, price 
+        SELECT symbol, analysis_type, score, status, reason, price, created_at 
         FROM analysis_scores 
-        WHERE created_at >= CURRENT_DATE
+        WHERE created_at >= NOW() - INTERVAL '5 days'
+        ORDER BY created_at DESC
       `);
       
       const technicalsMap = new Map();
-      techRes.rows.forEach(r => technicalsMap.set(r.symbol, r));
+      techRes.rows.forEach(r => {
+        // Since we order by date DESC, the first one we see is the latest
+        if (!technicalsMap.has(r.symbol)) {
+            technicalsMap.set(r.symbol, r);
+        }
+      });
       
       const scoresMap = new Map();
+      const latestScoresMap = new Map();
+      
       scoreRes.rows.forEach(r => {
-        if (!scoresMap.has(r.symbol)) scoresMap.set(r.symbol, {});
-        scoresMap.get(r.symbol)[r.analysis_type] = r;
+        if (!scoresMap.has(r.symbol)) {
+            scoresMap.set(r.symbol, []);
+            latestScoresMap.set(r.symbol, {});
+        }
+        
+        // Add to historical list for the 5-day check
+        scoresMap.get(r.symbol).push(r);
+        
+        // Store latest score for the UI
+        if (!latestScoresMap.get(r.symbol)[r.analysis_type]) {
+            latestScoresMap.get(r.symbol)[r.analysis_type] = r;
+        }
       });
       
       const allSymbols = new Set([...technicalsMap.keys(), ...scoresMap.keys()]);
@@ -157,31 +176,33 @@ export async function runAnalysisBot() {
           data.technicals = technicalsMap.get(sym);
         }
         
-        const currentScores = scoresMap.get(sym) || {};
+        const currentScores = scoresMap.get(sym) || [];
+        const latestScores = latestScoresMap.get(sym) || {};
         data.analysis = {};
         
-        // Determine if ANY analysis passes our threshold (>= 70)
-        let anyPassed = false;
+        // Check if ANY score in the last 5 days passed the threshold
+        let anyPassedInLast5Days = false;
         
-        const qulla = currentScores['qullamaggie'];
-        if (qulla && qulla.score >= 70 && qulla.status !== 'no_setup') {
-            anyPassed = true;
+        for (const r of currentScores) {
+            if (r.analysis_type === 'qullamaggie' && r.score >= 70 && r.status !== 'no_setup') {
+                anyPassedInLast5Days = true;
+                break;
+            }
+            if (r.analysis_type === 'fundamentals' && r.score >= 70) {
+                anyPassedInLast5Days = true;
+                break;
+            }
         }
         
-        const fund = currentScores['fundamentals'];
-        if (fund && fund.score >= 70) {
-            anyPassed = true;
-        }
-        
-        if (anyPassed) {
+        if (anyPassedInLast5Days) {
             syncedAnalysisCount++;
             for (const type of analysisTypes) {
-                if (currentScores[type]) {
-                    data.analysis[type] = currentScores[type];
+                if (latestScores[type]) {
+                    data.analysis[type] = latestScores[type];
                 }
             }
         } else {
-            // Delete old analyses if it didn't pass today
+            // Delete old analyses if it didn't pass in the last 5 days
             for (const type of analysisTypes) {
                 data.analysis[type] = FieldValue.delete();
             }

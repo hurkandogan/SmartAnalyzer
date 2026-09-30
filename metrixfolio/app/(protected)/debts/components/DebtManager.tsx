@@ -237,15 +237,19 @@ export default function DebtManager() {
                 </label>
                 <div className="join">
                   <input
-                    type="number"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     className="input input-bordered join-item w-full"
                     placeholder="15000.00"
                     required
                     value={formData.amount}
-                    onChange={(e) =>
-                      setFormData({ ...formData, amount: e.target.value })
-                    }
+                    onChange={(e) => {
+                      // Virgülleri noktaya çevir ve sadece rakam/nokta girişine izin ver
+                      const val = e.target.value.replace(/,/g, '.');
+                      if (/^[\d.]*$/.test(val)) {
+                        setFormData({ ...formData, amount: val });
+                      }
+                    }}
                   />
                   <select
                     className="select select-bordered join-item"

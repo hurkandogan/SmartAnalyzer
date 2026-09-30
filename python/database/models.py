@@ -66,11 +66,17 @@ class Fundamental(Base):
     # Valuation
     pe = Column(Float, nullable=True)
     peg = Column(Float, nullable=True)
-    
+    forward_pe = Column(Float, nullable=True)
+    ps_ratio = Column(Float, nullable=True)
+    pb_ratio = Column(Float, nullable=True)
+
     # Profitability / Efficiency
     roic = Column(Float, nullable=True)
     roe = Column(Float, nullable=True)
-    
+    gross_margin = Column(Float, nullable=True)
+    operating_margin = Column(Float, nullable=True)
+    net_margin = Column(Float, nullable=True)
+
     # Growth
     revenue_growth_yoy = Column(Float, nullable=True)
 
@@ -82,6 +88,15 @@ class Fundamental(Base):
     ebitda = Column(Float, nullable=True)
     net_debt_to_ebitda = Column(Float, nullable=True)
     eps = Column(Float, nullable=True)
+    total_cash = Column(Float, nullable=True)
+    total_debt = Column(Float, nullable=True)
+    net_cash = Column(Float, nullable=True)
+    current_ratio = Column(Float, nullable=True)
+    # Stored as a ratio (1.5), never Yahoo percent (150)
+    debt_to_equity = Column(Float, nullable=True)
+    dividend_yield = Column(Float, nullable=True)
+    payout_ratio = Column(Float, nullable=True)
+    beta = Column(Float, nullable=True)
 
     __table_args__ = (
         UniqueConstraint('symbol', 'date', name='uq_fundamental_symbol_date'),
@@ -141,4 +156,9 @@ class AnalysisScore(Base):
     reason = Column(String, nullable=True) # JSON reasoning
     price = Column(Float, nullable=True)
     created_at = Column(DateTime, nullable=False, index=True)
+    as_of_date = Column(Date, nullable=False, index=True)  # US equity session date
+
+    __table_args__ = (
+        UniqueConstraint('symbol', 'analysis_type', 'as_of_date', name='uq_analysis_score_symbol_type_as_of'),
+    )
 
