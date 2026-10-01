@@ -24,7 +24,19 @@ export async function getUserProfileInfoAction(uid: string): Promise<any> {
     const docRef = adminDb.collection('users').doc(uid);
     const docSnap = await docRef.get();
     if (docSnap.exists) {
-      return docSnap.data();
+      const data = docSnap.data();
+      if (!data) return null;
+      
+      // Serialize Timestamps
+      const plainData = { ...data };
+      if (plainData.updated_at && typeof plainData.updated_at.toMillis === 'function') {
+        plainData.updated_at = plainData.updated_at.toMillis();
+      }
+      if (plainData.created_at && typeof plainData.created_at.toMillis === 'function') {
+        plainData.created_at = plainData.created_at.toMillis();
+      }
+      
+      return plainData;
     }
     return null;
   } catch (error) {
