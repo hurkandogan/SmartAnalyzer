@@ -18,6 +18,21 @@ export async function getUserPreferenceAction(uid: string, key: string): Promise
   }
 }
 
+export async function getUserProfileInfoAction(uid: string): Promise<any> {
+  if (!uid) return null;
+  try {
+    const docRef = adminDb.collection('users').doc(uid);
+    const docSnap = await docRef.get();
+    if (docSnap.exists) {
+      return docSnap.data();
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error getting user profile info:`, error);
+    return null;
+  }
+}
+
 export async function saveUserPreferenceAction(uid: string, key: string, value: any): Promise<boolean> {
   if (!uid || !key) return false;
   try {

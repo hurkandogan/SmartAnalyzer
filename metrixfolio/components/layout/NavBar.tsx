@@ -6,6 +6,7 @@ import { useRef } from 'react';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/utils/firebase';
 import { FiMoon, FiSun, FiLogOut, FiMenu, FiActivity } from 'react-icons/fi';
+import { SyncStatusIndicator } from './SyncStatusIndicator';
 
 export const NavBar = () => {
   const { theme, toggleTheme } = useTheme();
@@ -145,6 +146,8 @@ export const NavBar = () => {
             <FiSun className="swap-on h-4.5 w-4.5 fill-current" />
             <FiMoon className="swap-off h-4.5 w-4.5 fill-current" />
           </label>
+
+          <SyncStatusIndicator />
 
           <button
             className="btn btn-outline btn-error btn-sm gap-1.5 rounded-lg transition-all duration-200"

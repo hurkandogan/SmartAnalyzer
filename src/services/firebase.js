@@ -169,6 +169,10 @@ export async function getUserProfile(userId) {
   return doc.exists ? doc.data() : null;
 }
 
+export async function setUserProfile(userId, data) {
+  await db.collection('users').doc(userId).set({ ...data, updated_at: FieldValue.serverTimestamp() }, { merge: true });
+}
+
 // ── IV Crush Opportunities ────────────────────────────────────
 export async function saveIvCrushOpportunities(signals) {
   const batch = db.batch();

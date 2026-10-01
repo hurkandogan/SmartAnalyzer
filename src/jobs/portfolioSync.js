@@ -8,7 +8,8 @@ import {
   getUserFlexCredentials,
   setUserIBKRSummary,
   getDb,
-  setMarketBarData
+  setMarketBarData,
+  setUserProfile
 } from '../services/firebase.js';
 import { fetchAndParseFlexQuery } from '../services/flexQuery.js';
 import { logger } from '../utils/logger.js';
@@ -351,6 +352,13 @@ async function syncPrivateUser(currencies) {
   } catch (err) {
     logger.error(`[Private] Portfolio history failed: ${err.message}`);
   }
+
+  try {
+    await setUserProfile(userId, { last_updated: new Date().toISOString() });
+    logger.info(`[Private] Updated last_updated timestamp for ${userId}`);
+  } catch (err) {
+    logger.error(`[Private] Failed to update last_updated: ${err.message}`);
+  }
 }
 
 async function syncOtherUsers(currencies) {
@@ -392,6 +400,12 @@ async function syncOtherUsers(currencies) {
       await writePortfolioHistory(userId);
     } catch (err) {
       logger.error(`[Users] History for ${userId} failed: ${err.message}`);
+    }
+
+    try {
+      await setUserProfile(userId, { last_updated: new Date().toISOString() });
+    } catch (err) {
+      logger.error(`[Users] Failed to update last_updated for ${userId}: ${err.message}`);
     }
   }
 }
