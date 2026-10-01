@@ -13,31 +13,37 @@ export const SyncStatusIndicator = () => {
     if (!user) return;
     
     const fetchStatus = async () => {
-      const profile = await getUserProfileInfoAction(user.uid);
-      if (profile?.last_updated) {
-        const updateDate = new Date(profile.last_updated);
-        const now = new Date();
-        const diffMinutes = (now.getTime() - updateDate.getTime()) / (1000 * 60);
-        
-        if (diffMinutes <= 30) {
-          setStatusColor('success');
-        } else if (diffMinutes <= 120) {
-          setStatusColor('warning');
+      try {
+        const profile = await getUserProfileInfoAction(user.uid);
+        if (profile?.last_updated) {
+          const updateDate = new Date(profile.last_updated);
+          const now = new Date();
+          const diffMinutes = (now.getTime() - updateDate.getTime()) / (1000 * 60);
+          
+          if (diffMinutes <= 30) {
+            setStatusColor('success');
+          } else if (diffMinutes <= 120) {
+            setStatusColor('warning');
+          } else {
+            setStatusColor('error');
+          }
+
+          // Format to German time (CET/CEST)
+          const timeString = updateDate.toLocaleTimeString('de-DE', {
+            timeZone: 'Europe/Berlin',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          
+          setLastUpdated(timeString);
         } else {
           setStatusColor('error');
+          setLastUpdated('N/A');
         }
-
-        // Format to German time (CET/CEST)
-        const timeString = updateDate.toLocaleTimeString('de-DE', {
-          timeZone: 'Europe/Berlin',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-        
-        setLastUpdated(timeString);
-      } else {
+      } catch (err) {
+        console.error('Error fetching sync status:', err);
         setStatusColor('error');
-        setLastUpdated('N/A');
+        setLastUpdated('Error');
       }
     };
     
@@ -47,7 +53,13 @@ export const SyncStatusIndicator = () => {
     return () => clearInterval(interval);
   }, [user]);
 
-  if (!lastUpdated) return null;
+  if (!lastUpdated) {
+    return (
+      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-base-200/50 border border-base-300 shadow-inner text-xs" title="Loading sync status...">
+        <span className="loading loading-spinner loading-xs opacity-50"></span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-base-200/50 border border-base-300 shadow-inner text-xs cursor-help transition-colors hover:bg-base-200" title="Last Sync Time (Germany)">
