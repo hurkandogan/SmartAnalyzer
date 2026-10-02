@@ -244,9 +244,11 @@ export default function DebtManager() {
                     required
                     value={formData.amount}
                     onChange={(e) => {
-                      // Virgülleri noktaya çevir ve sadece rakam/nokta girişine izin ver
-                      const val = e.target.value.replace(/,/g, '.');
-                      if (/^[\d.]*$/.test(val)) {
+                      // Virgülleri noktaya çevir
+                      let val = e.target.value.replace(/,/g, '.');
+                      
+                      // Sadece rakamlara ve en fazla BİR noktaya izin ver
+                      if (/^\d*\.?\d*$/.test(val)) {
                         setFormData({ ...formData, amount: val });
                       }
                     }}
