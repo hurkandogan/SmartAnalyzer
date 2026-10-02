@@ -136,7 +136,6 @@ export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChar
           <div className="w-full lg:w-1/2 h-[300px] flex items-center justify-center relative">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                {/* @ts-expect-error Recharts 3.x types are missing activeIndex and activeShape on Pie */}
                 <Pie
                   activeIndex={activeIndex}
                   activeShape={renderActiveShape}
