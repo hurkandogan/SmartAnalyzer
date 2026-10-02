@@ -157,7 +157,7 @@ export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChar
                   ))}
                 </Pie>
                 <Tooltip 
-                  formatter={(value: number, name: string, props: any) => [
+                  formatter={(value: any, name: any, props: any) => [
                     `${(props.payload.percent * 100).toFixed(2)}%`, 
                     props.payload.symbol
                   ]}
