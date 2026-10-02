@@ -55,19 +55,38 @@ export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChar
   const data = useMemo(() => {
     if (!assets || assets.length === 0 || totalValue <= 0) return [];
     
-    // Calculate value for each asset (excluding options and cash if user desires, but let's include all positive value assets)
-    const positiveAssets = assets.filter(a => parseFloat(a.value) > 0);
+    // Calculate value for each asset properly using amount, current_price, and multiplier
+    const calculatedAssets = assets.map(a => {
+      // Avoid NaN issues by defaulting to 0 or 1
+      const amt = a.amount || 0;
+      const price = a.current_price || 0;
+      const mult = a.multiplier || 1;
+      
+      // Calculate true market value, taking absolute value to handle short positions in the donut chart
+      let val = Math.abs(amt * price * mult);
+      
+      // If there's a pre-calculated market_value property, you can also use that
+      if (a.market_value !== undefined) {
+        val = Math.abs(a.market_value);
+      }
+      
+      return {
+        ...a,
+        calculatedValue: val
+      };
+    });
+
+    const positiveAssets = calculatedAssets.filter(a => a.calculatedValue > 0);
     
     // Sort by value descending
-    positiveAssets.sort((a, b) => parseFloat(b.value) - parseFloat(a.value));
+    positiveAssets.sort((a, b) => b.calculatedValue - a.calculatedValue);
     
     let chartData = positiveAssets.map(a => {
-      const val = parseFloat(a.value);
       return {
         name: a.name || a.symbol,
         symbol: a.symbol,
-        value: val,
-        percent: val / totalValue
+        value: a.calculatedValue,
+        percent: a.calculatedValue / totalValue
       };
     });
     

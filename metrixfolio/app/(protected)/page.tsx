@@ -124,10 +124,6 @@ export default function Dashboard() {
           currentTotalValue={portfolio?.total_value || 0}
         />
 
-        {portfolio?.total_value && assets.length > 0 ? (
-          <AssetAllocationChart assets={assets} totalValue={portfolio.total_value} />
-        ) : null}
-
         <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 flex flex-col gap-6">
             {portfolio?.categories && (
@@ -144,6 +140,10 @@ export default function Dashboard() {
             <MacroCalendar />
           </div>
         </div>
+
+        {portfolio?.total_value && assets.length > 0 ? (
+          <AssetAllocationChart assets={assets} totalValue={portfolio.total_value} />
+        ) : null}
 
         <HeatmapTabs assets={assets} />
 
