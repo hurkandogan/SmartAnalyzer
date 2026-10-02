@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector } from 'recharts';
-import { Asset } from '@/types/portfolio';
+import { Asset } from '@/types/positions';
 
 interface AssetAllocationChartProps {
   assets: Asset[];
