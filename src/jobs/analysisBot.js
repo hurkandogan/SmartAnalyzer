@@ -135,11 +135,25 @@ export async function runAnalysisBot() {
         ORDER BY created_at DESC
       `);
       
+      const fundRes = await client.query(`
+        SELECT symbol, pe, peg, date
+        FROM fundamentals 
+        WHERE date >= CURRENT_DATE - INTERVAL '5 days'
+        ORDER BY date DESC
+      `);
+      
       const technicalsMap = new Map();
       techRes.rows.forEach(r => {
         // Since we order by date DESC, the first one we see is the latest
         if (!technicalsMap.has(r.symbol)) {
             technicalsMap.set(r.symbol, r);
+        }
+      });
+      
+      const fundamentalsMap = new Map();
+      fundRes.rows.forEach(r => {
+        if (!fundamentalsMap.has(r.symbol)) {
+            fundamentalsMap.set(r.symbol, r);
         }
       });
       
@@ -161,7 +175,7 @@ export async function runAnalysisBot() {
         }
       });
       
-      const allSymbols = new Set([...technicalsMap.keys(), ...scoresMap.keys()]);
+      const allSymbols = new Set([...technicalsMap.keys(), ...scoresMap.keys(), ...fundamentalsMap.keys()]);
       
       const { FieldValue } = await import('firebase-admin/firestore');
       const analysisTypes = ['qullamaggie', 'fundamentals'];
@@ -174,6 +188,10 @@ export async function runAnalysisBot() {
         
         if (technicalsMap.has(sym)) {
           data.technicals = technicalsMap.get(sym);
+        }
+        
+        if (fundamentalsMap.has(sym)) {
+          data.fundamentals = fundamentalsMap.get(sym);
         }
         
         const currentScores = scoresMap.get(sym) || [];
@@ -199,6 +217,14 @@ export async function runAnalysisBot() {
             for (const type of analysisTypes) {
                 if (latestScores[type]) {
                     data.analysis[type] = latestScores[type];
+                    
+                    // Attach full fundamentals and technicals snapshot directly to the analysis
+                    if (data.technicals) {
+                        data.analysis[type].technicals = data.technicals;
+                    }
+                    if (data.fundamentals) {
+                        data.analysis[type].fundamentals = data.fundamentals;
+                    }
                 }
             }
         } else {

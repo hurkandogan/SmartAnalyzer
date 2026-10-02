@@ -241,7 +241,11 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
         "is_dry": bool(is_dry),
         "rvol": float(rvol),
         "highs_spread": float(highs_spread) if highs_spread is not None else None,
-        "avg_dollar_vol": None if pd.isna(avg_dollar_vol) else float(avg_dollar_vol)
+        "avg_dollar_vol": None if pd.isna(avg_dollar_vol) else float(avg_dollar_vol),
+        "ema_10": None if pd.isna(current_ema10) else float(current_ema10),
+        "ema_20": None if pd.isna(current_ema20) else float(current_ema20),
+        "sma_50": None if pd.isna(current_sma50) else float(current_sma50),
+        "sma_200": None if pd.isna(df['Close'].rolling(window=200).mean().iloc[-1]) else float(df['Close'].rolling(window=200).mean().iloc[-1])
     }
     
     sma50 = df['Close'].rolling(window=50).mean().iloc[-1]

@@ -16,7 +16,8 @@ class Candle(Base):
     volume = Column(Float)
     
     # Pre-calculated MAs
-    sma_20 = Column(Float, nullable=True)
+    ema_10 = Column(Float, nullable=True)
+    ema_20 = Column(Float, nullable=True)
     sma_50 = Column(Float, nullable=True)
     sma_200 = Column(Float, nullable=True)
 

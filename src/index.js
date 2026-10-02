@@ -16,6 +16,8 @@ import { analysisRoutes } from './routes/analysis.js';
 import { logger } from './utils/logger.js';
 import { pythonClient } from './services/pythonClient.js';
 
+import { dataRoutes } from './routes/data.js';
+
 const app = new Hono();
 
 app.use('*', honoLogger());
@@ -35,6 +37,7 @@ app.route('/api/jobs', jobRoutes);
 app.route('/api/watchlist', watchlistRoutes);
 app.route('/api/screener', screenerRoutes);
 app.route('/api/analysis', analysisRoutes);
+app.route('/api/data', dataRoutes);
 
 app.get('/api/ticker-data', async (c) => {
   const symbol = c.req.query('symbol');

@@ -198,7 +198,8 @@ class SyncService:
             for i, c in enumerate(candles):
                 candle_date = datetime.strptime(c["date"], "%Y-%m-%d").date()
                 
-                sma20 = self.analytics.compute_sma(closes[:i+1], 20)
+                ema10 = self.analytics.compute_ema(closes[:i+1], 10)
+                ema20 = self.analytics.compute_ema(closes[:i+1], 20)
                 sma50 = self.analytics.compute_sma(closes[:i+1], 50)
                 sma200 = self.analytics.compute_sma(closes[:i+1], 200)
                 
@@ -210,7 +211,8 @@ class SyncService:
                     low=c["low"],
                     close=c["close"],
                     volume=c["volume"],
-                    sma_20=sma20,
+                    ema_10=ema10,
+                    ema_20=ema20,
                     sma_50=sma50,
                     sma_200=sma200
                 )
@@ -238,7 +240,8 @@ class SyncService:
                 else:
                     closes_history.append(c["close"])
                     
-                sma20 = self.analytics.compute_sma(closes_history, 20)
+                ema10 = self.analytics.compute_ema(closes_history, 10)
+                ema20 = self.analytics.compute_ema(closes_history, 20)
                 sma50 = self.analytics.compute_sma(closes_history, 50)
                 sma200 = self.analytics.compute_sma(closes_history, 200)
                 
@@ -254,7 +257,8 @@ class SyncService:
                         existing_candle.low = c["low"]
                         existing_candle.close = c["close"]
                         existing_candle.volume = c["volume"]
-                        existing_candle.sma_20 = sma20
+                        existing_candle.ema_10 = ema10
+                        existing_candle.ema_20 = ema20
                         existing_candle.sma_50 = sma50
                         existing_candle.sma_200 = sma200
                 else:
@@ -266,7 +270,8 @@ class SyncService:
                         low=c["low"],
                         close=c["close"],
                         volume=c["volume"],
-                        sma_20=sma20,
+                        ema_10=ema10,
+                        ema_20=ema20,
                         sma_50=sma50,
                         sma_200=sma200
                     )

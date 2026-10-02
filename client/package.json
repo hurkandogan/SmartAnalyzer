@@ -12,9 +12,10 @@
   "dependencies": {
     "clsx": "^2.1.1",
     "lightweight-charts": "^5.2.0",
-    "lucide-react": "^1.21.0",
+    "lucide-react": "^1.50.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "react-router-dom": "^7.18.4",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {

@@ -1,38 +1,43 @@
 import React from 'react';
 import { Activity, Radio } from 'lucide-react';
+import { useLocation, Link } from 'react-router-dom';
 import { cn } from '../utils';
 
-export default function Header({ connected, activePage, setActivePage }) {
+export default function Header({ connected }) {
+  const location = useLocation();
+  const activePage = location.pathname === '/' ? 'dashboard' : 
+                     location.pathname === '/universe' ? 'universe' : '';
+
   return (
     <header className="fixed top-0 left-0 right-0 z-50 px-6 py-4 flex justify-between items-center bg-base-300/30 backdrop-blur-md border-b border-white/5">
-      <div className="flex items-center gap-3">
+      <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
           <Activity className="text-white w-6 h-6" />
         </div>
         <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60 tracking-tight">
           SmartAnalyser
         </h1>
-      </div>
+      </Link>
 
       <div className="hidden md:flex items-center gap-1 bg-white/5 rounded-lg p-1 border border-white/5">
-        <button
-          onClick={() => setActivePage('dashboard')}
+        <Link
+          to="/"
           className={cn(
             "px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200",
             activePage === 'dashboard' ? "bg-white/10 text-white shadow" : "text-white/60 hover:text-white/90 hover:bg-white/5"
           )}
         >
           Dashboard
-        </button>
-        <button
-          onClick={() => setActivePage('analysis')}
+        </Link>
+        <Link
+          to="/universe"
           className={cn(
             "px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200",
-            activePage === 'analysis' ? "bg-white/10 text-white shadow" : "text-white/60 hover:text-white/90 hover:bg-white/5"
+            activePage === 'universe' ? "bg-white/10 text-white shadow" : "text-white/60 hover:text-white/90 hover:bg-white/5"
           )}
         >
-          Analysis
-        </button>
+          Universe
+        </Link>
       </div>
 
       <div className="flex items-center gap-3 px-4 py-2 rounded-full bg-black/40 border border-white/5 shadow-inner">

@@ -68,7 +68,7 @@ export const SyncStatusIndicator = () => {
         statusColor === 'warning' ? 'bg-warning shadow-[0_0_5px_rgba(234,179,8,0.5)]' :
         'bg-error shadow-[0_0_5px_rgba(239,68,68,0.5)]'
       }`} />
-      <span className="font-mono font-medium opacity-80">{lastUpdated}</span>
+      <span className="font-mono font-medium opacity-80">Last updated: {lastUpdated}</span>
     </div>
   );
 };
