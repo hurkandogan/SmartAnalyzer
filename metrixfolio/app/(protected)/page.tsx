@@ -6,6 +6,7 @@ import { GoalTable } from '@/components/dashboard/GoalTable';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { useIBKRSync } from '@/hooks/useIBKRSync';
 import { CategoryCards } from '@/components/dashboard/CategoryCards';
+import { AssetAllocationChart } from '@/components/dashboard/AssetAllocationChart';
 import { MacroCalendar } from '@/components/dashboard/MacroCalendar';
 
 import { useAuth } from '@/context/AuthProvider';
@@ -122,6 +123,10 @@ export default function Dashboard() {
           history={history || []}
           currentTotalValue={portfolio?.total_value || 0}
         />
+
+        {portfolio?.total_value && assets.length > 0 ? (
+          <AssetAllocationChart assets={assets} totalValue={portfolio.total_value} />
+        ) : null}
 
         <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 flex flex-col gap-6">
