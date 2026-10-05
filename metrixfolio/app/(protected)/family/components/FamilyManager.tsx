@@ -21,6 +21,7 @@ export default function FamilyManager() {
   const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null);
   const [transactions, setTransactions] = useState<FamilyTransaction[]>([]);
   const [assetSummaries, setAssetSummaries] = useState<FamilyAssetSummary[]>([]);
+  const [availableAssets, setAvailableAssets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Modals
@@ -36,7 +37,7 @@ export default function FamilyManager() {
   const [txForm, setTxForm] = useState({
     symbol: '',
     amount: '',
-    price: '',
+    totalPaid: '',
     currency: 'USD',
     date: new Date().toISOString().split('T')[0],
   });
@@ -44,8 +45,15 @@ export default function FamilyManager() {
   useEffect(() => {
     if (user) {
       loadMembers();
+      loadAvailableAssets();
     }
   }, [user]);
+
+  const loadAvailableAssets = async () => {
+    if (!user) return;
+    const assetsData = await getAssetsAction(user.uid);
+    setAvailableAssets(assetsData);
+  };
 
   useEffect(() => {
     if (user && selectedMember) {
@@ -143,10 +151,20 @@ export default function FamilyManager() {
     e.preventDefault();
     if (!user || !selectedMember) return;
 
+    const amt = parseFloat(txForm.amount) || 0;
+    const total = parseFloat(txForm.totalPaid) || 0;
+    
+    let price = 0;
+    if (txForm.symbol === 'CASH' || txForm.symbol === 'USD') {
+      price = 1;
+    } else if (amt !== 0) {
+      price = total / amt;
+    }
+
     const payload = {
       symbol: txForm.symbol,
-      amount: parseFloat(txForm.amount),
-      price: parseFloat(txForm.price),
+      amount: amt,
+      price: price,
       date: txForm.date,
       currency: txForm.currency,
     };
@@ -177,16 +195,18 @@ export default function FamilyManager() {
   const openTxModal = (tx?: FamilyTransaction) => {
     if (tx) {
       setEditingTxId(tx.id);
+      const pricePerUnit = tx.original_price ?? tx.price;
+      const totalPaid = tx.amount * pricePerUnit;
       setTxForm({
         symbol: tx.symbol,
         amount: tx.amount.toString(),
-        price: tx.original_price?.toString() || tx.price.toString(),
+        totalPaid: totalPaid.toString(),
         currency: tx.original_currency || 'USD',
         date: tx.date,
       });
     } else {
       setEditingTxId(null);
-      setTxForm({ symbol: '', amount: '', price: '', currency: 'USD', date: new Date().toISOString().split('T')[0] });
+      setTxForm({ symbol: '', amount: '', totalPaid: '', currency: 'USD', date: new Date().toISOString().split('T')[0] });
     }
     txModal.current?.showModal();
   };
@@ -475,18 +495,31 @@ export default function FamilyManager() {
           <form onSubmit={handleSaveTransaction} className="space-y-4">
             
             <div className="form-control">
-              <label className="label font-medium">Asset (Ticker or CASH)</label>
-              <input 
+              <label className="label font-medium">Asset</label>
+              <select 
                 required 
-                type="text" 
-                className="input input-lg input-bordered bg-base-200/50 rounded-2xl uppercase tracking-wider font-bold" 
-                placeholder="e.g. SXR8 or CASH"
+                className="select select-bordered select-lg bg-base-200/50 rounded-2xl font-bold" 
                 value={txForm.symbol}
-                onChange={e => setTxForm({...txForm, symbol: e.target.value.toUpperCase()})}
-              />
-              <label className="label">
-                <span className="label-text-alt opacity-60">Type "CASH" to add funds.</span>
-              </label>
+                onChange={e => {
+                  const sym = e.target.value;
+                  const selectedAsset = availableAssets.find(a => a.symbol === sym);
+                  setTxForm({
+                    ...txForm, 
+                    symbol: sym,
+                    currency: selectedAsset?.original_currency || selectedAsset?.currency || 'USD'
+                  });
+                }}
+              >
+                <option value="" disabled>Select an Asset</option>
+                <option value="CASH">CASH (Funds)</option>
+                {availableAssets
+                  .filter(a => a.type !== 'CASH' && a.is_active !== false)
+                  .map(a => (
+                    <option key={a.id} value={a.symbol}>
+                      {a.symbol} {a.name && a.name !== a.symbol ? `- ${a.name}` : ''} ({a.type})
+                    </option>
+                ))}
+              </select>
             </div>
             
             <div className="grid grid-cols-2 gap-4">
@@ -506,22 +539,22 @@ export default function FamilyManager() {
                 />
               </div>
               <div className="form-control">
-                <label className="label font-medium">Price per Unit</label>
+                <label className="label font-medium">Total Amount Paid</label>
                 <input 
                   required 
                   type="text"
                   inputMode="decimal"
                   className="input input-bordered bg-base-200/50 rounded-2xl font-mono text-lg" 
-                  placeholder="e.g. 520.40"
-                  value={txForm.price}
+                  placeholder="e.g. 1000.50"
+                  value={txForm.symbol === 'CASH' || txForm.symbol === 'USD' ? txForm.amount : txForm.totalPaid}
                   onChange={e => {
                     const val = e.target.value.replace(/,/g, '.');
-                    if (/^[\d.]*$/.test(val)) setTxForm({...txForm, price: val});
+                    if (/^[\d.]*$/.test(val)) setTxForm({...txForm, totalPaid: val});
                   }}
                   disabled={txForm.symbol === 'CASH' || txForm.symbol === 'USD'}
                 />
                 {(txForm.symbol === 'CASH' || txForm.symbol === 'USD') && (
-                  <label className="label"><span className="label-text-alt opacity-60">Fixed at 1 for cash</span></label>
+                  <label className="label"><span className="label-text-alt opacity-60">Automatically matches quantity</span></label>
                 )}
               </div>
             </div>
