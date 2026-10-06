@@ -9,6 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.db import SessionLocal
 from database.models import Fundamental, CompanyProfile, AnalysisScore, Technical, Candle
+from utils.market_time import trading_today, utc_now_naive
 from sqlalchemy import func
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] fundamentals_job: %(message)s")
@@ -149,11 +150,11 @@ def main():
             try:
                 analysis = calculate_fund_score(fund, cp, tech, candle)
                 
-                today = datetime.utcnow().date()
+                session_date = trading_today()
                 existing = db.query(AnalysisScore).filter(
                     AnalysisScore.symbol == symbol,
                     AnalysisScore.analysis_type == 'fundamentals',
-                    func.date(AnalysisScore.created_at) == today
+                    AnalysisScore.as_of_date == session_date
                 ).first()
                 
                 reason_json = json.dumps(analysis)
@@ -163,6 +164,7 @@ def main():
                     existing.status = analysis["wheel_fit"]
                     existing.reason = reason_json
                     existing.price = candle.close
+                    existing.created_at = utc_now_naive()
                 else:
                     new_score = AnalysisScore(
                         symbol=symbol,
@@ -171,12 +173,16 @@ def main():
                         status=analysis["wheel_fit"],
                         reason=reason_json,
                         price=candle.close,
-                        created_at=datetime.utcnow()
+                        created_at=utc_now_naive(),
+                        as_of_date=session_date
                     )
                     db.add(new_score)
                 count += 1
+                if count % 100 == 0:
+                    db.commit()
             except Exception as e:
                 logger.error(f"Error calculating score for {symbol}: {e}")
+                db.rollback()
                 
         db.commit()
         logger.info(f"Successfully processed {count} fundamental analyses.")

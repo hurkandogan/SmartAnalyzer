@@ -53,10 +53,26 @@ export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChar
   const [activeIndex, setActiveIndex] = useState(0);
 
   const data = useMemo(() => {
-    if (!assets || assets.length === 0 || totalValue <= 0) return [];
+    if (!assets || assets.length === 0) return [];
     
+    // Filter out options as they distort the underlying asset allocation
+    const nonOptionAssets = assets.filter(a => {
+      const isOption = 
+        a.type === 'OPTION' ||
+        Boolean(a.strike) ||
+        Boolean(a.expiry) ||
+        Boolean(a.right) ||
+        a.category_id === 'options' ||
+        a.category_id === 'options_buy' ||
+        a.category_id === 'options_sell' ||
+        (typeof a.id === 'string' && a.id.includes('_OPT_'));
+      return !isOption;
+    });
+
+    if (nonOptionAssets.length === 0) return [];
+
     // Calculate value for each asset properly using amount, current_price, and multiplier
-    const calculatedAssets = assets.map(a => {
+    const calculatedAssets = nonOptionAssets.map(a => {
       // Avoid NaN issues by defaulting to 0 or 1
       const amt = a.amount || 0;
       const price = a.current_price || 0;
@@ -77,7 +93,12 @@ export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChar
     });
 
     const positiveAssets = calculatedAssets.filter(a => a.calculatedValue > 0);
-    
+    if (positiveAssets.length === 0) return [];
+
+    // Base the distribution percentages on the actual sum of displayed assets so it sums to 100%
+    const totalAllocatedValue = positiveAssets.reduce((sum, item) => sum + item.calculatedValue, 0);
+    const denominator = totalAllocatedValue > 0 ? totalAllocatedValue : totalValue;
+
     // Sort by value descending
     positiveAssets.sort((a, b) => b.calculatedValue - a.calculatedValue);
     
@@ -86,7 +107,7 @@ export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChar
         name: a.name || a.symbol,
         symbol: a.symbol,
         value: a.calculatedValue,
-        percent: a.calculatedValue / totalValue
+        percent: denominator > 0 ? a.calculatedValue / denominator : 0
       };
     });
     
@@ -102,7 +123,7 @@ export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChar
           name: 'Other Assets',
           symbol: 'OTHER',
           value: othersValue,
-          percent: othersValue / totalValue
+          percent: denominator > 0 ? othersValue / denominator : 0
         }
       ];
     }

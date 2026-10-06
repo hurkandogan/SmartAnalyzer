@@ -15,18 +15,30 @@ export interface IBKRConfig {
 export async function getIBKRConfigAction(userId: string): Promise<IBKRConfig | null> {
   if (!userId) return null;
   try {
-    const doc = await adminDb
+    let doc = await adminDb
       .collection(CollectionType.USERS)
       .doc(userId)
       .collection(CollectionType.CONFIG)
       .doc(CollectionType.MAIN)
       .get();
 
+    if (!doc.exists || (!doc.data()?.ibkr_token && !doc.data()?.flex_token)) {
+      const legacyDoc = await adminDb
+        .collection(CollectionType.USERS)
+        .doc(userId)
+        .collection('config')
+        .doc('ibkr')
+        .get();
+      if (legacyDoc.exists) {
+        doc = legacyDoc;
+      }
+    }
+
     if (!doc.exists) return null;
     const data = doc.data()!;
     return {
-      ibkr_query_id: data.ibkr_query_id ?? '',
-      ibkr_token: data.ibkr_token ?? '',
+      ibkr_query_id: data.ibkr_query_id ?? data.flex_query_id ?? '',
+      ibkr_token: data.ibkr_token ?? data.flex_token ?? '',
       ibkr_last_sync: data.ibkr_last_sync ?? null,
     };
   } catch (err) {
@@ -87,9 +99,9 @@ export async function saveIBKRConfigAction(
 // ── Flex Query fetch ────────────────────────────────────────────────────────
 
 const FLEX_SEND_URL =
-  'https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest';
+  'https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest';
 const FLEX_GET_URL =
-  'https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement';
+  'https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement';
 
 async function fetchIBKRXml(queryId: string, token: string): Promise<string> {
   // Step 1: request the report

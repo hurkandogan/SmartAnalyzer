@@ -12,6 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.db import SessionLocal
 from database.models import ScreenerUniverse, Technical, Fundamental, AnalysisScore, Candle
+from utils.market_time import trading_today, utc_now_naive
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("qullamaggie_job")
@@ -198,35 +199,51 @@ def calculate_qullamaggie(symbol: str, df: pd.DataFrame, spy_df: pd.DataFrame, e
     if rs_score < 15 or rs_63 <= 0:
         is_no_setup = True
         
-    # Base >= 12 + sıkışma + dry + EMAs
     above_emas_strict = (current_price >= current_ema10) and (current_price >= current_ema20)
-    if tightness_score < 12 or not is_tight or not is_dry or not above_emas_strict:
+    if not above_emas_strict:
         is_no_setup = True
-        
+
     # Setup RVOL < 1.5
     if not is_momentum and rvol >= 1.5:
         is_no_setup = True
         
-    # Ham skor >= 70
-    if not is_momentum and total_score < 70:
-        is_no_setup = True
-        
     status = "no_setup"
     if not is_no_setup:
-        # CANDIDATE rules (otherwise WATCH)
-        # Skor >= 70, Base >= 15, Trend >= 28
-        can_be_candidate = True
-        if total_score < 70: can_be_candidate = False
-        if tightness_score < 15: can_be_candidate = False
-        if trend_score < 28: can_be_candidate = False
+        # 1. CANDIDATE: En kusursuz, tam sıkışmış ve hacmi kurumuş kırılıma hazır kurulumlar
+        # Skor >= 70, Base >= 15 (hem is_tight hem is_dry), Trend >= 28
+        is_candidate = (
+            total_score >= 70
+            and trend_score >= 28
+            and tightness_score >= 15
+            and is_tight
+            and is_dry
+            and above_emas_strict
+            and not is_momentum
+        )
         
-        # Buy signals cannot be candidate, they are just buy signals in watch (breakout day)
-        if is_momentum: can_be_candidate = False
+        # 2. WATCH: Güçlü trend ve yüksek RS ile hızlı sprint potansiyeli taşıyan liderler
+        # Listeyi şişirmeden (~20-25 hisse) sadece en kaliteli atları tutmak için:
+        # Toplam skor >= 80, RS skoru >= 18 ve (hacim kuruması / sıkışma / momentum kırılımı)
+        is_watch = (
+            not is_candidate
+            and (
+                is_momentum  # Kırılım günü doğrudan izlemeye
+                or (
+                    total_score >= 80
+                    and rs_score >= 18
+                    and (rs_ratio or 0) > 1.0
+                    and trend_score >= 30
+                    and (is_tight or is_dry or tightness_score >= 10)
+                )
+            )
+        )
         
-        if can_be_candidate:
+        if is_candidate:
             status = "candidate"
-        else:
+        elif is_watch:
             status = "watch"
+        else:
+            status = "no_setup"
             
     reason = {
         "trend_score": trend_score,
@@ -352,12 +369,11 @@ def main():
                 except Exception as e:
                     logger.info(f"[{sym}] Score: {analysis['score']} ({analysis['status']})")
                 # Save to AnalysisScore unconditionally
-                today = datetime.now().date()
-                today_start = datetime.combine(today, datetime.min.time())
+                session_date = trading_today()
                 existing_score = db.query(AnalysisScore).filter(
                     AnalysisScore.symbol == sym,
                     AnalysisScore.analysis_type == 'qullamaggie',
-                    AnalysisScore.created_at >= today_start
+                    AnalysisScore.as_of_date == session_date
                 ).first()
                 
                 current_price = float(df['Close'].iloc[-1]) if not df.empty else None
@@ -367,7 +383,7 @@ def main():
                     existing_score.status = analysis["status"]
                     existing_score.reason = analysis["reason"]
                     existing_score.price = current_price
-                    existing_score.created_at = datetime.now()
+                    existing_score.created_at = utc_now_naive()
                 else:
                     new_score = AnalysisScore(
                         symbol=sym,
@@ -376,15 +392,15 @@ def main():
                         status=analysis["status"],
                         reason=analysis["reason"],
                         price=current_price,
-                        created_at=datetime.now()
+                        created_at=utc_now_naive(),
+                        as_of_date=session_date
                     )
                     db.add(new_score)
                 db.commit()
                 # Update Technicals
-                today = datetime.now().date()
                 existing_tech = db.query(Technical).filter(
                     Technical.symbol == sym,
-                    Technical.date == today
+                    Technical.date == session_date
                 ).first()
                 
                 if existing_tech:
@@ -393,10 +409,12 @@ def main():
                     existing_tech.sma_50 = analysis["sma50"]
                     existing_tech.sma_200 = analysis["sma200"]
                     existing_tech.rs = analysis["rs"]
+                    existing_tech.volume = analysis["current_vol"]
+                    existing_tech.avg_volume = analysis["avg_vol_20d"]
                 else:
                     new_tech = Technical(
                         symbol=sym,
-                        date=today,
+                        date=session_date,
                         ema_10=analysis["ema10"],
                         ema_20=analysis["ema20"],
                         sma_50=analysis["sma50"],

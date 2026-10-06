@@ -31,7 +31,7 @@ export async function fetchAndParseFlexQuery(token, queryId) {
     await new Promise(resolve => setTimeout(resolve, 10000));
     
     logger.info(`Fetching Flex Statement...`);
-    const getUrl = `https://gdcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement?q=${referenceCode}&t=${token}&v=3`;
+    const getUrl = `https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement?q=${referenceCode}&t=${token}&v=3`;
     
     const xmlData = await requestData(getUrl);
     

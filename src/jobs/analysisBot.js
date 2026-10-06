@@ -202,11 +202,7 @@ export async function runAnalysisBot() {
         let anyPassedInLast5Days = false;
         
         for (const r of currentScores) {
-            if (r.analysis_type === 'qullamaggie' && r.score >= 70 && r.status !== 'no_setup') {
-                anyPassedInLast5Days = true;
-                break;
-            }
-            if (r.analysis_type === 'fundamentals' && r.score >= 70) {
+            if (r.analysis_type === 'qullamaggie' && (r.status === 'candidate' || r.status === 'watch')) {
                 anyPassedInLast5Days = true;
                 break;
             }

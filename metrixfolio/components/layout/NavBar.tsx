@@ -7,6 +7,7 @@ import { signOut } from 'firebase/auth';
 import { auth } from '@/utils/firebase';
 import { FiMoon, FiSun, FiLogOut, FiMenu, FiActivity } from 'react-icons/fi';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
+import { CopyPortfolioButton } from '@/components/dashboard/CopyPortfolioButton';
 
 export const NavBar = () => {
   const { theme, toggleTheme } = useTheme();
@@ -136,6 +137,8 @@ export const NavBar = () => {
 
         {/* Action Buttons */}
         <div className="navbar-end gap-1.5">
+          <CopyPortfolioButton />
+
           <label className="swap swap-rotate btn btn-ghost btn-circle btn-sm">
             <input
               type="checkbox"

@@ -32,12 +32,22 @@ export async function getAllUserIds() {
 }
 
 export async function getUserFlexCredentials(userId) {
-  const doc = await db.collection('users').doc(userId).collection('configuration').doc('main').get();
+  let doc = await db.collection('users').doc(userId).collection('configuration').doc('main').get();
+  if (!doc.exists || (!doc.data()?.ibkr_token && !doc.data()?.flex_token)) {
+    // Fallback to legacy config/ibkr
+    const legacyDoc = await db.collection('users').doc(userId).collection('config').doc('ibkr').get();
+    if (legacyDoc.exists) {
+      doc = legacyDoc;
+    }
+  }
   if (!doc.exists) return null;
   const data = doc.data();
+  const token = data.ibkr_token || data.flex_token;
+  const queryId = data.ibkr_query_id || data.flex_query_id;
+  if (!token || !queryId) return null;
   return {
-    flex_token: data.ibkr_token || data.flex_token,
-    flex_query_id: data.ibkr_query_id || data.flex_query_id
+    flex_token: token,
+    flex_query_id: queryId
   };
 }
 
