@@ -1,7 +1,7 @@
 'use server';
 
 import { adminDb } from '@/utils/firebase-admin';
-import { FamilyMember, FamilyTransaction } from '@/types/family';
+import { FamilyMember, FamilyTransaction, FamilyDeposit } from '@/types/family';
 import { getExchangeRatesAction } from '@/actions/currency';
 import { CurrencyConverter } from '@/utils/currency-math';
 
@@ -55,12 +55,18 @@ export async function deleteFamilyMemberAction(userId: string, memberId: string)
       .collection('family_members')
       .doc(memberId);
 
-    // Get all transactions
-    const txSnapshot = await memberRef.collection('transactions').get();
+    // Get all transactions & deposits
+    const [txSnapshot, depSnapshot] = await Promise.all([
+      memberRef.collection('transactions').get(),
+      memberRef.collection('deposits').get(),
+    ]);
 
-    // Delete all transactions in a batch
+    // Delete all transactions and deposits in a batch
     const batch = adminDb.batch();
     txSnapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    depSnapshot.docs.forEach((doc) => {
       batch.delete(doc.ref);
     });
 
@@ -192,3 +198,116 @@ export async function updateMemberTransactionAction(
     return { success: false, message: error.message };
   }
 }
+
+export async function getFamilyDepositsAction(
+  userId: string,
+  memberId: string,
+): Promise<FamilyDeposit[]> {
+  try {
+    const snapshot = await adminDb
+      .collection('users')
+      .doc(userId)
+      .collection('family_members')
+      .doc(memberId)
+      .collection('deposits')
+      .orderBy('date', 'desc')
+      .get();
+
+    return snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        amount: Number(data.amount) || 0,
+        currency: data.currency || 'EUR',
+        date: data.date || '',
+        note: data.note || '',
+        amount_usd: Number(data.amount_usd) || 0,
+        amount_eur: Number(data.amount_eur) || 0,
+        amount_try: Number(data.amount_try) || 0,
+        rates_snapshot: data.rates_snapshot || {},
+        created_at: data.created_at || '',
+      };
+    }) as FamilyDeposit[];
+  } catch (error: any) {
+    console.error('Error fetching family deposits:', error);
+    return [];
+  }
+}
+
+export async function addFamilyDepositAction(
+  userId: string,
+  memberId: string,
+  payload: {
+    amount: number;
+    currency: string;
+    date: string;
+    note?: string;
+  },
+) {
+  try {
+    const rates = await getExchangeRatesAction();
+    const converter = new CurrencyConverter(rates);
+
+    const amount = Number(payload.amount);
+    const curr = (payload.currency || 'EUR').toUpperCase();
+
+    // Calculate conversions for USD, EUR, and TRY
+    const amount_usd = Number(converter.convert(amount, curr, 'USD').toFixed(2));
+    const amount_eur = Number(converter.convert(amount, curr, 'EUR').toFixed(2));
+    const amount_try = Number(converter.convert(amount, curr, 'TRY').toFixed(2));
+
+    const rates_snapshot: Record<string, number> = {};
+    rates.forEach((r) => {
+      rates_snapshot[`${r.from}_${r.to}`] = r.rate;
+    });
+
+    const docRef = adminDb
+      .collection('users')
+      .doc(userId)
+      .collection('family_members')
+      .doc(memberId)
+      .collection('deposits')
+      .doc();
+
+    const data = {
+      amount,
+      currency: curr,
+      date: payload.date || new Date().toISOString().split('T')[0],
+      note: payload.note || 'Kindergeld',
+      amount_usd,
+      amount_eur,
+      amount_try,
+      rates_snapshot,
+      created_at: new Date().toISOString(),
+    };
+
+    await docRef.set(data);
+    return { success: true, id: docRef.id };
+  } catch (error: any) {
+    console.error('Error adding family deposit:', error);
+    return { success: false, message: error.message };
+  }
+}
+
+export async function deleteFamilyDepositAction(
+  userId: string,
+  memberId: string,
+  depositId: string,
+) {
+  try {
+    await adminDb
+      .collection('users')
+      .doc(userId)
+      .collection('family_members')
+      .doc(memberId)
+      .collection('deposits')
+      .doc(depositId)
+      .delete();
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('Error deleting family deposit:', error);
+    return { success: false, message: error.message };
+  }
+}
+

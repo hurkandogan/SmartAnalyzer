@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/context/AuthProvider';
-import { FiPlus, FiTrash2, FiUser, FiActivity, FiEdit2, FiSettings, FiDollarSign } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiUser, FiActivity, FiEdit2, FiSettings, FiDollarSign, FiCreditCard } from 'react-icons/fi';
 import {
   getFamilyMembersAction,
   addFamilyMemberAction,
@@ -11,28 +11,47 @@ import {
   addMemberTransactionAction,
   deleteMemberTransactionAction,
   updateMemberTransactionAction,
+  getFamilyDepositsAction,
+  addFamilyDepositAction,
+  deleteFamilyDepositAction,
 } from '@/actions/family';
 import { getAssetsAction } from '@/actions/positions';
-import { FamilyMember, FamilyTransaction, FamilyAssetSummary } from '@/types/family';
+import { FamilyMember, FamilyTransaction, FamilyAssetSummary, FamilyDeposit } from '@/types/family';
+import { useCurrencyConverter } from '@/hooks/useCurrencyConverter';
 
 export default function FamilyManager() {
   const { user } = useAuth();
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null);
   const [transactions, setTransactions] = useState<FamilyTransaction[]>([]);
+  const [deposits, setDeposits] = useState<FamilyDeposit[]>([]);
   const [assetSummaries, setAssetSummaries] = useState<FamilyAssetSummary[]>([]);
   const [availableAssets, setAvailableAssets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Currency Converter & Selected Currency (USD / EUR / TRY)
+  const [selectedCurrency, setSelectedCurrency] = useState<'USD' | 'EUR' | 'TRY'>('USD');
+  const { convert } = useCurrencyConverter();
 
   // Modals
   const newMemberModal = useRef<HTMLDialogElement>(null);
   const txModal = useRef<HTMLDialogElement>(null);
   const detailsModal = useRef<HTMLDialogElement>(null);
+  const depositsModal = useRef<HTMLDialogElement>(null);
 
   // UI States
   const [newMemberName, setNewMemberName] = useState('');
   const [editingTxId, setEditingTxId] = useState<string | null>(null);
   const [selectedSymbolForDetails, setSelectedSymbolForDetails] = useState<string | null>(null);
+
+  // Deposit Form State
+  const [depositSubmitting, setDepositSubmitting] = useState(false);
+  const [depositForm, setDepositForm] = useState({
+    amount: '',
+    currency: 'EUR',
+    date: new Date().toISOString().split('T')[0],
+    note: 'Kindergeld',
+  });
 
   const [txForm, setTxForm] = useState({
     symbol: '',
@@ -58,8 +77,15 @@ export default function FamilyManager() {
   useEffect(() => {
     if (user && selectedMember) {
       loadTransactions(selectedMember.id);
+      loadDeposits(selectedMember.id);
     }
   }, [user, selectedMember]);
+
+  const loadDeposits = async (memberId: string) => {
+    if (!user) return;
+    const depData = await getFamilyDepositsAction(user.uid, memberId);
+    setDeposits(depData);
+  };
 
   const loadMembers = async () => {
     if (!user) return;
@@ -192,6 +218,47 @@ export default function FamilyManager() {
     }
   };
 
+  const handleAddDeposit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !selectedMember) return;
+    const amt = parseFloat(depositForm.amount);
+    if (!amt || amt <= 0) {
+      alert('Lütfen geçerli bir tutar girin.');
+      return;
+    }
+
+    setDepositSubmitting(true);
+    const res = await addFamilyDepositAction(user.uid, selectedMember.id, {
+      amount: amt,
+      currency: depositForm.currency,
+      date: depositForm.date,
+      note: depositForm.note.trim() || 'Kindergeld',
+    });
+    setDepositSubmitting(false);
+
+    if (res.success) {
+      setDepositForm({
+        amount: '',
+        currency: 'EUR',
+        date: new Date().toISOString().split('T')[0],
+        note: 'Kindergeld',
+      });
+      await loadDeposits(selectedMember.id);
+    } else {
+      alert('Hata: ' + res.message);
+    }
+  };
+
+  const handleDeleteDeposit = async (depositId: string) => {
+    if (!user || !selectedMember || !confirm('Bu yatırılan para kaydını silmek istediğinize emin misiniz?')) return;
+    const res = await deleteFamilyDepositAction(user.uid, selectedMember.id, depositId);
+    if (res.success) {
+      await loadDeposits(selectedMember.id);
+    } else {
+      alert('Hata: ' + res.message);
+    }
+  };
+
   const openTxModal = (tx?: FamilyTransaction) => {
     if (tx) {
       setEditingTxId(tx.id);
@@ -233,8 +300,40 @@ export default function FamilyManager() {
   const totalMarketValueAll = assetSummaries.reduce((sum, s) => sum + s.marketValue, 0);
   const totalPnlAll = totalMarketValueAll - totalInvestedAll;
 
-  const formatMoney = (val: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+  // Selected currency calculations for the top stat cards
+  const displayMarketValue = convert(totalMarketValueAll, 'USD', selectedCurrency);
+  const displayTotalInvested = convert(totalInvestedAll, 'USD', selectedCurrency);
+  const displayPnl = convert(totalPnlAll, 'USD', selectedCurrency);
+
+  // Total deposited sum calculated in selected currency
+  const totalDeposited = useMemo(() => {
+    return deposits.reduce((sum, d) => {
+      if (selectedCurrency === 'USD') return sum + (d.amount_usd || convert(d.amount, d.currency, 'USD'));
+      if (selectedCurrency === 'EUR') return sum + (d.amount_eur || convert(d.amount, d.currency, 'EUR'));
+      if (selectedCurrency === 'TRY') return sum + (d.amount_try || convert(d.amount, d.currency, 'TRY'));
+      return sum + convert(d.amount, d.currency, selectedCurrency);
+    }, 0);
+  }, [deposits, selectedCurrency, convert]);
+
+  const netDifference = displayMarketValue - totalDeposited;
+  const netDifferencePercent = totalDeposited > 0 ? (netDifference / totalDeposited) * 100 : 0;
+
+  const formatMoney = (val: number, ccy: string = selectedCurrency) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: ccy,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(val);
+  };
+
+  const formatUsd = (val: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(val);
   };
 
   if (loading && members.length === 0) {
@@ -267,29 +366,48 @@ export default function FamilyManager() {
           </button>
         </div>
 
-        {selectedMember && (
-          <div className="dropdown dropdown-end">
-            <label tabIndex={0} className="btn btn-ghost btn-circle text-base-content/50 hover:text-error transition-colors">
-              <FiSettings size={20} />
-            </label>
-            <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow-xl bg-base-100/90 backdrop-blur-lg rounded-box w-52 border border-error/20">
-              <li>
-                <button 
-                  className="text-error hover:bg-error/10 hover:text-error"
-                  onClick={() => handleDeleteMember(selectedMember.id)}
-                >
-                  <FiTrash2 /> Delete Profile
-                </button>
-              </li>
-            </ul>
+        <div className="flex items-center gap-3">
+          {/* Dashboard-style Currency Tabs (USD / EUR / TRY) */}
+          <div className="flex bg-base-200 p-1 rounded-full shadow-sm border border-base-content/5">
+            {(['USD', 'EUR', 'TRY'] as const).map((currency) => (
+              <button
+                key={currency}
+                className={`px-4 py-1.5 text-sm font-bold rounded-full transition-all ${
+                  selectedCurrency === currency
+                    ? 'bg-primary text-primary-content shadow'
+                    : 'text-base-content/60 hover:text-base-content'
+                }`}
+                onClick={() => setSelectedCurrency(currency)}
+              >
+                {currency}
+              </button>
+            ))}
           </div>
-        )}
+
+          {selectedMember && (
+            <div className="dropdown dropdown-end">
+              <label tabIndex={0} className="btn btn-ghost btn-circle text-base-content/50 hover:text-error transition-colors">
+                <FiSettings size={20} />
+              </label>
+              <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow-xl bg-base-100/90 backdrop-blur-lg rounded-box w-52 border border-error/20">
+                <li>
+                  <button 
+                    className="text-error hover:bg-error/10 hover:text-error"
+                    onClick={() => handleDeleteMember(selectedMember.id)}
+                  >
+                    <FiTrash2 /> Delete Profile
+                  </button>
+                </li>
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
 
       {selectedMember && (
         <div className="space-y-8 animate-fade-in">
           {/* Header Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="stat bg-gradient-to-br from-base-100/80 to-base-200/80 backdrop-blur-xl border border-base-content/5 shadow-xl rounded-3xl p-6">
               <div className="stat-figure text-primary/80">
                 <div className="p-4 bg-primary/10 rounded-2xl">
@@ -297,8 +415,8 @@ export default function FamilyManager() {
                 </div>
               </div>
               <div className="stat-title text-base-content/60 font-medium">Total Portfolio Value</div>
-              <div className="stat-value text-4xl mt-2">{formatMoney(totalMarketValueAll)}</div>
-              <div className="stat-desc mt-2 text-sm font-medium">Invested: {formatMoney(totalInvestedAll)}</div>
+              <div className="stat-value text-3xl sm:text-4xl mt-2">{formatMoney(displayMarketValue)}</div>
+              <div className="stat-desc mt-2 text-sm font-medium">Invested: {formatMoney(displayTotalInvested)}</div>
             </div>
             
             <div className="stat bg-gradient-to-br from-base-100/80 to-base-200/80 backdrop-blur-xl border border-base-content/5 shadow-xl rounded-3xl p-6">
@@ -308,11 +426,38 @@ export default function FamilyManager() {
                 </div>
               </div>
               <div className="stat-title text-base-content/60 font-medium">Total Profit / Loss</div>
-              <div className={`stat-value text-4xl mt-2 ${totalPnlAll >= 0 ? 'text-success' : 'text-error'}`}>
-                {totalPnlAll > 0 ? '+' : ''}{formatMoney(totalPnlAll)}
+              <div className={`stat-value text-3xl sm:text-4xl mt-2 ${displayPnl >= 0 ? 'text-success' : 'text-error'}`}>
+                {displayPnl > 0 ? '+' : ''}{formatMoney(displayPnl)}
               </div>
               <div className="stat-desc mt-2 text-sm font-medium">
-                {totalInvestedAll > 0 ? ((totalPnlAll / totalInvestedAll) * 100).toFixed(2) : 0}% Return
+                {displayTotalInvested > 0 ? ((displayPnl / displayTotalInvested) * 100).toFixed(2) : 0}% Return
+              </div>
+            </div>
+
+            {/* Box 3: Total Deposited & Net Gain (Clickable to open modal) */}
+            <div 
+              className="stat bg-gradient-to-br from-base-100/80 to-base-200/80 backdrop-blur-xl border border-base-content/5 shadow-xl rounded-3xl p-6 cursor-pointer hover:border-accent/40 hover:shadow-2xl transition-all duration-300 group"
+              onClick={() => depositsModal.current?.showModal()}
+              role="button"
+              tabIndex={0}
+            >
+              <div className="stat-figure text-accent/80 group-hover:scale-110 transition-transform">
+                <div className="p-4 bg-accent/10 rounded-2xl">
+                  <FiCreditCard size={32} />
+                </div>
+              </div>
+              <div className="stat-title text-base-content/60 font-medium flex items-center justify-between">
+                <span>Total Deposited</span>
+                <span className="badge badge-sm badge-ghost text-xs group-hover:badge-accent transition-colors">İşlemler ↗</span>
+              </div>
+              <div className="stat-value text-3xl sm:text-4xl mt-2 text-accent">
+                {formatMoney(totalDeposited)}
+              </div>
+              <div className="stat-desc mt-2 text-sm font-medium flex items-center gap-1.5 flex-wrap">
+                <span>Portföy Farkı:</span>
+                <span className={`font-bold ${netDifference >= 0 ? 'text-success' : 'text-error'}`}>
+                  {netDifference > 0 ? '+' : ''}{formatMoney(netDifference)} ({netDifferencePercent > 0 ? '+' : ''}{netDifferencePercent.toFixed(1)}%)
+                </span>
               </div>
             </div>
           </div>
@@ -359,16 +504,16 @@ export default function FamilyManager() {
                           </div>
                         </div>
                       </td>
-                      <td className="text-right font-mono font-medium">{s.symbol === 'CASH' ? formatMoney(s.totalAmount) : s.totalAmount.toFixed(4).replace(/\.?0+$/, '')}</td>
-                      <td className="text-right font-mono opacity-80">{s.symbol === 'CASH' ? '-' : formatMoney(s.averageCost)}</td>
-                      <td className="text-right font-mono opacity-80">{s.symbol === 'CASH' ? '-' : formatMoney(s.currentPrice)}</td>
-                      <td className="text-right font-mono font-bold">{formatMoney(s.marketValue)}</td>
+                      <td className="text-right font-mono font-medium">{s.symbol === 'CASH' ? formatUsd(s.totalAmount) : s.totalAmount.toFixed(4).replace(/\.?0+$/, '')}</td>
+                      <td className="text-right font-mono opacity-80">{s.symbol === 'CASH' ? '-' : formatUsd(s.averageCost)}</td>
+                      <td className="text-right font-mono opacity-80">{s.symbol === 'CASH' ? '-' : formatUsd(s.currentPrice)}</td>
+                      <td className="text-right font-mono font-bold">{formatUsd(s.marketValue)}</td>
                       <td className="text-right">
                         {s.symbol === 'CASH' ? (
                           <span className="opacity-30">-</span>
                         ) : (
                           <div className={`badge badge-lg font-bold border-0 ${s.unrealizedPnl >= 0 ? 'bg-success/20 text-success' : 'bg-error/20 text-error'}`}>
-                            {s.unrealizedPnl > 0 ? '+' : ''}{formatMoney(s.unrealizedPnl)}
+                            {s.unrealizedPnl > 0 ? '+' : ''}{formatUsd(s.unrealizedPnl)}
                           </div>
                         )}
                       </td>
@@ -591,6 +736,163 @@ export default function FamilyManager() {
               </button>
             </div>
           </form>
+        </div>
+        <form method="dialog" className="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+
+      {/* Deposits / Kindergeld Modal */}
+      <dialog ref={depositsModal} className="modal modal-bottom sm:modal-middle backdrop-blur-sm">
+        <div className="modal-box bg-base-100/95 backdrop-blur-xl border border-base-content/10 shadow-2xl rounded-3xl max-w-4xl p-6 sm:p-8">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h3 className="font-black text-2xl flex items-center gap-3">
+                <div className="p-2.5 bg-accent/10 text-accent rounded-2xl">
+                  <FiCreditCard size={24} />
+                </div>
+                {selectedMember?.name} - Yatırılan Nakit & Kindergeld
+              </h3>
+              <p className="text-xs text-base-content/60 mt-1">
+                Kişiye özel nakit girişleri. Girildiği günün döviz kurlarıyla USD, EUR ve TRY karşılıkları kaydedilir.
+              </p>
+            </div>
+            <button className="btn btn-sm btn-circle btn-ghost" onClick={() => depositsModal.current?.close()}>✕</button>
+          </div>
+
+          {/* New Deposit Form */}
+          <form onSubmit={handleAddDeposit} className="bg-base-200/50 border border-base-content/5 rounded-2xl p-4 mb-6 shadow-inner">
+            <div className="text-sm font-bold text-base-content/80 mb-3 flex items-center gap-2">
+              <FiPlus className="text-accent" /> Yeni İşlem / Katkı Ekle
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-xs font-semibold">Tutar</span></label>
+                <input
+                  type="number"
+                  step="any"
+                  placeholder="250"
+                  required
+                  className="input input-sm input-bordered bg-base-100 rounded-xl font-mono"
+                  value={depositForm.amount}
+                  onChange={(e) => setDepositForm({ ...depositForm, amount: e.target.value })}
+                />
+              </div>
+
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-xs font-semibold">Para Birimi</span></label>
+                <select
+                  className="select select-sm select-bordered bg-base-100 rounded-xl font-bold"
+                  value={depositForm.currency}
+                  onChange={(e) => setDepositForm({ ...depositForm, currency: e.target.value })}
+                >
+                  <option value="EUR">EUR (€)</option>
+                  <option value="USD">USD ($)</option>
+                  <option value="TRY">TRY (₺)</option>
+                </select>
+              </div>
+
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-xs font-semibold">Tarih</span></label>
+                <input
+                  type="date"
+                  required
+                  className="input input-sm input-bordered bg-base-100 rounded-xl font-mono"
+                  value={depositForm.date}
+                  onChange={(e) => setDepositForm({ ...depositForm, date: e.target.value })}
+                />
+              </div>
+
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-xs font-semibold">Açıklama</span></label>
+                <input
+                  type="text"
+                  placeholder="Kindergeld"
+                  className="input input-sm input-bordered bg-base-100 rounded-xl"
+                  value={depositForm.note}
+                  onChange={(e) => setDepositForm({ ...depositForm, note: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="mt-3 flex justify-end">
+              <button
+                type="submit"
+                disabled={depositSubmitting}
+                className="btn btn-sm btn-accent text-accent-content rounded-xl px-5 gap-1.5 shadow-md shadow-accent/20"
+              >
+                {depositSubmitting ? <span className="loading loading-spinner loading-xs" /> : <FiPlus size={16} />}
+                İşlem Kaydet
+              </button>
+            </div>
+          </form>
+
+          {/* Deposits List */}
+          <div className="overflow-x-auto rounded-2xl border border-base-content/5 max-h-80">
+            <table className="table table-zebra table-sm">
+              <thead className="bg-base-200/70 sticky top-0 z-10 backdrop-blur-md">
+                <tr>
+                  <th>Tarih</th>
+                  <th>Açıklama</th>
+                  <th className="text-right">Yatırılan Tutar</th>
+                  <th className="text-right">USD Değeri</th>
+                  <th className="text-right">EUR Değeri</th>
+                  <th className="text-right">TRY Değeri</th>
+                  <th className="text-center">İşlem</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deposits.map((d) => (
+                  <tr key={d.id} className="hover:bg-base-200/40">
+                    <td className="font-medium whitespace-nowrap opacity-80">{d.date}</td>
+                    <td className="font-semibold text-base-content/90">{d.note || 'Kindergeld'}</td>
+                    <td className="text-right font-mono font-bold text-accent whitespace-nowrap">
+                      {new Intl.NumberFormat('en-US', { style: 'currency', currency: d.currency || 'EUR' }).format(d.amount)}
+                    </td>
+                    <td className="text-right font-mono text-xs whitespace-nowrap text-base-content/80">
+                      ${d.amount_usd?.toFixed(2) || '-'}
+                    </td>
+                    <td className="text-right font-mono text-xs whitespace-nowrap text-base-content/80">
+                      €{d.amount_eur?.toFixed(2) || '-'}
+                    </td>
+                    <td className="text-right font-mono text-xs whitespace-nowrap text-base-content/80">
+                      ₺{d.amount_try?.toFixed(2) || '-'}
+                    </td>
+                    <td className="text-center">
+                      <button
+                        className="btn btn-ghost btn-xs text-error/70 hover:text-error"
+                        onClick={() => handleDeleteDeposit(d.id)}
+                        title="Sil"
+                      >
+                        <FiTrash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {deposits.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="text-center py-10 opacity-50">
+                      <div className="flex flex-col items-center gap-2">
+                        <FiCreditCard size={28} className="opacity-40" />
+                        <p className="text-sm font-medium">Henüz kayıtlı para işlemi bulunmuyor.</p>
+                        <p className="text-xs">Yukarıdaki formdan her ay aldığınız Kindergeld veya diğer nakit tutarları ekleyebilirsiniz.</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer Summary */}
+          {deposits.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-base-content/10 flex flex-wrap justify-between items-center text-sm font-medium text-base-content/80">
+              <span className="opacity-70">Toplam Yatırılan ({selectedCurrency} bazında):</span>
+              <span className="font-mono text-lg font-bold text-accent">
+                {formatMoney(totalDeposited)}
+              </span>
+            </div>
+          )}
         </div>
         <form method="dialog" className="modal-backdrop">
           <button>close</button>

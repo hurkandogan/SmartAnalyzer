@@ -27,3 +27,17 @@ export interface FamilyAssetSummary {
   marketValue: number;
   unrealizedPnl: number;
 }
+
+export interface FamilyDeposit {
+  id: string;
+  amount: number;
+  currency: string;
+  date: string;
+  note?: string;
+  amount_usd: number;
+  amount_eur: number;
+  amount_try: number;
+  rates_snapshot?: Record<string, number>;
+  created_at: string;
+}
+
