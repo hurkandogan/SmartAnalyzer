@@ -141,26 +141,27 @@ async function syncPrivateUser(currencies) {
       const id = isOption ? `IBKR_${localSymbol}_OPT_${contract.conId}` : `IBKR_${localSymbol}`;
       ibkrSeenIds.add(id);
 
-      const costBasis = avgCost * Math.abs(qty);
-      const existing = firebaseMap.get(id);
-
-      // Extract the true per-share average cost
+      const contractCurrency = contract.currency || 'USD';
+      const rate = currencies[contractCurrency] || 1.0;
       const multiplierNum = parseFloat(contract.multiplier || '1') || 1;
-      const perShareAvgCost = isOption ? avgCost / multiplierNum : avgCost;
 
+      // Extract the true per-share average cost in contract's original currency
+      const rawPerShareAvgCost = isOption ? avgCost / multiplierNum : avgCost;
 
+      // Convert average cost and cost basis to USD!
+      const perShareAvgCostUsd = rawPerShareAvgCost * rate;
+      const costBasisUsd = perShareAvgCostUsd * Math.abs(qty) * multiplierNum;
+      const existing = firebaseMap.get(id);
 
       // Fetch from IBKR portfolio directly!
       let price = pos.marketPrice;
       
       if (!price || price <= 0) {
         // fetchPrice already converts to USD and caches it
-        price = await fetchPrice(contract.symbol, contract.currency || 'USD', contract.exchange || 'SMART', contract.secType || 'STK', contract.conId || 0, currencies);
+        price = await fetchPrice(contract.symbol, contractCurrency, contract.exchange || 'SMART', contract.secType || 'STK', contract.conId || 0, currencies);
       } else {
         // Convert raw marketPrice to USD if needed
-        const currency = contract.currency || 'USD';
-        if (price > 0 && currency !== 'USD') {
-          const rate = currencies[currency] || 1;
+        if (price > 0 && contractCurrency !== 'USD') {
           price = price * rate;
         }
         
@@ -171,7 +172,9 @@ async function syncPrivateUser(currencies) {
         }
       }
       
-      const currentPrice = price && price > 0 ? String(price) : existing?.current_price || '0';
+      const currentPriceUsd = price && price > 0 ? price : perShareAvgCostUsd;
+      const marketValueUsd = currentPriceUsd * qty * multiplierNum;
+      const unrealizedPnlUsd = (currentPriceUsd - perShareAvgCostUsd) * qty * multiplierNum;
 
       if (isOption) {
         openOptionsList.push({
@@ -180,8 +183,8 @@ async function syncPrivateUser(currencies) {
           right: contract.right,
           expiry: contract.lastTradeDateOrContractMonth,
           qty: qty,
-          perShareAvgCost: perShareAvgCost,
-          currentPrice: parseFloat(currentPrice) || 0,
+          perShareAvgCost: perShareAvgCostUsd,
+          currentPrice: currentPriceUsd,
           greeks: pos.greeks,
           iv_rank: pos.iv_rank || null,
           earnings_date: pos.earnings_date || null
@@ -191,7 +194,7 @@ async function syncPrivateUser(currencies) {
       let sector = existing?.sector || null;
       let industry = existing?.industry || null;
       if (!isOption && (!sector || !industry)) {
-        const enrichData = await fetchEnrich(contract.symbol, contract.currency || 'USD', contract.exchange || 'SMART', contract.secType || 'STK');
+        const enrichData = await fetchEnrich(contract.symbol, contractCurrency, contract.exchange || 'SMART', contract.secType || 'STK');
         if (enrichData) {
           sector = enrichData.sector;
           industry = enrichData.industry;
@@ -201,16 +204,20 @@ async function syncPrivateUser(currencies) {
       if (existing) {
         const patch = {
           amount: String(qty),
-          avg_cost: String(perShareAvgCost),
-          cost_basis_money: String(qty < 0 ? -costBasis : costBasis),
-          current_price: currentPrice,
-          value: String(pos.marketValue || 0),
+          avg_cost: String(perShareAvgCostUsd),
+          cost_basis_money: String(qty < 0 ? -costBasisUsd : costBasisUsd),
+          current_price: String(currentPriceUsd),
+          value: String(marketValueUsd),
+          unrealized_pnl: String(unrealizedPnlUsd),
+          currency: 'USD',
+          original_currency: contractCurrency,
+          original_avg_cost: String(rawPerShareAvgCost),
           multiplier: String(contract.multiplier || '1'),
           ...(sector && !existing.sector ? { sector } : {}),
           ...(industry && !existing.industry ? { industry } : {}),
         };
         await setUserAsset(userId, id, patch);
-        logger.info(`[Private] Patched ${id} → price=${currentPrice} qty=${qty}`);
+        logger.info(`[Private] Patched ${id} → price=${currentPriceUsd} avgCost=${perShareAvgCostUsd} qty=${qty}`);
       } else {
         // Format option name beautifully if it has strike and right
         let optionName = `${contract.symbol} Option`;
@@ -223,11 +230,14 @@ async function syncPrivateUser(currencies) {
           symbol: contract.symbol,
           name: isOption ? optionName : contract.symbol,
           amount: String(qty),
-          avg_cost: String(perShareAvgCost),
-          cost_basis_money: String(qty < 0 ? -costBasis : costBasis),
-          currency: contract.currency || 'USD',
-          current_price: currentPrice,
-          value: String(pos.marketValue || 0),
+          avg_cost: String(perShareAvgCostUsd),
+          cost_basis_money: String(qty < 0 ? -costBasisUsd : costBasisUsd),
+          currency: 'USD',
+          original_currency: contractCurrency,
+          original_avg_cost: String(rawPerShareAvgCost),
+          current_price: String(currentPriceUsd),
+          value: String(marketValueUsd),
+          unrealized_pnl: String(unrealizedPnlUsd),
           realized_pnl: '0',
           multiplier: String(contract.multiplier || '1'),
           source: 'IBKR',
@@ -329,21 +339,61 @@ async function syncPrivateUser(currencies) {
   // ── MANUAL Asset Prices ───────────────────────────────────
   const manualAssets = firebaseAssets.filter((a) => a.source === 'MANUAL' && a.symbol);
   for (const asset of manualAssets) {
-    if (asset.type === 'CASH') {
-      const currentPrice = currencies[asset.currency || 'USD'] || 1.0;
-      await setUserAsset(userId, asset.id, { current_price: String(currentPrice) });
+    if (asset.type === 'CASH' || asset.category_id === 'cash') {
+      const rawCur = asset.original_currency || (asset.currency !== 'USD' ? asset.currency : 'USD');
+      const currentPrice = currencies[rawCur] || 1.0;
+      await setUserAsset(userId, asset.id, {
+        type: 'CASH',
+        current_price: String(currentPrice),
+        currency: 'USD',
+      });
       continue;
     }
 
-    let secType = 'STK';
-    if (asset.type === 'CRYPTO') secType = 'CRYPTO';
-    else if (asset.type === 'OPTION') secType = 'OPT';
-    
-    const price = await fetchPrice(asset.symbol, asset.currency || 'USD', asset.exchange || 'SMART', secType, 0, currencies);
-    if (price && price > 0) {
-      await setUserAsset(userId, asset.id, { current_price: String(price) });
-      logger.info(`[Private] MANUAL ${asset.id} updated → ${price}`);
+    let secType = asset.type || 'STK';
+    const symUpper = (asset.symbol || '').toUpperCase();
+    if (
+      asset.category_id === 'crypto' ||
+      asset.type === 'CRYPTO' ||
+      ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOT', 'LTC', 'AVAX'].includes(symUpper)
+    ) {
+      secType = 'CRYPTO';
+    } else if (asset.type === 'OPTION' || asset.category_id === 'options') {
+      secType = 'OPT';
     }
+
+    // Determine original currency (e.g. EUR, TRY, etc.)
+    const rawCurrency = asset.original_currency || (asset.currency && asset.currency !== 'USD' ? asset.currency : 'USD');
+    const rate = currencies[rawCurrency] || 1.0;
+
+    // Fetch live price in USD
+    let price = await fetchPrice(asset.symbol, rawCurrency, asset.exchange || 'SMART', secType, 0, currencies);
+
+    // Calculate avg cost in USD
+    const rawAvgCost = parseFloat(asset.original_avg_cost || asset.avg_cost) || 0;
+    const avgCostUsd = rawCurrency !== 'USD' ? rawAvgCost * rate : rawAvgCost;
+
+    const amount = parseFloat(asset.amount) || 0;
+    const mult = parseFloat(asset.multiplier) || 1;
+    const costBasisUsd = avgCostUsd * Math.abs(amount) * mult;
+    const currentPriceUsd = price && price > 0 ? price : avgCostUsd;
+    const marketValueUsd = currentPriceUsd * amount * mult;
+    const unrealizedPnlUsd = (currentPriceUsd - avgCostUsd) * amount * mult;
+
+    const patch = {
+      type: secType,
+      current_price: String(currentPriceUsd),
+      avg_cost: String(avgCostUsd),
+      cost_basis_money: String(costBasisUsd),
+      value: String(marketValueUsd),
+      unrealized_pnl: String(unrealizedPnlUsd),
+      currency: 'USD',
+      original_currency: rawCurrency,
+      original_avg_cost: String(rawAvgCost),
+    };
+
+    await setUserAsset(userId, asset.id, patch);
+    logger.info(`[Private] MANUAL ${asset.id} (${asset.symbol}) updated → price=${currentPriceUsd} avgCost=${avgCostUsd}`);
   }
 
   // Portfolio history snapshot

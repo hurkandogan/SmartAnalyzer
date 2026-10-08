@@ -35,16 +35,24 @@ export async function getAssetsAction(userId: string): Promise<Asset[]> {
       const type = data.type || (data.secType === 'OPT' ? 'OPTION' : 'STOCK');
 
       const rawAvgCost = data.avg_cost ?? data.avgCost;
-      const avgCost = parseFloat(rawAvgCost) || 0;
+      let avgCost = parseFloat(rawAvgCost) || 0;
 
-      const currentPrice = parseFloat(data.current_price) || 0;
-      let unrealizedPnl = parseFloat(data.unrealized_pnl) || 0;
+      let currentPrice = parseFloat(data.current_price) || 0;
 
-      // Manuel varlıkların PnL'si DB'de güncel olmayabilir, anlık hesaplıyoruz.
-      if (data.source !== 'IBKR') {
-        unrealizedPnl = (currentPrice - avgCost) * amount * multiplier;
+      // Rate conversion if asset is still marked in local currency
+      let rate = 1.0;
+      if (currency !== 'USD') {
+        const match = rates.find((r) => r.from === currency && r.to === 'USD');
+        if (match && match.rate > 0) {
+          rate = match.rate;
+        }
+        avgCost = avgCost * rate;
+        if (data.source !== 'IBKR') {
+          currentPrice = currentPrice * rate;
+        }
       }
 
+      let unrealizedPnl = (currentPrice - avgCost) * amount * multiplier;
       const marketValue = amount * currentPrice * multiplier;
 
       return {

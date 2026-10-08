@@ -362,8 +362,8 @@ async def get_price(symbol: str, currency: str = "USD", exchange: str = "SMART",
     except Exception as e:
         logger.warning(f"Failed to get price from IBKR for {symbol}: {e}")
         
-    # 3. Fallback to Yahoo (Usually only for STK, ETF, CASH or CMDTY)
-    if not price_data and sec_type in ["STK", "ETF", "CASH", "CMDTY"]:
+    # 3. Fallback to Yahoo (Usually only for STK, ETF, CASH, CMDTY or CRYPTO)
+    if not price_data and sec_type in ["STK", "ETF", "CASH", "CMDTY", "CRYPTO"]:
         try:
             # Format symbols for Yahoo Finance
             if sec_type == "CASH":
@@ -372,6 +372,8 @@ async def get_price(symbol: str, currency: str = "USD", exchange: str = "SMART",
                 if symbol == "XAG": yahoo_symbol = "SI=F"
                 elif symbol == "XAU": yahoo_symbol = "GC=F"
                 else: yahoo_symbol = symbol
+            elif sec_type == "CRYPTO":
+                yahoo_symbol = f"{symbol}-{currency}"
             else:
                 yahoo_symbol = symbol
                 
