@@ -218,8 +218,12 @@ export default function PositionsPage() {
 
   const enrichedAssets = assets.map(asset => {
     const mult = asset.multiplier || 1;
-    const computedPnl = (asset.current_price - asset.avg_cost) * asset.amount * mult;
-    const computedValue = asset.current_price * asset.amount * mult;
+    const computedPnl = asset.unrealized_pnl !== undefined
+      ? asset.unrealized_pnl
+      : (asset.current_price - asset.avg_cost) * asset.amount * mult;
+    const computedValue = asset.market_value !== undefined
+      ? asset.market_value
+      : asset.current_price * asset.amount * mult;
     return {
       ...asset,
       unrealized_pnl: computedPnl,

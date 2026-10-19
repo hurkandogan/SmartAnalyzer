@@ -51,20 +51,22 @@ async function fetchEnrich(symbol, currency = 'USD', exchange = 'SMART', secType
  * Fetch price from Python service
  */
 async function fetchPrice(symbol, currency = 'USD', exchange = 'SMART', secType = 'STK', conId = 0, currencies = {}) {
-  const cacheKey = `${symbol}_${secType}`;
+  const cacheKey = conId ? `${symbol}_${secType}_${conId}` : `${symbol}_${secType}`;
   if (priceCache.has(cacheKey)) {
     return priceCache.get(cacheKey);
   }
 
   const result = await pythonClient.getPrice(symbol, currency, exchange, secType, conId);
-  if (result && result.price > 0) {
+  if (result && result.price !== null && result.price !== undefined && result.price >= 0) {
     let price = result.price;
     // Convert to USD
     if (currency !== 'USD' && currencies[currency]) {
       price = price * currencies[currency];
     }
-    priceCache.set(cacheKey, price);
-    return price;
+    if (price > 0 || secType === 'OPT') {
+      priceCache.set(cacheKey, price);
+      return price;
+    }
   }
   return null;
 }
@@ -133,7 +135,7 @@ async function syncPrivateUser(currencies) {
   if (ibkrConnected && ibkr.positions !== null && ibkr.cash !== null) {
     for (const pos of ibkrPositions) {
       const { contract, position: qty, avgCost } = pos;
-      if (!contract) continue;
+      if (!contract || !qty || Number(qty) === 0) continue;
 
       const isOption = contract.secType === 'OPT';
       const localSymbol = (contract.symbol || '').replace(/\s+/g, '');
@@ -153,28 +155,34 @@ async function syncPrivateUser(currencies) {
       const costBasisUsd = perShareAvgCostUsd * Math.abs(qty) * multiplierNum;
       const existing = firebaseMap.get(id);
 
-      // Fetch from IBKR portfolio directly!
-      let price = pos.marketPrice;
-      
-      if (!price || price <= 0) {
-        // fetchPrice already converts to USD and caches it
-        price = await fetchPrice(contract.symbol, contractCurrency, contract.exchange || 'SMART', contract.secType || 'STK', contract.conId || 0, currencies);
-      } else {
-        // Convert raw marketPrice to USD if needed
-        if (price > 0 && contractCurrency !== 'USD') {
-          price = price * rate;
-        }
-        
-        // Cache the USD price for other public users!
-        if (price > 0 && contract.symbol) {
-          const cacheKey = `${contract.symbol}_${contract.secType || 'STK'}`;
-          priceCache.set(cacheKey, price);
-        }
+      // ── Private IBKR Position (Direct Broker Truth) ─────────
+      // We take prices and values DIRECTLY from IBKR Gateway.
+      // We NEVER query priceCache or fetchPrice for your own live IBKR positions!
+      let currentPriceUsd = perShareAvgCostUsd;
+      if (pos.marketPrice !== null && pos.marketPrice !== undefined && !isNaN(pos.marketPrice)) {
+        currentPriceUsd = pos.marketPrice * (contractCurrency !== 'USD' ? rate : 1.0);
       }
-      
-      const currentPriceUsd = price && price > 0 ? price : perShareAvgCostUsd;
-      const marketValueUsd = currentPriceUsd * qty * multiplierNum;
-      const unrealizedPnlUsd = (currentPriceUsd - perShareAvgCostUsd) * qty * multiplierNum;
+
+      // Exact market value and unrealized PnL straight from IBKR broker
+      let marketValueUsd;
+      if (pos.marketValue !== null && pos.marketValue !== undefined && !isNaN(pos.marketValue)) {
+        marketValueUsd = pos.marketValue * (contractCurrency !== 'USD' ? rate : 1.0);
+      } else {
+        marketValueUsd = currentPriceUsd * qty * multiplierNum;
+      }
+
+      let unrealizedPnlUsd;
+      if (pos.unrealizedPNL !== null && pos.unrealizedPNL !== undefined && !isNaN(pos.unrealizedPNL)) {
+        unrealizedPnlUsd = pos.unrealizedPNL * (contractCurrency !== 'USD' ? rate : 1.0);
+      } else {
+        unrealizedPnlUsd = (currentPriceUsd - perShareAvgCostUsd) * qty * multiplierNum;
+      }
+
+      // Populate priceCache ONLY for stocks (STK) so other users (Flex Query) can share live stock prices
+      if (!isOption && contract.symbol && currentPriceUsd > 0) {
+        priceCache.set(`${contract.symbol}_STK`, currentPriceUsd);
+        priceCache.set(contract.symbol, currentPriceUsd);
+      }
 
       if (isOption) {
         openOptionsList.push({
@@ -193,7 +201,10 @@ async function syncPrivateUser(currencies) {
 
       let sector = existing?.sector || null;
       let industry = existing?.industry || null;
-      if (!isOption && (!sector || !industry)) {
+      if (contract.symbol === 'SXRV' || contract.symbol === 'SXRV.DE') {
+        sector = 'Technology';
+        industry = 'Technology ETF';
+      } else if (!isOption && (!sector || !industry || sector === 'Unknown')) {
         const enrichData = await fetchEnrich(contract.symbol, contractCurrency, contract.exchange || 'SMART', contract.secType || 'STK');
         if (enrichData) {
           sector = enrichData.sector;
@@ -213,8 +224,8 @@ async function syncPrivateUser(currencies) {
           original_currency: contractCurrency,
           original_avg_cost: String(rawPerShareAvgCost),
           multiplier: String(contract.multiplier || '1'),
-          ...(sector && !existing.sector ? { sector } : {}),
-          ...(industry && !existing.industry ? { industry } : {}),
+          ...(sector && (!existing.sector || existing.sector === 'Unknown' || sector !== existing.sector) ? { sector } : {}),
+          ...(industry && (!existing.industry || existing.industry === 'Unknown' || industry !== existing.industry) ? { industry } : {}),
         };
         await setUserAsset(userId, id, patch);
         logger.info(`[Private] Patched ${id} → price=${currentPriceUsd} avgCost=${perShareAvgCostUsd} qty=${qty}`);
@@ -263,19 +274,24 @@ async function syncPrivateUser(currencies) {
       buyingPower: cashBalances.BuyingPower || 0,
       excessLiquidity: cashBalances.ExcessLiquidity || 0,
       maintenanceMargin: cashBalances.MaintMarginReq || 0,
-      initialMargin: cashBalances.InitMarginReq || 0
+      initialMargin: cashBalances.InitMarginReq || 0,
+      totalCashValue: cashBalances.TotalCashValue || 0
     };
     await setUserIBKRSummary(userId, summary);
-    logger.info(`[Private] Saved account summary for ${userId}: NetLiq=${summary.netLiquidation}, BuyingPower=${summary.buyingPower}, ExcessLiq=${summary.excessLiquidity}, MaintMargin=${summary.maintenanceMargin}, InitMargin=${summary.initialMargin}`);
+    logger.info(`[Private] Saved account summary for ${userId}: NetLiq=${summary.netLiquidation}, BuyingPower=${summary.buyingPower}, ExcessLiq=${summary.excessLiquidity}, MaintMargin=${summary.maintenanceMargin}, InitMargin=${summary.initialMargin}, TotalCash=${summary.totalCashValue}`);
 
     // Sum up all cash lines to a single USD position
     let totalCashUsd = 0;
-    for (const [currency, balance] of Object.entries(cashBalances)) {
-      if (['NetLiquidation', 'BuyingPower', 'ExcessLiquidity', 'MaintMarginReq', 'InitMarginReq'].includes(currency)) {
-        continue;
+    if (typeof cashBalances.TotalCashValue === 'number' && !isNaN(cashBalances.TotalCashValue)) {
+      totalCashUsd = cashBalances.TotalCashValue;
+    } else {
+      for (const [currency, balance] of Object.entries(cashBalances)) {
+        if (['NetLiquidation', 'BuyingPower', 'ExcessLiquidity', 'MaintMarginReq', 'InitMarginReq', 'TotalCashValue'].includes(currency)) {
+          continue;
+        }
+        const rateToUsd = currencies[currency] || 1.0;
+        totalCashUsd += balance * rateToUsd;
       }
-      const rateToUsd = currencies[currency] || 1.0;
-      totalCashUsd += balance * rateToUsd;
     }
 
     const cashId = `IBKR_USD`;
@@ -288,8 +304,10 @@ async function syncPrivateUser(currencies) {
         amount: String(totalCashUsd),
         cost_basis_money: String(costBasis),
         current_price: '1',
+        value: String(totalCashUsd),
         is_active: true,
       });
+      logger.info(`[Private] Updated IBKR cash asset ${cashId} → ${totalCashUsd.toFixed(2)} USD`);
     } else {
       await setUserAsset(userId, cashId, {
         id: cashId,
@@ -299,6 +317,7 @@ async function syncPrivateUser(currencies) {
         avg_cost: '1',
         current_price: '1',
         cost_basis_money: String(costBasis),
+        value: String(totalCashUsd),
         realized_pnl: '0',
         multiplier: '1',
         currency: 'USD',
@@ -309,6 +328,7 @@ async function syncPrivateUser(currencies) {
         sector: 'Cash',
         is_active: true,
       });
+      logger.info(`[Private] Created IBKR cash asset ${cashId} → ${totalCashUsd.toFixed(2)} USD`);
     }
 
     // Deletes stale IBKR assets
@@ -509,7 +529,7 @@ async function syncFlexUser(userId, flexCreds, currencies) {
     }
 
     if (totalCashUsd !== 0) {
-      const cashId = `FLEX_CASH_USD`;
+      const cashId = `IBKR_USD`;
       seenIds.add(cashId);
       
       await setUserAsset(userId, cashId, {
@@ -523,7 +543,7 @@ async function syncFlexUser(userId, flexCreds, currencies) {
         realized_pnl: '0',
         multiplier: '1',
         currency: 'USD',
-        source: 'FLEX',
+        source: 'IBKR',
         type: 'CASH',
         category_id: 'cash',
         industry: 'Cash',
@@ -547,7 +567,7 @@ async function syncFlexUser(userId, flexCreds, currencies) {
       
       const isOption = assetCategory === 'OPT';
       const localSymbol = symbol.replace(/\s+/g, '');
-      const id = `FLEX_${localSymbol}`;
+      const id = `IBKR_${localSymbol}`;
       seenIds.add(id);
 
       // Flex cost basis is usually total money, but attributes.costBasisPrice is per share.
@@ -584,7 +604,7 @@ async function syncFlexUser(userId, flexCreds, currencies) {
 
       const valueUsd = currentPriceUsd * qty * multiplierNum;
 
-      const existing = existingMap.get(id);
+      const existing = existingMap.get(id) || existingMap.get(`FLEX_${localSymbol}`);
       let sector = existing?.sector || null;
       let industry = existing?.industry || null;
       if (!isOption && (!sector || !industry)) {
@@ -607,7 +627,7 @@ async function syncFlexUser(userId, flexCreds, currencies) {
         value: String(valueUsd),
         realized_pnl: '0',
         multiplier: String(multiplierNum),
-        source: 'FLEX',
+        source: 'IBKR',
         type: isOption ? 'OPTION' : 'ASSET',
         is_active: true,
         strike: isOption ? String(attrs.strike || '0') : null,
@@ -630,19 +650,20 @@ async function syncFlexUser(userId, flexCreds, currencies) {
         });
       }
 
-      if (!existingMap.has(id)) {
-        if (isOption) {
-          newAsset.category_id = 'adventure'; // default options category
-        }
+      if (existing?.category_id) {
+        newAsset.category_id = existing.category_id;
+      } else if (isOption) {
+        newAsset.category_id = 'adventure'; // default options category
       }
 
       await setUserAsset(userId, id, newAsset);
     }
 
-    // Delete stale FLEX assets
+    // Delete stale IBKR or legacy FLEX assets
     for (const asset of existingAssets) {
-      if (asset.source === 'FLEX' && !seenIds.has(asset.id)) {
-        logger.info(`[Flex] Deleting stale FLEX asset: ${asset.id}`);
+      const isBrokerAsset = asset.source === 'IBKR' || asset.source === 'FLEX' || asset.id.startsWith('IBKR_') || asset.id.startsWith('FLEX_');
+      if (isBrokerAsset && !seenIds.has(asset.id)) {
+        logger.info(`[Flex] Deleting stale asset: ${asset.id}`);
         await deleteUserAsset(userId, asset.id);
       }
     }
@@ -843,8 +864,8 @@ async function autoSyncOptionsToTracker(userId, openOptionsList, source) {
           target: `${parsedStrike}$ / ${toDisplayDate(expiryIso)}`,
           note: `Auto-added from ${source}`,
           created_at: Date.now(),
-          current_price: opt.currentPrice || null,
-          iv_rank: opt.iv_rank || null,
+          current_price: opt.currentPrice ?? null,
+          iv_rank: opt.iv_rank ?? null,
           earnings_date: opt.earnings_date || null,
           margin_required: marginRequired,
           aroc: aroc,

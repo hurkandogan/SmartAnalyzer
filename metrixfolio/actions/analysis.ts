@@ -38,6 +38,15 @@ export async function getAnalysisCandidatesAction() {
     snapshot.forEach(doc => {
       const data = doc.data();
       if (data.analysis) {
+        const qulla = data.analysis.qullamaggie;
+        // Strictly filter out any no_setup or non-active setups
+        if (!qulla) return;
+        const status = qulla.status;
+        const score = Number(qulla.score) || 0;
+        if (status === 'no_setup' || (status !== 'candidate' && status !== 'watch') || score <= 0) {
+          return;
+        }
+
         assets.push(
           serializeFirestoreData({
             symbol: doc.id,

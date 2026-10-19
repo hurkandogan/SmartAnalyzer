@@ -5,6 +5,9 @@ from datetime import datetime
 import json
 import traceback
 
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env'))
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.db import SessionLocal
@@ -15,82 +18,117 @@ from sqlalchemy import func
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] fundamentals_job: %(message)s")
 logger = logging.getLogger("fundamentals_job")
 
-def calculate_fund_score(f: Fundamental, cp: CompanyProfile, t: Technical, c: Candle) -> dict:
+def calculate_fund_score(
+    f: Fundamental, 
+    cp: CompanyProfile, 
+    t: Technical, 
+    c: Candle,
+    up_down_vol_ratio: float = 1.0,
+    prev_rev_growth: float = None
+) -> dict:
     """
-    Calculates fundScore (0-100) and wheelFit based purely on DB data.
+    Calculates 100-point Fundamental Score and WheelFit based on DB data:
+    1. Büyüme & İvmelenme (Growth & Acceleration): Max 35 pts
+    2. Kurumsal Para Girişi (Institutional Up/Down Volume): Max 20 pts
+    3. Kârlılık & Nakit Akışı (Profitability & Cash Flow): Max 25 pts
+    4. Bilanço Gücü (Balance Sheet & Solvency): Max 20 pts
+    5. Risk Cezaları (Leverage Penalties): Max -10 pts
     """
-    score = 0
     breakdown = {
-        "growth": 0,       # Max 30
-        "profitability": 0, # Max 25
-        "balance_sheet": 0, # Max 25
-        "size_liquidity": 0,# Max 10
-        "risk_penalty": 0   # Max -10
+        "growth": 0,          # Max 35
+        "accumulation": 0,    # Max 20
+        "profitability": 0,   # Max 25
+        "balance_sheet": 0,   # Max 20
+        "risk_penalty": 0     # Max -10
     }
     
-    # 1. Growth (30)
-    rev_growth = getattr(f, 'revenue_growth_yoy', 0) or 0
-    if rev_growth > 0.20:
-        breakdown["growth"] += 30
-    elif rev_growth > 0.10:
-        breakdown["growth"] += 20
-    elif rev_growth > 0:
-        breakdown["growth"] += 10
-        
-    # 2. Profitability (25)
-    net_margin = getattr(f, 'net_margin', 0) or 0
-    if net_margin > 0.20:
-        breakdown["profitability"] += 15
-    elif net_margin > 0.10:
-        breakdown["profitability"] += 10
-    elif net_margin > 0:
+    # 1. Büyüme & İvmelenme (Max 35 Puan)
+    rev_growth = getattr(f, 'revenue_growth_yoy', None)
+    if rev_growth is not None:
+        if rev_growth >= 0.25:
+            breakdown["growth"] += 25
+        elif rev_growth >= 0.15:
+            breakdown["growth"] += 18
+        elif rev_growth >= 0.05:
+            breakdown["growth"] += 10
+        elif rev_growth > 0:
+            breakdown["growth"] += 5
+            
+        # İvmelenme (Growth Acceleration) - Önceki çeyreğe göre büyüme artışı
+        if prev_rev_growth is not None and rev_growth > prev_rev_growth:
+            breakdown["growth"] += 10
+        elif prev_rev_growth is None and rev_growth >= 0.20:
+            # Önceki veri yoksa ancak mevcut büyüme güçlü (%20+) ise ivme kredisi
+            breakdown["growth"] += 5
+
+    # 2. Kurumsal Para Girişi / Hacim Toplama (Max 20 Puan)
+    # 50 günlük Up/Down Volume Ratio (IBD / O'Neil Institutional Accumulation)
+    if up_down_vol_ratio >= 1.30:
+        breakdown["accumulation"] += 20
+    elif up_down_vol_ratio >= 1.10:
+        breakdown["accumulation"] += 12
+    elif up_down_vol_ratio >= 0.95:
+        breakdown["accumulation"] += 5
+    elif up_down_vol_ratio < 0.85:
+        # Kurumsal satış / Dağıtım baskısı
+        breakdown["accumulation"] -= 5
+
+    # 3. Kârlılık & Nakit Akışı (Max 25 Puan)
+    net_margin = getattr(f, 'net_margin', None)
+    if net_margin is not None:
+        if net_margin >= 0.20:
+            breakdown["profitability"] += 10
+        elif net_margin >= 0.10:
+            breakdown["profitability"] += 7
+        elif net_margin > 0:
+            breakdown["profitability"] += 4
+
+    op_margin = getattr(f, 'operating_margin', None)
+    if op_margin is not None and op_margin >= 0.15:
         breakdown["profitability"] += 5
-        
-    fcf = getattr(f, 'free_cashflow', 0) or 0
-    if fcf > 0:
+
+    fcf = getattr(f, 'free_cashflow', None)
+    if fcf is not None and fcf > 0:
         breakdown["profitability"] += 10
-        
-    # 3. Balance Sheet (25)
-    net_debt = getattr(f, 'net_debt', 0) or 0
-    if net_debt < 0:
-        # More cash than debt
-        breakdown["balance_sheet"] += 15
-    elif net_debt == 0:
+
+    # 4. Bilanço Gücü & Likidite (Max 20 Puan)
+    net_debt = getattr(f, 'net_debt', None)
+    total_cash = getattr(f, 'total_cash', None)
+    total_debt = getattr(f, 'total_debt', None)
+    has_net_cash = False
+    
+    if net_debt is not None:
+        has_net_cash = net_debt < 0
+    elif total_cash is not None and total_debt is not None:
+        has_net_cash = total_cash > total_debt
+
+    if has_net_cash:
         breakdown["balance_sheet"] += 10
     else:
-        # Has net debt, check debt to equity
-        de_ratio = getattr(f, 'debt_to_equity', 100) or 100
-        if de_ratio < 1.0:
+        de_ratio = getattr(f, 'debt_to_equity', None)
+        if de_ratio is not None and de_ratio < 1.0:
             breakdown["balance_sheet"] += 5
-            
-    current_ratio = getattr(f, 'current_ratio', 0) or 0
-    if current_ratio > 1.5:
-        breakdown["balance_sheet"] += 10
-    elif current_ratio > 1.0:
-        breakdown["balance_sheet"] += 5
-        
-    # 4. Size & Liquidity (10)
-    market_cap = getattr(f, 'market_cap', 0) or 0
-    if market_cap > 10_000_000_000: # > $10B Large cap
-        breakdown["size_liquidity"] += 10
-    elif market_cap > 2_000_000_000: # > $2B Mid cap
-        breakdown["size_liquidity"] += 5
-        
-    # 5. Risk Penalty (-10)
-    # High leverage penalty
-    if net_debt > 0:
-        ebitda = getattr(f, 'ebitda', 1) or 1
-        if ebitda > 0:
-            net_debt_to_ebitda = net_debt / ebitda
-            if net_debt_to_ebitda > 4.0:
+
+    current_ratio = getattr(f, 'current_ratio', None)
+    if current_ratio is not None:
+        if current_ratio >= 1.5:
+            breakdown["balance_sheet"] += 10
+        elif current_ratio >= 1.0:
+            breakdown["balance_sheet"] += 5
+
+    # 5. Risk Cezaları (Max -10 Puan)
+    if net_debt is not None and net_debt > 0:
+        ebitda = getattr(f, 'ebitda', None)
+        if ebitda is not None:
+            if ebitda <= 0:
                 breakdown["risk_penalty"] -= 10
-        else:
-            breakdown["risk_penalty"] -= 10 # High debt, negative ebitda
-            
-    total_score = sum(breakdown.values())
-    total_score = max(0, min(100, total_score))
+            elif (net_debt / ebitda) > 4.0:
+                breakdown["risk_penalty"] -= 10
+
+    raw_score = sum(breakdown.values())
+    total_score = max(0, min(100, raw_score))
     
-    # WheelFit Logic (pass / warn / fail)
+    # WheelFit Mantığı (pass / warn / fail)
     wheel_fit = "pass"
     avg_vol = getattr(t, 'avg_volume', 0) or 0
     price = getattr(c, 'close', 0) or 0
@@ -98,10 +136,12 @@ def calculate_fund_score(f: Fundamental, cp: CompanyProfile, t: Technical, c: Ca
     
     if dollar_vol < 10_000_000 or price < 5:
         wheel_fit = "fail"
-    elif net_debt > 0 and (getattr(f, 'ebitda', 0) or 0) <= 0:
+    elif net_debt is not None and net_debt > 0 and (getattr(f, 'ebitda', 0) or 0) <= 0:
         wheel_fit = "warn"
     elif (getattr(f, 'debt_to_equity', 0) or 0) > 3.0:
         wheel_fit = "warn"
+    
+    market_cap = getattr(f, 'market_cap', 0) or 0
     
     return {
         "score": total_score,
@@ -113,8 +153,12 @@ def calculate_fund_score(f: Fundamental, cp: CompanyProfile, t: Technical, c: Ca
         "pe_ratio": getattr(f, 'pe', None),
         "peg_ratio": getattr(f, 'peg', None),
         "revenue_growth": rev_growth,
+        "prev_rev_growth": prev_rev_growth,
+        "is_accelerating": (prev_rev_growth is not None and rev_growth is not None and rev_growth > prev_rev_growth),
         "net_margin": net_margin,
-        "has_net_cash": net_debt < 0,
+        "operating_margin": op_margin,
+        "has_net_cash": has_net_cash,
+        "up_down_vol_ratio": up_down_vol_ratio,
         "dollar_vol": dollar_vol
     }
 
@@ -142,13 +186,42 @@ def main():
             
             cp = db.query(CompanyProfile).filter(CompanyProfile.symbol == symbol).first()
             tech = db.query(Technical).filter(Technical.symbol == symbol).order_by(Technical.date.desc()).first()
-            candle = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.date.desc()).first()
             
-            if not candle or not tech:
+            # Fetch last 51 candles to compute Up/Down Volume Ratio (last 50 sessions)
+            candles = db.query(Candle).filter(Candle.symbol == symbol).order_by(Candle.date.desc()).limit(51).all()
+            if not candles or not tech:
                 continue
                 
+            candle = candles[0]
+            
+            # Calculate 50-day Up/Down Volume Ratio
+            up_down_ratio = 1.0
+            if len(candles) > 1:
+                up_vol = sum(c.volume for i, c in enumerate(candles[:-1]) if c.close and candles[i+1].close and c.close > candles[i+1].close)
+                down_vol = sum(c.volume for i, c in enumerate(candles[:-1]) if c.close and candles[i+1].close and c.close < candles[i+1].close)
+                up_down_ratio = round(up_vol / (down_vol or 1.0), 2)
+                
+            # Check historical revenue growth for acceleration detection (older by >= 60 days)
+            prev_rev_growth = None
+            if fund.date:
+                from datetime import timedelta
+                prev_fund = db.query(Fundamental.revenue_growth_yoy).filter(
+                    Fundamental.symbol == symbol,
+                    Fundamental.date <= fund.date - timedelta(days=60),
+                    Fundamental.revenue_growth_yoy != None
+                ).order_by(Fundamental.date.desc()).first()
+                if prev_fund:
+                    prev_rev_growth = prev_fund[0]
+            
             try:
-                analysis = calculate_fund_score(fund, cp, tech, candle)
+                analysis = calculate_fund_score(
+                    f=fund, 
+                    cp=cp, 
+                    t=tech, 
+                    c=candle,
+                    up_down_vol_ratio=up_down_ratio,
+                    prev_rev_growth=prev_rev_growth
+                )
                 
                 session_date = trading_today()
                 existing = db.query(AnalysisScore).filter(

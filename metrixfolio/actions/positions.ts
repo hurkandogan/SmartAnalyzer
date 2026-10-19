@@ -53,7 +53,16 @@ export async function getAssetsAction(userId: string): Promise<Asset[]> {
       }
 
       let unrealizedPnl = (currentPrice - avgCost) * amount * multiplier;
-      const marketValue = amount * currentPrice * multiplier;
+      let marketValue = amount * currentPrice * multiplier;
+
+      if (data.source === 'IBKR') {
+        if (data.value !== undefined && data.value !== null && !isNaN(parseFloat(data.value))) {
+          marketValue = parseFloat(data.value);
+        }
+        if (data.unrealized_pnl !== undefined && data.unrealized_pnl !== null && !isNaN(parseFloat(data.unrealized_pnl))) {
+          unrealizedPnl = parseFloat(data.unrealized_pnl);
+        }
+      }
 
       return {
         id: doc.id,
@@ -140,27 +149,48 @@ export async function updateAssetAction(
       .collection(CollectionType.ASSETS)
       .doc(assetId);
 
+    const existingSnap = await assetRef.get();
+    const existingData = existingSnap.exists ? existingSnap.data() : null;
+    const isIbkr = existingData?.source === 'IBKR' || assetId.startsWith('IBKR_');
+
     const updateData: any = {};
-    if (data.symbol !== undefined) updateData.symbol = data.symbol.toUpperCase();
-    if (data.name !== undefined) updateData.name = data.name;
-    
-    // Ensure we don't save "NaN" to the database
-    if (data.amount !== undefined && !isNaN(data.amount)) {
-      updateData.amount = data.amount.toString();
-    }
-    
-    if (data.avg_cost !== undefined && !isNaN(data.avg_cost)) {
-      updateData.avg_cost = data.avg_cost.toString();
-      // For manual assets, sync cost to price unless updated otherwise
-      updateData.current_price = data.avg_cost.toString(); 
-      
+
+    if (isIbkr) {
+      // For IBKR-synced positions, broker is the source of truth for price/qty/cost.
+      // Only allow updating category_id and custom name.
+      if (data.category_id !== undefined) updateData.category_id = data.category_id;
+      if (data.name !== undefined) updateData.name = data.name;
+    } else {
+      if (data.symbol !== undefined) updateData.symbol = data.symbol.toUpperCase();
+      if (data.name !== undefined) updateData.name = data.name;
+
+      const mult = parseFloat(existingData?.multiplier || '1') || 1;
+      const finalAmount =
+        data.amount !== undefined && !isNaN(data.amount)
+          ? data.amount
+          : parseFloat(existingData?.amount || '0') || 0;
+      const finalAvgCost =
+        data.avg_cost !== undefined && !isNaN(data.avg_cost)
+          ? data.avg_cost
+          : parseFloat(existingData?.avg_cost || '0') || 0;
+
       if (data.amount !== undefined && !isNaN(data.amount)) {
-        updateData.cost_basis_money = (data.amount * data.avg_cost).toString();
+        updateData.amount = data.amount.toString();
       }
+
+      if (data.avg_cost !== undefined && !isNaN(data.avg_cost)) {
+        updateData.avg_cost = data.avg_cost.toString();
+        // Only initialize current_price if the manual asset has no price yet
+        if (existingData?.current_price === undefined || existingData?.current_price === null) {
+          updateData.current_price = data.avg_cost.toString();
+        }
+      }
+
+      updateData.cost_basis_money = (finalAmount * finalAvgCost * mult).toString();
+
+      if (data.currency !== undefined) updateData.currency = data.currency;
+      if (data.category_id !== undefined) updateData.category_id = data.category_id;
     }
-    
-    if (data.currency !== undefined) updateData.currency = data.currency;
-    if (data.category_id !== undefined) updateData.category_id = data.category_id;
 
     updateData.updated_at = Math.floor(Date.now() / 1000);
 

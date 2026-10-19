@@ -47,6 +47,16 @@ export const AccountSummaryWidget: React.FC<AccountSummaryWidgetProps> = ({
 
   return (
     <div className="stats stats-vertical lg:stats-horizontal bg-base-100/50 backdrop-blur-md w-full shadow mt-4">
+      <div className="stat py-3 px-4 bg-primary/5 border-b lg:border-b-0 lg:border-r border-base-content/10 lg:w-40 shrink-0 flex flex-col justify-center">
+        <div className="stat-title text-xs font-bold text-primary flex items-center gap-1.5">
+          <span className="badge badge-primary badge-sm font-black tracking-wider uppercase">IBKR</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-primary opacity-80">Live</span>
+        </div>
+        <div className="stat-value text-base lg:text-lg font-bold text-base-content mt-0.5">
+          Broker Data
+        </div>
+      </div>
+
       <div className="stat py-3 px-4">
         <div className="stat-title text-xs opacity-70">Net Liquidation</div>
         <div className="stat-value text-xl lg:text-2xl font-bold">{formatCurrency(netLiq)}</div>

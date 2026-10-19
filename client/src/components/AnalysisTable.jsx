@@ -26,6 +26,9 @@ export default function AnalysisTable() {
 
   const filteredData = data.filter(item => {
     if (item.analysis_type !== activeTab) return false;
+    if (activeTab === 'qullamaggie' && (item.status === 'no_setup' || (item.status !== 'candidate' && item.status !== 'watch') || Number(item.score) <= 0)) {
+      return false;
+    }
     if (searchQuery && !item.symbol.toLowerCase().includes(searchQuery.toLowerCase())) {
       return false;
     }

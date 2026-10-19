@@ -50,13 +50,25 @@ export async function getIBKRConfigAction(userId: string): Promise<IBKRConfig | 
 export async function getIBKRSummaryAction(userId: string) {
   if (!userId) return null;
   try {
-    const doc = await adminDb
+    let doc = await adminDb
       .collection(CollectionType.USERS)
       .doc(userId)
       .collection(CollectionType.CONFIG)
       .doc('ibkr_summary')
       .get();
       
+    if (!doc.exists) {
+      const fallbackDoc = await adminDb
+        .collection(CollectionType.USERS)
+        .doc(userId)
+        .collection('config')
+        .doc('ibkr_summary')
+        .get();
+      if (fallbackDoc.exists) {
+        doc = fallbackDoc;
+      }
+    }
+
     if (!doc.exists) return null;
     const data = doc.data();
     if (!data) return null;
@@ -67,6 +79,7 @@ export async function getIBKRSummaryAction(userId: string) {
       excessLiquidity: data.excessLiquidity || 0,
       maintenanceMargin: data.maintenanceMargin || 0,
       initialMargin: data.initialMargin || 0,
+      totalCashValue: data.totalCashValue || 0,
       updated_at: data.updated_at ? data.updated_at.toMillis() : null,
     };
   } catch (err) {
@@ -213,13 +226,19 @@ async function syncPositionsToFirestore(
     }
 
     const enrichData = ('symbol' in pos) ? enrichmentMap.get(pos.symbol) : undefined;
+    let posSector = enrichData?.sector;
+    let posIndustry = enrichData?.industry;
+    if (('symbol' in pos) && (pos.symbol === 'SXRV' || pos.id?.includes('SXRV'))) {
+      posSector = 'Technology';
+      posIndustry = 'Technology ETF';
+    }
 
     batch.set(ref, {
       ...pos,
       category_id: preservedCategory,
       updated_at: updatedAt,
-      ...(enrichData?.sector ? { sector: enrichData.sector } : {}),
-      ...(enrichData?.industry ? { industry: enrichData.industry } : {}),
+      ...(posSector ? { sector: posSector } : {}),
+      ...(posIndustry ? { industry: posIndustry } : {}),
     }, { merge: true });
   };
 

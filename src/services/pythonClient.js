@@ -110,11 +110,18 @@ class PythonClientService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol })
       });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      if (!res.ok) {
+        let errorDetail = `HTTP error ${res.status}`;
+        try {
+          const errData = await res.json();
+          if (errData?.detail) errorDetail += `: ${errData.detail}`;
+        } catch (_) {}
+        throw new Error(errorDetail);
+      }
       return await res.json();
     } catch (err) {
       logger.error(`[PythonClient] Failed to mine ticker ${symbol}: ${err.message}`);
-      return null;
+      return { status: 'error', messages: [err.message] };
     }
   }
 

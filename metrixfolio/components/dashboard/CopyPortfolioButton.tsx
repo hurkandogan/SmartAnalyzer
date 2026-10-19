@@ -3,12 +3,22 @@
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { FiCopy, FiCheck } from 'react-icons/fi';
+import useSWR from 'swr';
 import { usePortfolio } from '@/hooks/usePortfolio';
+import { useAuth } from '@/context/AuthProvider';
+import { getIBKRSummaryAction } from '@/actions/ibkr';
 
 export const CopyPortfolioButton = () => {
   const currentPathName = usePathname();
+  const { user } = useAuth();
   const { portfolio, assets, isLoading } = usePortfolio();
   const [copied, setCopied] = useState(false);
+
+  const { data: ibkrSummary } = useSWR(
+    user ? ['ibkr-summary', user.uid] : null,
+    ([, userId]) => getIBKRSummaryAction(userId),
+    { refreshInterval: 60000 }
+  );
 
   // Show only on dashboard page as requested
   if (currentPathName !== '/') {
@@ -23,6 +33,16 @@ export const CopyPortfolioButton = () => {
       if (val === undefined || val === null || isNaN(val)) return 0;
       return Math.round(val * 100) / 100;
     };
+
+    // Ensure we have the latest IBKR broker summary
+    let currentSummary = ibkrSummary;
+    if (!currentSummary && user) {
+      try {
+        currentSummary = await getIBKRSummaryAction(user.uid);
+      } catch (e) {
+        console.warn('Failed to fetch IBKR summary on copy:', e);
+      }
+    }
 
     // Category mapping
     const categoryMap = new Map<string, any>();
@@ -88,6 +108,8 @@ export const CopyPortfolioButton = () => {
         market_value: round(marketVal),
         unrealized_pnl: round(unrealizedPnl),
         pnl_percentage: round(pnlPct),
+        sector: (asset.symbol === 'SXRV' || asset.id?.includes('SXRV')) ? 'Technology' : (asset.sector || null),
+        industry: (asset.symbol === 'SXRV' || asset.id?.includes('SXRV')) ? 'Technology ETF' : (asset.industry || null),
         currency: asset.currency || 'USD',
       };
 
@@ -103,9 +125,28 @@ export const CopyPortfolioButton = () => {
       categoryMap.get(catId).assets.push(assetItem);
     });
 
+    const ibkrAccountData = currentSummary && (currentSummary.netLiquidation > 0 || currentSummary.buyingPower > 0) ? {
+      net_liquidation: round(currentSummary.netLiquidation),
+      excess_liquidity: round(currentSummary.excessLiquidity),
+      maintenance_margin: round(currentSummary.maintenanceMargin),
+      initial_margin: round(currentSummary.initialMargin),
+      buying_power: round(currentSummary.buyingPower),
+      ...(currentSummary.totalCashValue ? { total_cash: round(currentSummary.totalCashValue) } : {}),
+      currency: 'USD',
+      updated_at: currentSummary.updated_at ? new Date(currentSummary.updated_at).toISOString() : null,
+    } : null;
+
     const payload = {
+      ibkr_account: ibkrAccountData,
       portfolio_summary: {
         net_liquidation: round(portfolio.total_value),
+        ...(ibkrAccountData ? {
+          ibkr_net_liquidation: ibkrAccountData.net_liquidation,
+          ibkr_excess_liquidity: ibkrAccountData.excess_liquidity,
+          ibkr_maintenance_margin: ibkrAccountData.maintenance_margin,
+          ibkr_initial_margin: ibkrAccountData.initial_margin,
+          ibkr_buying_power: ibkrAccountData.buying_power,
+        } : {}),
         invested_capital: round(portfolio.total_cost),
         total_pnl: round(portfolio.total_pnl),
         pnl_percentage: round(portfolio.pnl_percentage),

@@ -155,11 +155,11 @@ class IBKRService:
             values = self.ib.accountValues()
             for val in values:
                 try:
-                    if val.tag in ["NetLiquidation", "BuyingPower", "ExcessLiquidity", "MaintMarginReq", "InitMarginReq"]:
+                    if val.tag in ["NetLiquidation", "BuyingPower", "ExcessLiquidity", "MaintMarginReq", "InitMarginReq", "TotalCashValue"]:
                         if val.currency == "BASE" or val.currency == "USD":
                             balances[val.tag] = float(val.value)
-                    elif val.tag == "CashBalance":
-                        if val.currency != "BASE":
+                    elif val.tag in ["CashBalance", "$LEDGER-CashBalance", "$LEDGER-TotalCashBalance"]:
+                        if val.currency and val.currency != "BASE":
                             balances[val.currency] = float(val.value)
                 except ValueError:
                     pass

@@ -148,7 +148,9 @@ async def get_portfolio(db: Session = Depends(get_db)):
                 if contract and contract.get("symbol"):
                     unique_symbols.add(contract["symbol"])
             
-            async def fetch_symbol_metrics(sym):
+            # 1. Calculate IV ranks from DB sequentially to prevent concurrent session corruption
+            iv_ranks = {}
+            for sym in unique_symbols:
                 try:
                     curr_iv = None
                     for pos in ibkr_positions:
@@ -188,26 +190,30 @@ async def get_portfolio(db: Session = Depends(get_db)):
                             iv_rank = round(((curr_iv - min_iv) / (max_iv - min_iv)) * 100, 1)
                         else:
                             iv_rank = 50.0
-                    
-                    import asyncio
-                    earnings_date = await asyncio.to_thread(yahoo_service.get_earnings_date, sym)
-                    return sym, {"iv_rank": iv_rank, "earnings_date": earnings_date}
+                    iv_ranks[sym] = iv_rank
                 except Exception as ex:
-                    logger.error(f"Error calculating metrics for {sym}: {ex}")
-                    return sym, {"iv_rank": None, "earnings_date": None}
+                    logger.error(f"Error calculating IV rank for {sym}: {ex}")
+                    iv_ranks[sym] = None
             
+            # 2. Fetch earnings dates concurrently via Yahoo threadpool without holding DB locks
             import asyncio
-            tasks = [fetch_symbol_metrics(sym) for sym in unique_symbols]
-            results = await asyncio.gather(*tasks)
-            symbol_metrics = dict(results)
+            async def fetch_earnings(sym):
+                try:
+                    ed = await asyncio.to_thread(yahoo_service.get_earnings_date, sym)
+                    return sym, ed
+                except Exception as ex:
+                    logger.error(f"Error fetching earnings date for {sym}: {ex}")
+                    return sym, None
+
+            tasks = [fetch_earnings(sym) for sym in unique_symbols]
+            earnings_results = dict(await asyncio.gather(*tasks))
             
             for pos in ibkr_positions:
                 contract = pos.get("contract")
                 if contract and contract.get("symbol"):
                     sym = contract["symbol"]
-                    metrics = symbol_metrics.get(sym, {})
-                    pos["iv_rank"] = metrics.get("iv_rank")
-                    pos["earnings_date"] = metrics.get("earnings_date")
+                    pos["iv_rank"] = iv_ranks.get(sym)
+                    pos["earnings_date"] = earnings_results.get(sym)
     except Exception as e:
         logger.error(f"Error fetching IBKR portfolio: {e}")
         ibkr_positions = None
@@ -245,6 +251,8 @@ async def enrich_symbols(req: EnrichRequest):
     ETF_MAPPING = {
         "SEMI": {"sector": "Technology", "industry": "Semiconductors"},
         "SEMI.AS": {"sector": "Technology", "industry": "Semiconductors"},
+        "SXRV": {"sector": "Technology", "industry": "Technology ETF"},
+        "SXRV.DE": {"sector": "Technology", "industry": "Technology ETF"},
         "SXR8": {"sector": "ETF", "industry": "Broad Market"},
         "SXR8.DE": {"sector": "ETF", "industry": "Broad Market"},
         "QQQ": {"sector": "Technology", "industry": "Broad Market"},
@@ -616,6 +624,7 @@ async def mine_ticker(request: MineTickerRequest, db: Session = Depends(get_db))
         logger.info(f"Data miner sync completed successfully for {request.symbol}")
         return result
     except Exception as e:
+        db.rollback()
         logger.error(f"Failed to mine ticker {request.symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -40,7 +40,10 @@ export async function runDataMiner() {
           await dbLogger(source, 'info', `✓ Mined and saved to local DB for ${symbol}`);
         } else {
           errorCount++;
-          await dbLogger(source, 'error', `Failed to mine ${symbol}`, result?.messages || 'Unknown error');
+          const reason = result?.messages
+            ? (Array.isArray(result.messages) ? result.messages.join('; ') : String(result.messages))
+            : 'Unknown error';
+          await dbLogger(source, 'error', `Failed to mine ${symbol}: ${reason}`, reason);
         }
       } catch (err) {
         errorCount++;

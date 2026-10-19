@@ -21,6 +21,15 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
 
       if (!qullamaggie && !fundamentals) return false;
 
+      // Disqualify if qullamaggie is no_setup, not in candidate/watch, or score <= 0
+      if (qullamaggie) {
+        const qScore = Number(qullamaggie.score) || 0;
+        const qStatus = qullamaggie.status;
+        if (qStatus === 'no_setup' || (qStatus !== 'candidate' && qStatus !== 'watch') || qScore <= 0) {
+          return false;
+        }
+      }
+
       // 1. Search Query Filter
       if (searchQuery.trim()) {
         const query = searchQuery.trim().toLowerCase();
@@ -102,11 +111,11 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
 
   // Quick stats
   const candidateCount = useMemo(() => {
-    return initialAssets.filter(a => a.analysis?.qullamaggie?.status === 'candidate').length;
+    return initialAssets.filter(a => a.analysis?.qullamaggie?.status === 'candidate' && (Number(a.analysis?.qullamaggie?.score) || 0) > 0).length;
   }, [initialAssets]);
 
   const watchCount = useMemo(() => {
-    return initialAssets.filter(a => a.analysis?.qullamaggie?.status === 'watch').length;
+    return initialAssets.filter(a => a.analysis?.qullamaggie?.status === 'watch' && (Number(a.analysis?.qullamaggie?.score) || 0) > 0).length;
   }, [initialAssets]);
 
   return (
@@ -377,6 +386,9 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
                   if (wheelFit === 'warn') wheelBadge = 'badge-outline badge-warning text-warning';
                   if (wheelFit === 'fail') wheelBadge = 'badge-outline badge-error text-error';
 
+                  const upDownRatio = Number(reasons.up_down_vol_ratio) || 1.0;
+                  const isAccelerating = reasons.is_accelerating;
+
                   return (
                     <div className="card border border-info/20 shadow-info/5 bg-info/5 min-w-[300px] flex-1">
                       <div className="card-body p-4">
@@ -387,7 +399,29 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
                           </div>
                         </div>
 
-                        <div className="space-y-2 mb-4 text-xs">
+                        {/* Breakdown Quick Pills */}
+                        {reasons.breakdown && (
+                          <div className="grid grid-cols-4 gap-1 mb-3 text-center">
+                            <div className="bg-base-100/70 rounded p-1" title="Büyüme & İvme (Max 35)">
+                              <div className="text-[8px] uppercase font-bold opacity-60">Büyüme</div>
+                              <div className="font-mono text-xs font-bold text-info">{reasons.breakdown.growth || 0}</div>
+                            </div>
+                            <div className="bg-base-100/70 rounded p-1" title="Kurumsal Para Girişi (Max 20)">
+                              <div className="text-[8px] uppercase font-bold opacity-60">Kurumsal</div>
+                              <div className="font-mono text-xs font-bold text-info">{reasons.breakdown.accumulation || 0}</div>
+                            </div>
+                            <div className="bg-base-100/70 rounded p-1" title="Kârlılık & FCF (Max 25)">
+                              <div className="text-[8px] uppercase font-bold opacity-60">Kâr/FCF</div>
+                              <div className="font-mono text-xs font-bold text-info">{reasons.breakdown.profitability || 0}</div>
+                            </div>
+                            <div className="bg-base-100/70 rounded p-1" title="Bilanço Gücü (Max 20)">
+                              <div className="text-[8px] uppercase font-bold opacity-60">Bilanço</div>
+                              <div className="font-mono text-xs font-bold text-info">{reasons.breakdown.balance_sheet || 0}</div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="space-y-1.5 mb-4 text-xs">
                           <div className="flex justify-between">
                             <span className="opacity-60">Sector / Size</span>
                             <span className="font-semibold text-right">{reasons.sector || 'N/A'} <br/><span className="opacity-70">{reasons.market_cap_bucket || ''}</span></span>
@@ -404,15 +438,30 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
                           </div>
                           <div className="flex justify-between">
                             <span className="opacity-60">Rev Growth (YoY)</span>
-                            <span className="font-mono">{(reasons.revenue_growth * 100)?.toFixed(1)}%</span>
+                            <span className="font-mono flex items-center gap-1">
+                              {reasons.revenue_growth !== null && reasons.revenue_growth !== undefined ? `${(reasons.revenue_growth * 100).toFixed(1)}%` : 'N/A'}
+                              {isAccelerating && (
+                                <span className="badge badge-success badge-xs font-bold text-[9px] px-1 py-0" title="Büyüme bir önceki çeyreğe göre hızlandı! (Acceleration)">🚀 İvme</span>
+                              )}
+                            </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="opacity-60">Net Margin</span>
-                            <span className="font-mono">{(reasons.net_margin * 100)?.toFixed(1)}%</span>
+                            <span className="opacity-60">Up/Down Vol (50D)</span>
+                            <span className={`font-mono font-semibold ${upDownRatio >= 1.3 ? 'text-success' : upDownRatio < 0.85 ? 'text-error' : ''}`}>
+                              {upDownRatio.toFixed(2)} {upDownRatio >= 1.3 ? '🔥 Toplama' : upDownRatio < 0.85 ? '⚠️ Dağıtım' : ''}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="opacity-60">Net / Op Margin</span>
+                            <span className="font-mono">
+                              {reasons.net_margin !== null && reasons.net_margin !== undefined ? `${(reasons.net_margin * 100).toFixed(1)}%` : '-'}
+                              {' | '}
+                              {reasons.operating_margin !== null && reasons.operating_margin !== undefined ? `${(reasons.operating_margin * 100).toFixed(1)}%` : '-'}
+                            </span>
                           </div>
                           <div className="flex justify-between">
                             <span className="opacity-60">Net Cash Position</span>
-                            <span className="font-semibold">{reasons.has_net_cash ? '✅ Positive' : '❌ Debt'}</span>
+                            <span className="font-semibold">{reasons.has_net_cash ? '✅ Pozitif' : '❌ Borçlu'}</span>
                           </div>
                         </div>
 

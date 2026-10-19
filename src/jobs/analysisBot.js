@@ -194,22 +194,17 @@ export async function runAnalysisBot() {
           data.fundamentals = fundamentalsMap.get(sym);
         }
         
-        const currentScores = scoresMap.get(sym) || [];
         const latestScores = latestScoresMap.get(sym) || {};
-        data.analysis = {};
-        
-        // Check if ANY score in the last 5 days passed the threshold
-        let anyPassedInLast5Days = false;
-        
-        for (const r of currentScores) {
-            if (r.analysis_type === 'qullamaggie' && (r.status === 'candidate' || r.status === 'watch')) {
-                anyPassedInLast5Days = true;
-                break;
-            }
-        }
-        
-        if (anyPassedInLast5Days) {
+        const latestQulla = latestScores['qullamaggie'];
+
+        // Strict Gate: Only candidate or watch with score > 0 can be synced
+        const isQullaActive = latestQulla && 
+                              (latestQulla.status === 'candidate' || latestQulla.status === 'watch') && 
+                              Number(latestQulla.score) > 0;
+
+        if (isQullaActive) {
             syncedAnalysisCount++;
+            data.analysis = {};
             for (const type of analysisTypes) {
                 if (latestScores[type]) {
                     data.analysis[type] = latestScores[type];
@@ -223,16 +218,16 @@ export async function runAnalysisBot() {
                     }
                 }
             }
+            data.updated_at = new Date();
+            data.analysis_timestamp = new Date(); // Explicitly add this for UI to use easily if needed
+            batch.set(docRef, data, { merge: true });
         } else {
-            // Delete old analyses if it didn't pass in the last 5 days
-            for (const type of analysisTypes) {
-                data.analysis[type] = FieldValue.delete();
-            }
+            // Delete old analyses so no_setup symbols NEVER appear in Firebase or UI
+            batch.set(docRef, {
+                analysis: FieldValue.delete(),
+                updated_at: new Date()
+            }, { merge: true });
         }
-        
-        data.updated_at = new Date();
-        data.analysis_timestamp = new Date(); // Explicitly add this for UI to use easily if needed
-        batch.set(docRef, data, { merge: true });
       }
       
       await batch.commit();

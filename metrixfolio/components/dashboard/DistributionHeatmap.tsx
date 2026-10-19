@@ -42,9 +42,12 @@ export default function DistributionHeatmap({ assets }: DistributionHeatmapProps
     const val = a.amount * a.current_price;
     if (val <= 0) return;
 
-    const rawSector = a.sector || 'Other';
+    let sectorName = a.sector || 'Other';
+    if (a.symbol === 'SXRV' || a.id?.includes('SXRV')) {
+      sectorName = 'Technology';
+    }
 
-    if (rawSector === 'ETF') {
+    if (sectorName === 'ETF') {
       // Split equally among the 11 BASE_SECTORS
       const splitVal = val / BASE_SECTORS.length;
       BASE_SECTORS.forEach(sec => {
@@ -53,8 +56,7 @@ export default function DistributionHeatmap({ assets }: DistributionHeatmapProps
         sData.assets.push({ symbol: `${a.symbol} (ETF Split)`, amount: Number((a.amount / BASE_SECTORS.length).toFixed(2)), value: splitVal });
       });
     } else {
-      let sectorName = rawSector;
-      if (rawSector === 'Unknown') sectorName = 'Other';
+      if (sectorName === 'Unknown') sectorName = 'Other';
 
       if (!sectorsMap.has(sectorName)) {
         sectorsMap.set(sectorName, { name: sectorName, totalValue: 0, weight: 0, assets: [] });
