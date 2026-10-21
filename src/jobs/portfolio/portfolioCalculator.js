@@ -653,6 +653,7 @@ export async function autoSyncOptionsToTracker(userId, openOptionsList, source) 
     const snap = await db.collection('users').doc(userId).collection('options').get();
     const existingTrackerOptions = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     const todayStr = new Date().toISOString().split('T')[0];
+    const cleanUnderlyingSymbol = (s) => (s ? s.trim().split(/\s+/)[0].toUpperCase() : '');
 
     // Pre-normalize legs so we can detect multi-leg strategies (Spreads, Iron Condors, Strangles)
     const normalizedLegs = openOptionsList.map((opt) => {
@@ -676,6 +677,7 @@ export async function autoSyncOptionsToTracker(userId, openOptionsList, source) 
 
       return {
         ...opt,
+        symbol: cleanUnderlyingSymbol(opt.symbol),
         expiryIso,
         parsedStrike,
         absoluteQty,
@@ -727,11 +729,13 @@ export async function autoSyncOptionsToTracker(userId, openOptionsList, source) 
         }
       }
 
+      const optCleanSymbol = opt.symbol;
+
       const foundMatch = existingTrackerOptions.find((o) => {
         const isClosed = !!o.buy_date && !!o.sell_date;
         return (
           !isClosed &&
-          o.symbol === opt.symbol &&
+          cleanUnderlyingSymbol(o.symbol) === optCleanSymbol &&
           parseFloat(o.strike_price) === parsedStrike &&
           o.expiry_date === expiryIso &&
           o.type === optionType
@@ -812,6 +816,9 @@ export async function autoSyncOptionsToTracker(userId, openOptionsList, source) 
         if (foundMatch.quantity !== absoluteQty) {
           patch.quantity = absoluteQty;
         }
+        if (foundMatch.symbol !== optCleanSymbol) {
+          patch.symbol = optCleanSymbol;
+        }
         if (autoGroupId && (!foundMatch.group_id || String(foundMatch.group_id).startsWith('AUTO_'))) {
           patch.group_id = autoGroupId;
           patch.strategy_name = autoStrategyName;
@@ -833,7 +840,7 @@ export async function autoSyncOptionsToTracker(userId, openOptionsList, source) 
 
         const newOptionDoc = {
           id: docRef.id,
-          symbol: opt.symbol,
+          symbol: optCleanSymbol,
           type: optionType,
           quantity: absoluteQty,
           buy_date: isShort ? null : todayStr,

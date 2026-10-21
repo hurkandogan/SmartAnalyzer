@@ -35,6 +35,8 @@ const usdFormatter = new Intl.NumberFormat('en-US', {
 
 const OPTION_CONTRACT_SIZE = 100;
 
+const cleanSymbol = (s?: string) => (s ? s.trim().split(/\s+/)[0].toUpperCase() : '');
+
 const isOptionAssigned = (opt: OptionPosition) =>
   opt.close_type === 'ASSIGNED' || Boolean(opt.is_assigned);
 
@@ -286,7 +288,7 @@ export default function OptionManager() {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const availableSymbols = useMemo(() => {
-    const syms = new Set(options.map((opt) => opt.symbol.toUpperCase()));
+    const syms = new Set(options.map((opt) => cleanSymbol(opt.symbol)).filter(Boolean));
     return Array.from(syms).sort();
   }, [options]);
 
@@ -341,7 +343,7 @@ export default function OptionManager() {
 
     if (selectedSymbol) {
       result = result.filter(
-        (opt) => opt.symbol.toUpperCase() === selectedSymbol.toUpperCase(),
+        (opt) => cleanSymbol(opt.symbol) === cleanSymbol(selectedSymbol),
       );
     }
 
@@ -512,7 +514,7 @@ export default function OptionManager() {
           kind: 'group',
           groupId: opt.group_id,
           strategyName: opt.strategy_name || 'Multi-Leg Spread',
-          symbol: opt.symbol,
+          symbol: cleanSymbol(opt.symbol),
           legs,
           isClosed: allClosed,
           expiry_date: expiryIso,
@@ -620,7 +622,8 @@ export default function OptionManager() {
         qty *
         OPTION_CONTRACT_SIZE;
 
-      symbolMap[opt.symbol] = (symbolMap[opt.symbol] || 0) + signedVal;
+      const sym = cleanSymbol(opt.symbol);
+      symbolMap[sym] = (symbolMap[sym] || 0) + signedVal;
     });
 
     const netLiq = ibkrSummary?.netLiquidation || 0;
@@ -707,7 +710,7 @@ export default function OptionManager() {
     }
 
     const payload: Omit<OptionPosition, 'id' | 'created_at'> = {
-      symbol: formData.symbol.toUpperCase(),
+      symbol: cleanSymbol(formData.symbol),
       type: formData.type,
       quantity: parseFloat(formData.quantity) || 1,
       buy_date: buyDateIso,
@@ -888,7 +891,7 @@ export default function OptionManager() {
               {opt.type}
             </span>
             <div className="flex items-center gap-1.5">
-              <span className="font-bold">{opt.symbol}</span>
+              <span className="font-bold">{cleanSymbol(opt.symbol)}</span>
               {isAssigned && (
                 <span
                   className="badge badge-info badge-xs font-bold text-[9px] py-1"
@@ -901,7 +904,7 @@ export default function OptionManager() {
                 (() => {
                   const netLiq = ibkrSummary?.netLiquidation || 0;
                   if (netLiq > 0 && !isClosed) {
-                    const val = Math.abs(concentrationStats.symbolMap[opt.symbol] || 0);
+                    const val = Math.abs(concentrationStats.symbolMap[cleanSymbol(opt.symbol)] || 0);
                     const pct = (val / netLiq) * 100;
                     if (pct >= 15) {
                       return (
@@ -1724,7 +1727,7 @@ export default function OptionManager() {
                             <span className="text-[10px] font-bold text-primary uppercase tracking-wider flex items-center gap-1">
                               <FiLink size={10} /> {row.strategyName}
                             </span>
-                            <span className="font-bold text-base">{row.symbol}</span>
+                            <span className="font-bold text-base">{cleanSymbol(row.symbol)}</span>
                           </div>
                         </td>
                         <td className="text-right font-mono text-sm">

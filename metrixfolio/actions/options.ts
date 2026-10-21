@@ -6,6 +6,8 @@ import { OptionPosition } from '@/types/options';
 const getCollectionRef = (userId: string) =>
   adminDb.collection('users').doc(userId).collection('options');
 
+const cleanOptionSymbol = (s?: string) => (s ? s.trim().split(/\s+/)[0].toUpperCase() : '');
+
 export async function addOptionAction(
   userId: string,
   data: Omit<OptionPosition, 'id' | 'created_at'>,
@@ -16,6 +18,7 @@ export async function addOptionAction(
     const docRef = getCollectionRef(userId).doc();
     const newOption: OptionPosition = {
       ...data,
+      symbol: cleanOptionSymbol(data.symbol),
       id: docRef.id,
       created_at: Date.now(),
     };
@@ -36,7 +39,13 @@ export async function getOptionsAction(userId: string): Promise<OptionPosition[]
       .orderBy('buy_date', 'desc')
       .get();
 
-    return snapshot.docs.map((doc) => doc.data() as OptionPosition);
+    return snapshot.docs.map((doc) => {
+      const data = doc.data() as OptionPosition;
+      return {
+        ...data,
+        symbol: cleanOptionSymbol(data.symbol),
+      };
+    });
   } catch (error) {
     console.error('Get Options Error:', error);
     return [];
@@ -51,7 +60,11 @@ export async function updateOptionAction(
   if (!userId) return { success: false, message: 'User not authenticated' };
 
   try {
-    await getCollectionRef(userId).doc(optionId).update(data);
+    const patch: any = { ...data };
+    if (patch.symbol) {
+      patch.symbol = cleanOptionSymbol(patch.symbol);
+    }
+    await getCollectionRef(userId).doc(optionId).update(patch);
     return { success: true, message: 'Option updated' };
   } catch (error: any) {
     console.error('Update Option Error:', error);
