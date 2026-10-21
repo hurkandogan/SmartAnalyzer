@@ -30,11 +30,12 @@ export const AccountSummaryWidget: React.FC<AccountSummaryWidgetProps> = ({
   if (!summary || (summary.netLiquidation === 0 && summary.buyingPower === 0)) return null;
 
   const ccy = selectedCurrency;
-  const netLiq = convert(summary.netLiquidation || 0, 'USD', ccy);
-  const excessLiq = convert(summary.excessLiquidity || 0, 'USD', ccy);
-  const maintMargin = convert(summary.maintenanceMargin || 0, 'USD', ccy);
-  const initMargin = convert(summary.initialMargin || 0, 'USD', ccy);
-  const buyingPower = convert(summary.buyingPower || 0, 'USD', ccy);
+  const mc = summary.multi_currency;
+  const netLiq = mc?.netLiquidation?.[ccy] ?? convert(summary.netLiquidation || 0, 'USD', ccy);
+  const excessLiq = mc?.excessLiquidity?.[ccy] ?? convert(summary.excessLiquidity || 0, 'USD', ccy);
+  const maintMargin = mc?.maintenanceMargin?.[ccy] ?? convert(summary.maintenanceMargin || 0, 'USD', ccy);
+  const initMargin = mc?.initialMargin?.[ccy] ?? convert(summary.initialMargin || 0, 'USD', ccy);
+  const buyingPower = mc?.buyingPower?.[ccy] ?? convert(summary.buyingPower || 0, 'USD', ccy);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-US', {

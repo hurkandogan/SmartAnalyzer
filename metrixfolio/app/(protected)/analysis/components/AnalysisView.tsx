@@ -3,6 +3,24 @@
 import React, { useState, useMemo } from 'react';
 import { FiSearch, FiX, FiFilter, FiTrendingUp, FiActivity, FiRotateCcw } from 'react-icons/fi';
 
+function formatHistoryDate(dateStr: string): string {
+  if (!dateStr) return '';
+  try {
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const d = new Date(Date.UTC(year, month, day));
+      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    }
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  } catch (e) {
+    return dateStr;
+  }
+}
+
 interface AnalysisViewProps {
   initialAssets: any[];
 }
@@ -135,7 +153,7 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Hisse sembolü veya sektör ara (örn: PLTR, CRWD, AMD)..."
+              placeholder="Search symbol or sector (e.g. PLTR, CRWD, AMD)..."
               className="input input-bordered w-full pl-10 pr-9 bg-base-100 font-medium text-sm focus:border-primary transition-all rounded-xl"
             />
             {searchQuery && (
@@ -143,7 +161,7 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
                 type="button"
                 onClick={() => setSearchQuery('')}
                 className="absolute inset-y-0 right-0 pr-3 flex items-center text-base-content/40 hover:text-base-content transition-colors"
-                title="Aramayı Temizle"
+                title="Clear search"
               >
                 <FiX className="w-4 h-4" />
               </button>
@@ -153,16 +171,16 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
           {/* Quick Counts & Reset */}
           <div className="flex items-center gap-2 self-end sm:self-center">
             <span className="text-xs font-mono opacity-60">
-              {filteredAssets.length} / {initialAssets.length} hisse
+              {filteredAssets.length} / {initialAssets.length} assets
             </span>
             {isFiltered && (
               <button
                 type="button"
                 onClick={resetFilters}
                 className="btn btn-ghost btn-xs gap-1 text-error hover:bg-error/10"
-                title="Tüm Filtreleri Sıfırla"
+                title="Reset All Filters"
               >
-                <FiRotateCcw className="w-3 h-3" /> Sıfırla
+                <FiRotateCcw className="w-3 h-3" /> Reset
               </button>
             )}
           </div>
@@ -181,12 +199,12 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
               onChange={(e) => setQullaFilter(e.target.value as any)}
               className="select select-sm select-bordered rounded-lg bg-base-100 font-medium text-xs"
             >
-              <option value="all">Tümü (Tüm Setup&apos;lar)</option>
-              <option value="candidate">🟢 Sadece Candidate ({candidateCount})</option>
-              <option value="watch">🟡 Sadece Watch ({watchCount})</option>
-              <option value="score_90">⭐ Skor 90+</option>
-              <option value="score_80">🔥 Skor 80+</option>
-              <option value="score_70">Skor 70+</option>
+              <option value="all">All Setups</option>
+              <option value="candidate">🟢 Candidate Only ({candidateCount})</option>
+              <option value="watch">🟡 Watch Only ({watchCount})</option>
+              <option value="score_90">⭐ Score 90+</option>
+              <option value="score_80">🔥 Score 80+</option>
+              <option value="score_70">Score 70+</option>
             </select>
           </div>
 
@@ -200,30 +218,30 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
               onChange={(e) => setFundFilter(e.target.value as any)}
               className="select select-sm select-bordered rounded-lg bg-base-100 font-medium text-xs"
             >
-              <option value="all">Tümü (Tüm Skorlar)</option>
-              <option value="score_70">Fund Skor 70+</option>
-              <option value="score_60">Fund Skor 60+</option>
-              <option value="score_50">Fund Skor 50+</option>
-              <option value="score_40">Fund Skor 40+</option>
-              <option value="wheel_pass">Wheel: Pass (Temiz)</option>
-              <option value="wheel_warn">Wheel: Warn (Dikkat)</option>
+              <option value="all">All Scores</option>
+              <option value="score_70">Fund Score 70+</option>
+              <option value="score_60">Fund Score 60+</option>
+              <option value="score_50">Fund Score 50+</option>
+              <option value="score_40">Fund Score 40+</option>
+              <option value="wheel_pass">Wheel: Pass (Clean)</option>
+              <option value="wheel_warn">Wheel: Warn (Caution)</option>
             </select>
           </div>
 
           {/* Sort Dropdown */}
           <div className="flex items-center gap-2 ml-auto">
             <span className="text-xs font-bold uppercase tracking-wider opacity-60 flex items-center gap-1">
-              <FiFilter className="w-3.5 h-3.5" /> Sırala:
+              <FiFilter className="w-3.5 h-3.5" /> Sort By:
             </span>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
               className="select select-sm select-bordered rounded-lg bg-base-100 font-medium text-xs"
             >
-              <option value="qulla_score_desc">Qullamaggie Skoru (Yüksek &rarr; Düşük)</option>
-              <option value="fund_score_desc">Temel Skor (Yüksek &rarr; Düşük)</option>
-              <option value="symbol_asc">Sembol (A &rarr; Z)</option>
-              <option value="price_desc">Fiyat (Yüksek &rarr; Düşük)</option>
+              <option value="qulla_score_desc">Qullamaggie Score (High &rarr; Low)</option>
+              <option value="fund_score_desc">Fund Score (High &rarr; Low)</option>
+              <option value="symbol_asc">Symbol (A &rarr; Z)</option>
+              <option value="price_desc">Price (High &rarr; Low)</option>
             </select>
           </div>
 
@@ -259,6 +277,12 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
               } catch(e) {}
           }
 
+          const qullaHistory: Array<{ date: string; score?: number; status?: string }> = 
+            qullamaggie?.history || asset.analysis?.history?.qullamaggie || [];
+
+          const fundHistory: Array<{ date: string; score?: number; status?: string }> = 
+            fundamentals?.history || asset.analysis?.history?.fundamentals || [];
+
           return (
             <div key={asset.symbol} className="bg-base-100 rounded-xl border border-base-300 shadow-md p-4 md:p-6 flex flex-col xl:flex-row gap-6 hover:border-primary/30 transition-all">
               
@@ -272,15 +296,88 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
                   </div>
                 )}
                 
-                {formattedTime && (
-                  <div className="text-xs opacity-50 font-mono mb-4">
-                    Son Analiz:<br/>{formattedTime}
-                  </div>
-                )}
+                {/* Analysis Dates History (Last 5 Analysis Dates) */}
+                <div className="space-y-3 mb-4 mt-1">
+                  {/* Qullamaggie Dates */}
+                  {qullaHistory.length > 0 ? (
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider mb-1.5 text-primary">
+                        <span>Qullamaggie</span>
+                        <span className="text-[10px] opacity-60 font-mono font-normal">
+                          {qullaHistory.length} {qullaHistory.length === 1 ? 'day' : 'days'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {qullaHistory.slice(0, 5).map((item, idx) => (
+                          <span
+                            key={idx}
+                            className={`px-2 py-0.5 rounded text-[11px] font-mono font-semibold border ${
+                              item.status === 'candidate'
+                                ? 'bg-success/15 border-success/30 text-success'
+                                : item.status === 'watch'
+                                ? 'bg-warning/15 border-warning/30 text-warning'
+                                : 'bg-base-200 border-base-300 text-base-content/70'
+                            }`}
+                            title={`Date: ${item.date} | Status: ${item.status || 'N/A'}${item.score !== undefined ? ` | Score: ${item.score}` : ''}`}
+                          >
+                            {formatHistoryDate(item.date)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : qullamaggie ? (
+                    <div>
+                      <div className="text-[11px] font-bold uppercase tracking-wider mb-1 text-primary">
+                        Qullamaggie
+                      </div>
+                      <div className="text-xs font-mono opacity-70">
+                        {formattedTime || 'Latest'}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Fundamentals Dates */}
+                  {fundHistory.length > 0 ? (
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider mb-1.5 text-info">
+                        <span>Fundamentals</span>
+                        <span className="text-[10px] opacity-60 font-mono font-normal">
+                          {fundHistory.length} {fundHistory.length === 1 ? 'day' : 'days'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {fundHistory.slice(0, 5).map((item, idx) => (
+                          <span
+                            key={idx}
+                            className={`px-2 py-0.5 rounded text-[11px] font-mono font-semibold border ${
+                              item.status === 'pass'
+                                ? 'bg-info/15 border-info/30 text-info'
+                                : item.status === 'warn'
+                                ? 'bg-warning/15 border-warning/30 text-warning'
+                                : 'bg-base-200 border-base-300 text-base-content/70'
+                            }`}
+                            title={`Date: ${item.date} | Status: ${item.status || 'N/A'}${item.score !== undefined ? ` | Score: ${item.score}` : ''}`}
+                          >
+                            {formatHistoryDate(item.date)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : fundamentals ? (
+                    <div>
+                      <div className="text-[11px] font-bold uppercase tracking-wider mb-1 text-info">
+                        Fundamentals
+                      </div>
+                      <div className="text-xs font-mono opacity-70">
+                        {formattedTime || 'Latest'}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
 
                 {asset.technicals && (
                   <div className="mt-auto space-y-1">
-                    <p className="text-[10px] font-bold uppercase opacity-50 tracking-wider">Teknikler</p>
+                    <p className="text-[10px] font-bold uppercase opacity-50 tracking-wider">Technicals</p>
                     <div className="flex flex-wrap gap-1 text-[10px] font-mono">
                       <span className="bg-base-200 px-1.5 py-0.5 rounded">EMA10: {asset.technicals.ema_10?.toFixed(2)}</span>
                       <span className="bg-base-200 px-1.5 py-0.5 rounded">EMA20: {asset.technicals.ema_20?.toFixed(2)}</span>
@@ -402,20 +499,20 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
                         {/* Breakdown Quick Pills */}
                         {reasons.breakdown && (
                           <div className="grid grid-cols-4 gap-1 mb-3 text-center">
-                            <div className="bg-base-100/70 rounded p-1" title="Büyüme & İvme (Max 35)">
-                              <div className="text-[8px] uppercase font-bold opacity-60">Büyüme</div>
+                            <div className="bg-base-100/70 rounded p-1" title="Growth & Acceleration (Max 35)">
+                              <div className="text-[8px] uppercase font-bold opacity-60">Growth</div>
                               <div className="font-mono text-xs font-bold text-info">{reasons.breakdown.growth || 0}</div>
                             </div>
-                            <div className="bg-base-100/70 rounded p-1" title="Kurumsal Para Girişi (Max 20)">
-                              <div className="text-[8px] uppercase font-bold opacity-60">Kurumsal</div>
+                            <div className="bg-base-100/70 rounded p-1" title="Institutional Accumulation (Max 20)">
+                              <div className="text-[8px] uppercase font-bold opacity-60">Inst.</div>
                               <div className="font-mono text-xs font-bold text-info">{reasons.breakdown.accumulation || 0}</div>
                             </div>
-                            <div className="bg-base-100/70 rounded p-1" title="Kârlılık & FCF (Max 25)">
-                              <div className="text-[8px] uppercase font-bold opacity-60">Kâr/FCF</div>
+                            <div className="bg-base-100/70 rounded p-1" title="Profitability & FCF (Max 25)">
+                              <div className="text-[8px] uppercase font-bold opacity-60">Profit/FCF</div>
                               <div className="font-mono text-xs font-bold text-info">{reasons.breakdown.profitability || 0}</div>
                             </div>
-                            <div className="bg-base-100/70 rounded p-1" title="Bilanço Gücü (Max 20)">
-                              <div className="text-[8px] uppercase font-bold opacity-60">Bilanço</div>
+                            <div className="bg-base-100/70 rounded p-1" title="Balance Sheet & Solvency (Max 20)">
+                              <div className="text-[8px] uppercase font-bold opacity-60">Balance</div>
                               <div className="font-mono text-xs font-bold text-info">{reasons.breakdown.balance_sheet || 0}</div>
                             </div>
                           </div>
@@ -441,14 +538,14 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
                             <span className="font-mono flex items-center gap-1">
                               {reasons.revenue_growth !== null && reasons.revenue_growth !== undefined ? `${(reasons.revenue_growth * 100).toFixed(1)}%` : 'N/A'}
                               {isAccelerating && (
-                                <span className="badge badge-success badge-xs font-bold text-[9px] px-1 py-0" title="Büyüme bir önceki çeyreğe göre hızlandı! (Acceleration)">🚀 İvme</span>
+                                <span className="badge badge-success badge-xs font-bold text-[9px] px-1 py-0" title="Revenue growth accelerated compared to previous quarter! (Acceleration)">🚀 Accel</span>
                               )}
                             </span>
                           </div>
                           <div className="flex justify-between">
                             <span className="opacity-60">Up/Down Vol (50D)</span>
                             <span className={`font-mono font-semibold ${upDownRatio >= 1.3 ? 'text-success' : upDownRatio < 0.85 ? 'text-error' : ''}`}>
-                              {upDownRatio.toFixed(2)} {upDownRatio >= 1.3 ? '🔥 Toplama' : upDownRatio < 0.85 ? '⚠️ Dağıtım' : ''}
+                              {upDownRatio.toFixed(2)} {upDownRatio >= 1.3 ? '🔥 Accumulation' : upDownRatio < 0.85 ? '⚠️ Distribution' : ''}
                             </span>
                           </div>
                           <div className="flex justify-between">
@@ -461,7 +558,7 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
                           </div>
                           <div className="flex justify-between">
                             <span className="opacity-60">Net Cash Position</span>
-                            <span className="font-semibold">{reasons.has_net_cash ? '✅ Pozitif' : '❌ Borçlu'}</span>
+                            <span className="font-semibold">{reasons.has_net_cash ? '✅ Positive' : '❌ Debt'}</span>
                           </div>
                         </div>
 
@@ -486,11 +583,11 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
           <div className="flex items-center gap-3">
             <span className="text-2xl">🔍</span>
             <div>
-              <h3 className="font-bold text-base">Eşleşen Hisse Bulunamadı</h3>
+              <h3 className="font-bold text-base">No Matching Assets Found</h3>
               <p className="text-xs opacity-70">
                 {isFiltered 
-                  ? "Seçtiğiniz arama veya filtre kriterlerine uyan bir hisse bulunamadı. Filtreleri temizleyip tekrar deneyebilirsiniz."
-                  : "Sistemde henüz analiz adayı bulunmuyor. Arka plan analiz botunun çalışması bekleniyor."}
+                  ? "No assets matched your search or filter criteria. You can clear filters and try again."
+                  : "No analysis candidates found yet. Waiting for background analysis bot run."}
               </p>
             </div>
           </div>
@@ -500,7 +597,7 @@ export default function AnalysisView({ initialAssets }: AnalysisViewProps) {
               onClick={resetFilters} 
               className="btn btn-primary btn-sm rounded-xl shrink-0"
             >
-              Filtreleri Temizle
+              Clear Filters
             </button>
           )}
         </div>

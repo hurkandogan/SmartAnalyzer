@@ -1,17 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { useAuth } from '@/context/AuthProvider';
-import { getIBKRConfigAction, syncIBKRAction } from '@/actions/ibkr';
-
-const TODAY = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+import { getIBKRConfigAction } from '@/actions/ibkr';
 
 export function useIBKRSync() {
   const { user } = useAuth();
-  const [isSyncing, setIsSyncing] = useState(false);
 
-  const { data: config, mutate } = useSWR(
+  // Flex Query and Gateway syncing are now performed centrally by the local backend (SmartAnalyser)
+  // during Firebase sync so all positions and 3-currency metrics stay unified.
+  const { data: config } = useSWR(
     user ? ['ibkr-config', user.uid] : null,
     ([, userId]) => getIBKRConfigAction(userId),
     { revalidateOnFocus: false, dedupingInterval: 60000 },
@@ -19,27 +17,6 @@ export function useIBKRSync() {
 
   const isConfigured = !!(config?.ibkr_query_id && config?.ibkr_token);
   const lastSync = config?.ibkr_last_sync ?? null;
-  const needsSync = isConfigured && lastSync !== TODAY;
 
-  useEffect(() => {
-    if (!user || !needsSync || isSyncing) return;
-
-    const run = async () => {
-      setIsSyncing(true);
-      try {
-        await syncIBKRAction(user.uid);
-        mutate(); // refresh config so lastSync updates
-      } catch (err) {
-        console.error('Auto IBKR sync failed:', err);
-      } finally {
-        setIsSyncing(false);
-      }
-    };
-
-    run();
-  // Only run once on mount when needsSync is true
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid, needsSync]);
-
-  return { isConfigured, lastSync, isSyncing };
+  return { isConfigured, lastSync, isSyncing: false };
 }

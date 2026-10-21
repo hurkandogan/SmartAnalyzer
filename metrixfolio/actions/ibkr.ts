@@ -80,6 +80,7 @@ export async function getIBKRSummaryAction(userId: string) {
       maintenanceMargin: data.maintenanceMargin || 0,
       initialMargin: data.initialMargin || 0,
       totalCashValue: data.totalCashValue || 0,
+      multi_currency: data.multi_currency || null,
       updated_at: data.updated_at ? data.updated_at.toMillis() : null,
     };
   } catch (err) {

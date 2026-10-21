@@ -9,6 +9,8 @@ interface MacroEvent {
   date: string;
   impact: string;
   type?: string;
+  is_superlist?: boolean;
+  is_watchlist?: boolean;
   actual?: string;
   estimate?: string;
   prior?: string;
@@ -26,7 +28,9 @@ export function MacroCalendar() {
         try {
           const macroData = await getMacroCalendarAction();
           if (macroData && macroData.events) {
-            combinedEvents = combinedEvents.concat(macroData.events.map((e: any) => ({ ...e, type: 'macro' })));
+            combinedEvents = combinedEvents.concat(
+              macroData.events.map((e: any) => ({ ...e, type: 'macro' }))
+            );
           }
         } catch (e) {
           console.error('Failed to fetch macro calendar:', e);
@@ -35,7 +39,9 @@ export function MacroCalendar() {
         try {
           const earningsData = await getEarningsCalendarAction();
           if (earningsData && earningsData.events) {
-            combinedEvents = combinedEvents.concat(earningsData.events.map((e: any) => ({ ...e, type: 'earnings' })));
+            combinedEvents = combinedEvents.concat(
+              earningsData.events.map((e: any) => ({ ...e, type: 'earnings' }))
+            );
           }
         } catch (e) {
           console.error('Failed to fetch earnings calendar:', e);
@@ -62,43 +68,88 @@ export function MacroCalendar() {
 
   // Filter out past events (keep today and future) and sort
   const today = new Date();
-  today.setHours(0, 0, 0, 0); // start of today
+  today.setHours(0, 0, 0, 0);
 
   const sortedEvents = [...events]
-    .filter(ev => new Date(ev.date).getTime() >= today.getTime())
+    .filter((ev) => new Date(ev.date).getTime() >= today.getTime())
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  const macroEvents = sortedEvents.filter(ev => ev.type === 'macro');
-  const earningsEvents = sortedEvents.filter(ev => ev.type === 'earnings');
+  const superlistEarnings = sortedEvents.filter(
+    (ev) => ev.type === 'earnings' && (ev.is_superlist || ev.is_watchlist || ev.impact === 'Superlist')
+  );
+  const macroEvents = sortedEvents.filter((ev) => ev.type === 'macro');
+  const regularEarnings = sortedEvents.filter(
+    (ev) => ev.type === 'earnings' && !ev.is_superlist && !ev.is_watchlist && ev.impact !== 'Superlist'
+  );
 
-  const renderEvent = (ev: MacroEvent, i: number, badgeColor: string, badgeLabel: string) => {
+  const renderEvent = (
+    ev: MacroEvent,
+    i: number,
+    badgeColor: string,
+    badgeLabel: string,
+    isSuperlist = false
+  ) => {
     const d = new Date(ev.date);
-    const dayName = d.toLocaleDateString('tr-TR', { weekday: 'long' });
+    const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
     const dayNum = d.getDate();
-    const timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-    
+    const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+
     return (
-      <div 
-        key={`${ev.title}-${i}`} 
-        className="flex items-center bg-base-200/50 p-3 rounded-xl border border-base-content/5"
+      <div
+        key={`${ev.title}-${i}`}
+        className={`flex items-center p-3 rounded-xl border transition-all ${
+          isSuperlist
+            ? 'bg-warning/10 border-warning/40 shadow-sm'
+            : 'bg-base-200/50 border-base-content/5'
+        }`}
       >
-        <div className={`flex flex-col items-center justify-center w-16 h-16 rounded-xl shrink-0 bg-${badgeColor.replace('badge-', '')}/10 text-${badgeColor.replace('badge-', '')}`}>
-          <span className="text-xs uppercase font-bold opacity-80">{dayName.substring(0, 3)}</span>
+        <div
+          className={`flex flex-col items-center justify-center w-16 h-16 rounded-xl shrink-0 ${
+            isSuperlist
+              ? 'bg-warning/20 text-warning'
+              : `bg-${badgeColor.replace('badge-', '')}/10 text-${badgeColor.replace('badge-', '')}`
+          }`}
+        >
+          <span className="text-xs uppercase font-bold opacity-80">{dayName}</span>
           <span className="text-2xl font-black">{dayNum}</span>
         </div>
-        
+
         <div className="ml-4 flex-1">
-          <h3 className="font-bold text-base">{ev.title}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-base">{ev.title}</h3>
+            {isSuperlist && <span className="text-warning text-sm">⭐</span>}
+          </div>
           <div className="flex items-center gap-2 mt-1">
             <span className="badge badge-sm badge-outline opacity-80">{timeStr}</span>
-            <span className={`badge badge-sm ${badgeColor} badge-outline`}>{badgeLabel}</span>
+            <span
+              className={`badge badge-sm ${
+                isSuperlist ? 'badge-warning font-bold' : `${badgeColor} badge-outline`
+              }`}
+            >
+              {badgeLabel}
+            </span>
           </div>
-          
+
           {(ev.actual || ev.estimate || ev.prior) && (
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs bg-base-300/30 p-2 rounded-lg w-fit border border-base-content/5">
-              {ev.actual && <div><span className="opacity-60 mr-1">Actual:</span><span className="font-bold text-primary">{ev.actual}</span></div>}
-              {ev.estimate && <div><span className="opacity-60 mr-1">Est:</span><span className="font-bold">{ev.estimate}</span></div>}
-              {ev.prior && <div><span className="opacity-60 mr-1">Prior:</span><span className="font-bold">{ev.prior}</span></div>}
+              {ev.actual && (
+                <div>
+                  <span className="opacity-60 mr-1">Actual:</span>
+                  <span className="font-bold text-primary">{ev.actual}</span>
+                </div>
+              )}
+              {ev.estimate && (
+                <div>
+                  <span className="opacity-60 mr-1">Est:</span>
+                  <span className="font-bold">{ev.estimate}</span>
+                </div>
+              )}
+              {ev.prior && (
+                <div>
+                  <span className="opacity-60 mr-1">Prior:</span>
+                  <span className="font-bold">{ev.prior}</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -119,20 +170,34 @@ export function MacroCalendar() {
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-6">
-            
+            {superlistEarnings.length > 0 && (
+              <div className="flex flex-col gap-3">
+                <h3 className="font-bold text-sm text-warning uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1 flex items-center gap-1.5">
+                  <span>⭐</span> Superlist Earnings
+                </h3>
+                {superlistEarnings.map((ev, i) =>
+                  renderEvent(ev, i, 'badge-warning', 'Superlist Earnings', true)
+                )}
+              </div>
+            )}
+
             {macroEvents.length > 0 && (
               <div className="flex flex-col gap-3">
-                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">Important Macro Events</h3>
+                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">
+                  Important Macro Events
+                </h3>
                 {macroEvents.map((ev, i) => renderEvent(ev, i, 'badge-error', 'High Impact'))}
               </div>
             )}
 
-            {earningsEvents.length > 0 && (
+            {regularEarnings.length > 0 && (
               <div className="flex flex-col gap-3">
-                {earningsEvents.map((ev, i) => renderEvent(ev, i, 'badge-ghost', 'Earnings'))}
+                <h3 className="font-bold text-sm text-base-content/60 uppercase tracking-wider sticky top-0 bg-base-100 z-10 py-1">
+                  Upcoming Earnings
+                </h3>
+                {regularEarnings.map((ev, i) => renderEvent(ev, i, 'badge-ghost', 'Earnings'))}
               </div>
             )}
-
           </div>
         )}
       </div>

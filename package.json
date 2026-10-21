@@ -1,6 +1,6 @@
 {
   "name": "smart-analyser",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "description": "Financial analysis system — IBKR + Kraken + Firebase",
   "main": "src/index.js",

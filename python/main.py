@@ -102,6 +102,7 @@ async def startup_event():
         db_session.execute(text("ALTER TABLE screener_universe ADD COLUMN IF NOT EXISTS sector VARCHAR(100);"))
         db_session.execute(text("ALTER TABLE screener_universe ADD COLUMN IF NOT EXISTS industry VARCHAR(100);"))
         db_session.execute(text("ALTER TABLE screener_universe ADD COLUMN IF NOT EXISTS subcategory VARCHAR(100);"))
+        db_session.execute(text("ALTER TABLE screener_universe ADD COLUMN IF NOT EXISTS is_starred INTEGER DEFAULT 0;"))
         db_session.commit()
         logger.info("Successfully checked/added new ScreenerUniverse cache columns in DB.")
     except Exception as db_err:

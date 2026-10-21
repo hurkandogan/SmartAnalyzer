@@ -114,133 +114,195 @@ export async function runAnalysisBot() {
     });
     logger.info(`[AnalysisBot] Python Fundamentals script finished successfully.`);
 
-    logger.info('[AnalysisBot] Syncing Postgres results to Firebase...');
-    const firestore = getDb();
-    const batch = firestore.batch();
-    
-    const client = await pool.connect();
-    
-    try {
-      const techRes = await client.query(`
-        SELECT symbol, rsi, rs, ema_10, ema_20, sma_50, sma_200, volume, avg_volume, date
-        FROM technicals 
-        WHERE date >= CURRENT_DATE - INTERVAL '5 days'
-        ORDER BY date DESC
-      `);
-      
-      const scoreRes = await client.query(`
-        SELECT symbol, analysis_type, score, status, reason, price, created_at 
-        FROM analysis_scores 
-        WHERE created_at >= NOW() - INTERVAL '5 days'
-        ORDER BY created_at DESC
-      `);
-      
-      const fundRes = await client.query(`
-        SELECT symbol, pe, peg, date
-        FROM fundamentals 
-        WHERE date >= CURRENT_DATE - INTERVAL '5 days'
-        ORDER BY date DESC
-      `);
-      
-      const technicalsMap = new Map();
-      techRes.rows.forEach(r => {
-        // Since we order by date DESC, the first one we see is the latest
-        if (!technicalsMap.has(r.symbol)) {
-            technicalsMap.set(r.symbol, r);
-        }
-      });
-      
-      const fundamentalsMap = new Map();
-      fundRes.rows.forEach(r => {
-        if (!fundamentalsMap.has(r.symbol)) {
-            fundamentalsMap.set(r.symbol, r);
-        }
-      });
-      
-      const scoresMap = new Map();
-      const latestScoresMap = new Map();
-      
-      scoreRes.rows.forEach(r => {
-        if (!scoresMap.has(r.symbol)) {
-            scoresMap.set(r.symbol, []);
-            latestScoresMap.set(r.symbol, {});
-        }
-        
-        // Add to historical list for the 5-day check
-        scoresMap.get(r.symbol).push(r);
-        
-        // Store latest score for the UI
-        if (!latestScoresMap.get(r.symbol)[r.analysis_type]) {
-            latestScoresMap.get(r.symbol)[r.analysis_type] = r;
-        }
-      });
-      
-      const allSymbols = new Set([...technicalsMap.keys(), ...scoresMap.keys(), ...fundamentalsMap.keys()]);
-      
-      const { FieldValue } = await import('firebase-admin/firestore');
-      const analysisTypes = ['qullamaggie', 'fundamentals'];
-      
-      let syncedAnalysisCount = 0;
-      
-      for (const sym of allSymbols) {
-        const docRef = firestore.collection('assets').doc(sym);
-        const data = {};
-        
-        if (technicalsMap.has(sym)) {
-          data.technicals = technicalsMap.get(sym);
-        }
-        
-        if (fundamentalsMap.has(sym)) {
-          data.fundamentals = fundamentalsMap.get(sym);
-        }
-        
-        const latestScores = latestScoresMap.get(sym) || {};
-        const latestQulla = latestScores['qullamaggie'];
-
-        // Strict Gate: Only candidate or watch with score > 0 can be synced
-        const isQullaActive = latestQulla && 
-                              (latestQulla.status === 'candidate' || latestQulla.status === 'watch') && 
-                              Number(latestQulla.score) > 0;
-
-        if (isQullaActive) {
-            syncedAnalysisCount++;
-            data.analysis = {};
-            for (const type of analysisTypes) {
-                if (latestScores[type]) {
-                    data.analysis[type] = latestScores[type];
-                    
-                    // Attach full fundamentals and technicals snapshot directly to the analysis
-                    if (data.technicals) {
-                        data.analysis[type].technicals = data.technicals;
-                    }
-                    if (data.fundamentals) {
-                        data.analysis[type].fundamentals = data.fundamentals;
-                    }
-                }
-            }
-            data.updated_at = new Date();
-            data.analysis_timestamp = new Date(); // Explicitly add this for UI to use easily if needed
-            batch.set(docRef, data, { merge: true });
-        } else {
-            // Delete old analyses so no_setup symbols NEVER appear in Firebase or UI
-            batch.set(docRef, {
-                analysis: FieldValue.delete(),
-                updated_at: new Date()
-            }, { merge: true });
-        }
-      }
-      
-      await batch.commit();
-      logger.info(`[AnalysisBot] Processed ${allSymbols.size} symbols. Synced ${syncedAnalysisCount} active analyses to Firebase.`);
-      await dbLogger('analysis-bot', 'success', `Analysis finished. Processed ${allSymbols.size} symbols, synced ${syncedAnalysisCount} active analyses.`);
-      
-    } finally {
-      client.release();
-    }
+    const res = await syncAnalysisToFirebase();
+    await dbLogger('analysis-bot', 'success', `Analysis finished. Processed ${res.total} symbols, synced ${res.synced} active analyses.`);
     
   } catch (error) {
     logger.error(`[AnalysisBot] Job failed: ${error.message}`);
     await dbLogger('analysis-bot', 'error', `Job failed: ${error.message}`);
     throw error;
+  }
+}
+
+export async function syncAnalysisToFirebase() {
+  logger.info('[AnalysisBot] Syncing Postgres results to Firebase...');
+  const firestore = getDb();
+  const { FieldValue } = await import('firebase-admin/firestore');
+  const client = await pool.connect();
+  
+  try {
+    const techRes = await client.query(`
+      SELECT symbol, rsi, rs, ema_10, ema_20, sma_50, sma_200, volume, avg_volume, date
+      FROM technicals 
+      WHERE date >= CURRENT_DATE - INTERVAL '14 days'
+      ORDER BY date DESC
+    `);
+    
+    const scoreRes = await client.query(`
+      SELECT symbol, analysis_type, score, status, reason, price, created_at, as_of_date
+      FROM analysis_scores 
+      WHERE created_at >= NOW() - INTERVAL '30 days'
+      ORDER BY COALESCE(as_of_date, created_at::date) DESC, created_at DESC
+    `);
+    
+    const fundRes = await client.query(`
+      SELECT symbol, pe, peg, date
+      FROM fundamentals 
+      WHERE date >= CURRENT_DATE - INTERVAL '14 days'
+      ORDER BY date DESC
+    `);
+
+    // Fetch up to the last 5 qualifying analysis dates for each method
+    const historyRes = await client.query(`
+      SELECT 
+        symbol,
+        analysis_type,
+        score,
+        status,
+        to_char(COALESCE(as_of_date, created_at::date), 'YYYY-MM-DD') as date
+      FROM (
+        SELECT 
+          symbol,
+          analysis_type,
+          score,
+          status,
+          as_of_date,
+          created_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY symbol, analysis_type 
+            ORDER BY COALESCE(as_of_date, created_at::date) DESC, created_at DESC
+          ) as rn
+        FROM analysis_scores
+        WHERE 
+          (analysis_type = 'qullamaggie' AND status IN ('candidate', 'watch') AND score > 0)
+          OR
+          (analysis_type = 'fundamentals' AND status IN ('pass', 'warn') AND score > 0)
+      ) sub
+      WHERE rn <= 5
+      ORDER BY symbol, analysis_type, date DESC;
+    `);
+
+    const technicalsMap = new Map();
+    techRes.rows.forEach(r => {
+      if (!technicalsMap.has(r.symbol)) {
+        technicalsMap.set(r.symbol, r);
+      }
+    });
+
+    const fundamentalsMap = new Map();
+    fundRes.rows.forEach(r => {
+      if (!fundamentalsMap.has(r.symbol)) {
+        fundamentalsMap.set(r.symbol, r);
+      }
+    });
+
+    const historyMap = new Map();
+    historyRes.rows.forEach(r => {
+      if (!historyMap.has(r.symbol)) {
+        historyMap.set(r.symbol, {});
+      }
+      const symHist = historyMap.get(r.symbol);
+      if (!symHist[r.analysis_type]) {
+        symHist[r.analysis_type] = [];
+      }
+      symHist[r.analysis_type].push({
+        date: r.date,
+        score: r.score,
+        status: r.status
+      });
+    });
+
+    const latestScoresMap = new Map();
+    scoreRes.rows.forEach(r => {
+      if (!latestScoresMap.has(r.symbol)) {
+        latestScoresMap.set(r.symbol, {});
+      }
+      if (!latestScoresMap.get(r.symbol)[r.analysis_type]) {
+        latestScoresMap.get(r.symbol)[r.analysis_type] = r;
+      }
+    });
+
+    const allSymbols = new Set([...technicalsMap.keys(), ...latestScoresMap.keys(), ...fundamentalsMap.keys()]);
+    const analysisTypes = ['qullamaggie', 'fundamentals'];
+    let syncedAnalysisCount = 0;
+
+    let batch = firestore.batch();
+    let opCount = 0;
+
+    for (const sym of allSymbols) {
+      const docRef = firestore.collection('assets').doc(sym);
+      const data = {};
+
+      if (technicalsMap.has(sym)) {
+        data.technicals = technicalsMap.get(sym);
+      }
+
+      if (fundamentalsMap.has(sym)) {
+        data.fundamentals = fundamentalsMap.get(sym);
+      }
+
+      const latestScores = latestScoresMap.get(sym) || {};
+      const latestQulla = latestScores['qullamaggie'];
+
+      // Strict Gate: Only candidate or watch with score > 0 can be synced
+      const isQullaActive = latestQulla && 
+                            (latestQulla.status === 'candidate' || latestQulla.status === 'watch') && 
+                            Number(latestQulla.score) > 0;
+
+      if (isQullaActive) {
+        syncedAnalysisCount++;
+        data.analysis = {};
+        const symHist = historyMap.get(sym) || {};
+
+        for (const type of analysisTypes) {
+          if (latestScores[type]) {
+            data.analysis[type] = {
+              ...latestScores[type],
+              history: symHist[type] || [],
+              history_dates: (symHist[type] || []).map(h => h.date)
+            };
+
+            // Attach full fundamentals and technicals snapshot directly to the analysis
+            if (data.technicals) {
+              data.analysis[type].technicals = data.technicals;
+            }
+            if (data.fundamentals) {
+              data.analysis[type].fundamentals = data.fundamentals;
+            }
+          }
+        }
+
+        data.analysis.history = {
+          qullamaggie: symHist['qullamaggie'] || [],
+          fundamentals: symHist['fundamentals'] || []
+        };
+
+        data.updated_at = new Date();
+        data.analysis_timestamp = new Date();
+        batch.set(docRef, data, { merge: true });
+      } else {
+        // Delete old analyses so no_setup symbols NEVER appear in Firebase or UI
+        batch.set(docRef, {
+          analysis: FieldValue.delete(),
+          updated_at: new Date()
+        }, { merge: true });
+      }
+
+      opCount++;
+      if (opCount >= 400) {
+        await batch.commit();
+        batch = firestore.batch();
+        opCount = 0;
+      }
+    }
+
+    if (opCount > 0) {
+      await batch.commit();
+    }
+
+    logger.info(`[AnalysisBot] Processed ${allSymbols.size} symbols. Synced ${syncedAnalysisCount} active analyses with history to Firebase.`);
+    return { total: allSymbols.size, synced: syncedAnalysisCount };
+  } finally {
+    client.release();
   }
 }

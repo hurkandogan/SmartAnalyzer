@@ -1,6 +1,13 @@
 import { Timestamp } from 'firebase-admin/firestore';
 import { CategoryType } from './settings';
 
+export interface MultiCurrencyValue {
+  USD: number;
+  EUR: number;
+  TRY: number;
+  [key: string]: number;
+}
+
 export interface Asset {
   id: string;
   symbol: string;
@@ -14,6 +21,17 @@ export interface Asset {
   current_price: number;
   unrealized_pnl: number;
   market_value?: number;
+
+  prices?: {
+    current: MultiCurrencyValue;
+    avg_cost: MultiCurrencyValue;
+  };
+  metrics?: {
+    market_value: MultiCurrencyValue;
+    cost_basis: MultiCurrencyValue;
+    unrealized_pnl: MultiCurrencyValue;
+    pnl_percent: number;
+  };
 
   original_currency?: string;
   original_avg_cost?: number;
@@ -31,4 +49,3 @@ export interface ClosedAsset extends Asset {
   close_date: number; // unix timestamp
   realized_pnl: number;
 }
-

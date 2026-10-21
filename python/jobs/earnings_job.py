@@ -16,23 +16,22 @@ logger = logging.getLogger("earnings_job")
 async def fetch_earnings():
     db = SessionLocal()
     try:
-        # Get all unique symbols from Universe
-        universe = [u.symbol for u in db.query(ScreenerUniverse).filter(ScreenerUniverse.is_active == 1).all()]
+        # Get all active symbols and starred (Superlist) symbols from Universe
+        active_rows = db.query(ScreenerUniverse).filter(ScreenerUniverse.is_active == 1).all()
+        universe = [u.symbol for u in active_rows]
+        starred_set = {u.symbol for u in active_rows if getattr(u, "is_starred", 0) == 1}
         symbols = list(set(universe))
         
         if not symbols:
             logger.info("No symbols found to fetch earnings.")
             return
 
-        logger.info(f"Checking upcoming earnings for {len(symbols)} symbols...")
+        logger.info(f"Checking upcoming earnings for {len(symbols)} symbols ({len(starred_set)} in Superlist)...")
         
         now = datetime.now().date()
         two_weeks_later = now + timedelta(days=14)
         
         events = []
-        
-        # We can't easily thread yf.Ticker().calendar for many symbols without risking rate limits or errors,
-        # but doing it sequentially or batched is fine for a nightly cron.
         
         for sym in symbols:
             try:
@@ -49,14 +48,15 @@ async def fetch_earnings():
                             d_date = d
                             
                         if now <= d_date <= two_weeks_later:
-                            # Found an upcoming earnings!
+                            is_super = sym in starred_set
                             events.append({
                                 "title": f"{sym}",
                                 "country": "US",
-                                "impact": "High",
-                                "date": datetime(d_date.year, d_date.month, d_date.day, 16, 0).isoformat() + "Z", # Approximating 16:00 UTC (Post-market)
+                                "impact": "Superlist" if is_super else "High",
+                                "date": datetime(d_date.year, d_date.month, d_date.day, 16, 0).isoformat() + "Z",
                                 "type": "earnings",
-                                "is_watchlist": False
+                                "is_watchlist": is_super,
+                                "is_superlist": is_super,
                             })
                             break # Only need the closest one
             except Exception as e:

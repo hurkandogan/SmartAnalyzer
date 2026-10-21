@@ -22,6 +22,7 @@ def get_universe(db: Session = Depends(get_db)):
         "symbol": u.symbol, 
         "source_index": u.source_index, 
         "is_active": u.is_active,
+        "is_starred": bool(getattr(u, "is_starred", 0)),
         "con_id": u.con_id,
         "long_name": u.long_name,
         "exchange": u.exchange,
@@ -30,6 +31,29 @@ def get_universe(db: Session = Depends(get_db)):
         "industry": u.industry,
         "subcategory": u.subcategory
     } for u in universe]
+
+@router.patch("/universe/{symbol}/star")
+def toggle_star_universe(symbol: str, db: Session = Depends(get_db)):
+    item = db.query(ScreenerUniverse).filter(ScreenerUniverse.symbol == symbol.upper()).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Symbol not found")
+    current_val = getattr(item, "is_starred", 0) or 0
+    item.is_starred = 0 if current_val == 1 else 1
+    db.commit()
+
+    starred_symbols = [
+        u.symbol
+        for u in db.query(ScreenerUniverse).filter(
+            ScreenerUniverse.is_active == 1,
+            ScreenerUniverse.is_starred == 1
+        ).all()
+    ]
+    return {
+        "status": "success",
+        "symbol": item.symbol,
+        "is_starred": bool(item.is_starred),
+        "starred_symbols": starred_symbols,
+    }
 
 @router.post("/universe")
 async def add_to_universe(req: AddUniverseRequest, db: Session = Depends(get_db)):

@@ -16,6 +16,11 @@ interface StatCardsProps {
   prevTotalValue?: number;
   prevInvested?: number;
   selectedCurrency?: string;
+  totals?: {
+    total_value?: Record<string, number>;
+    total_cost?: Record<string, number>;
+    total_pnl?: Record<string, number>;
+  };
 }
 
 const GOAL_MILESTONES = [
@@ -30,6 +35,7 @@ export const StatCards: React.FC<StatCardsProps> = ({
   prevTotalValue,
   prevInvested,
   selectedCurrency = 'USD',
+  totals,
 }) => {
   const [goalAmountUsd, setGoalAmountUsd] = useState<number>(10000);
   const [localGoal, setLocalGoal] = useState<string>('');
@@ -39,10 +45,10 @@ export const StatCards: React.FC<StatCardsProps> = ({
   const { convert } = useCurrencyConverter();
 
   const ccy = selectedCurrency;
-  
-  const cTotalValue = convert(totalValue, 'USD', ccy);
-  const cTotalInvested = convert(totalInvested, 'USD', ccy);
-  const cTotalProfit = convert(totalProfit, 'USD', ccy);
+
+  const cTotalValue = totals?.total_value?.[ccy] ?? convert(totalValue, 'USD', ccy);
+  const cTotalInvested = totals?.total_cost?.[ccy] ?? convert(totalInvested, 'USD', ccy);
+  const cTotalProfit = totals?.total_pnl?.[ccy] ?? convert(totalProfit, 'USD', ccy);
   const cPrevTotalValue = prevTotalValue !== undefined ? convert(prevTotalValue, 'USD', ccy) : undefined;
   const cTotalDebt = convert(totalDebtUsd, 'USD', ccy);
 

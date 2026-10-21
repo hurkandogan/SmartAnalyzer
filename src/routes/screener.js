@@ -50,6 +50,58 @@ screenerRoutes.delete('/universe/:symbol', async (c) => {
   }
 });
 
+screenerRoutes.patch('/universe/:symbol/star', async (c) => {
+  try {
+    const symbol = c.req.param('symbol');
+    const res = await fetch(`${PYTHON_SERVICE_URL}/api/screener/universe/${symbol}/star`, {
+      method: 'PATCH'
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const data = await res.json();
+
+    // Sync Superlist & update any matching upcoming earnings in Firebase immediately
+    try {
+      const db = getFirestore();
+      const starredSymbols = data.starred_symbols || [];
+      const starredSet = new Set(starredSymbols.map((s) => String(s).toUpperCase()));
+
+      await db.collection('screener').doc('superlist').set({
+        symbols: starredSymbols,
+        updatedAt: new Date().toISOString(),
+      });
+
+      const calRef = db.collection('screener').doc('earnings_calendar');
+      const calSnap = await calRef.get();
+      if (calSnap.exists) {
+        const calData = calSnap.data();
+        if (Array.isArray(calData?.events)) {
+          const updatedEvents = calData.events.map((ev) => {
+            const sym = String(ev.title || '').trim().toUpperCase();
+            const isSuper = starredSet.has(sym);
+            return {
+              ...ev,
+              impact: isSuper ? 'Superlist' : 'High',
+              is_superlist: isSuper,
+              is_watchlist: isSuper,
+            };
+          });
+          await calRef.set({
+            events: updatedEvents,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (fbErr) {
+      logger.warn(`[Screener] Failed to sync Superlist to Firebase: ${fbErr.message}`);
+    }
+
+    return c.json(data);
+  } catch (err) {
+    logger.error(`[Screener] Failed to toggle star on ${c.req.param('symbol')}: ${err.message}`);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 screenerRoutes.post('/sync', async (c) => {
   try {
     const chunk_size = c.req.query('chunk_size') || 50;

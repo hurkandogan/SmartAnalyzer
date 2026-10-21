@@ -59,6 +59,63 @@ export async function updateOptionAction(
   }
 }
 
+export async function groupOptionsStrategyAction(
+  userId: string,
+  optionIds: string[],
+  strategyName: string,
+) {
+  if (!userId || !optionIds || optionIds.length < 2) {
+    return { success: false, message: 'Select at least 2 option legs to group.' };
+  }
+
+  try {
+    const groupId = `STRAT_${Date.now()}`;
+    const batch = adminDb.batch();
+    const colRef = getCollectionRef(userId);
+
+    for (const id of optionIds) {
+      batch.update(colRef.doc(id), {
+        group_id: groupId,
+        strategy_name: strategyName || 'Custom Spread',
+      });
+    }
+
+    await batch.commit();
+    return { success: true, groupId };
+  } catch (error: any) {
+    console.error('Group Options Strategy Error:', error);
+    return { success: false, message: error.message };
+  }
+}
+
+export async function ungroupOptionsStrategyAction(
+  userId: string,
+  groupId: string,
+) {
+  if (!userId || !groupId) {
+    return { success: false, message: 'Missing group ID.' };
+  }
+
+  try {
+    const colRef = getCollectionRef(userId);
+    const snap = await colRef.where('group_id', '==', groupId).get();
+    const batch = adminDb.batch();
+
+    snap.docs.forEach((doc) => {
+      batch.update(doc.ref, {
+        group_id: null,
+        strategy_name: null,
+      });
+    });
+
+    await batch.commit();
+    return { success: true };
+  } catch (error: any) {
+    console.error('Ungroup Options Strategy Error:', error);
+    return { success: false, message: error.message };
+  }
+}
+
 export async function deleteOptionAction(userId: string, optionId: string) {
   if (!userId) return { success: false, message: 'User not authenticated' };
 
@@ -74,45 +131,36 @@ export async function deleteOptionAction(userId: string, optionId: string) {
 export async function getIBKRSummaryAction(userId: string) {
   if (!userId) return null;
   try {
-    const doc = await adminDb
+    let doc = await adminDb
       .collection('users')
       .doc(userId)
-      .collection('config')
+      .collection('configuration')
       .doc('ibkr_summary')
       .get();
-    
+
+    if (!doc.exists) {
+      doc = await adminDb
+        .collection('users')
+        .doc(userId)
+        .collection('config')
+        .doc('ibkr_summary')
+        .get();
+    }
+
     if (!doc.exists) return null;
     const data = doc.data()!;
     return {
       netLiquidation: data.netLiquidation ?? 0,
       buyingPower: data.buyingPower ?? 0,
       excessLiquidity: data.excessLiquidity ?? 0,
-      updated_at: data.updated_at ? (data.updated_at.toDate ? data.updated_at.toDate().toISOString() : String(data.updated_at)) : null,
+      updated_at: data.updated_at
+        ? data.updated_at.toDate
+          ? data.updated_at.toDate().toISOString()
+          : String(data.updated_at)
+        : null,
     };
   } catch (error) {
     console.error('getIBKRSummaryAction error:', error);
     return null;
-  }
-}
-
-export async function getIvCrushOpportunitiesAction() {
-  try {
-    const snapshot = await adminDb.collection('iv_crush_opportunities').get();
-    return snapshot.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        symbol: data.symbol || doc.id,
-        market_price: data.market_price ?? data.current_price ?? null,
-        earnings_date: data.earnings_date ?? null,
-        days_to_earnings: data.days_to_earnings ?? null,
-        iv_rank: data.iv_rank ?? null,
-        iv_percentile: data.iv_percentile ?? data.iv ?? null, // fallback if iv is stored instead of iv_percentile
-        opportunities: data.opportunities ?? [],
-        updated_at: data.updated_at ? (data.updated_at.toDate ? data.updated_at.toDate().toISOString() : String(data.updated_at)) : null,
-      };
-    });
-  } catch (error) {
-    console.error('Get IV Crush Opportunities Error:', error);
-    return [];
   }
 }

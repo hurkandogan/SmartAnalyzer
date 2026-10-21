@@ -13,62 +13,67 @@ interface MarketData {
   last_updated: number;
 }
 
+export async function getPortfolioSummaryAction(userId: string) {
+  if (!userId) return null;
+  try {
+    const doc = await adminDb
+      .collection(CollectionType.USERS)
+      .doc(userId)
+      .collection('configuration')
+      .doc('portfolio_summary')
+      .get();
+    return doc.exists ? doc.data() : null;
+  } catch (error) {
+    console.error('Error fetching portfolio summary:', error);
+    return null;
+  }
+}
+
 export async function getAssetsAction(userId: string): Promise<Asset[]> {
   if (!userId) return [];
 
   try {
-    const [assetsSnapshot, rates] = await Promise.all([
-      adminDb
-        .collection(CollectionType.USERS)
-        .doc(userId)
-        .collection('assets')
-        .get(),
-      getExchangeRatesAction(),
-    ]);
+    const assetsSnapshot = await adminDb
+      .collection(CollectionType.USERS)
+      .doc(userId)
+      .collection('assets')
+      .get();
 
     const assets: Asset[] = assetsSnapshot.docs.map((doc) => {
       const data = doc.data();
       const symbol = data.symbol || '';
       const amount = parseFloat(data.amount) || 0;
       const multiplier = parseFloat(data.multiplier) || 1;
-      const currency = data.currency || 'USD';
       const type = data.type || (data.secType === 'OPT' ? 'OPTION' : 'STOCK');
 
-      const rawAvgCost = data.avg_cost ?? data.avgCost;
-      let avgCost = parseFloat(rawAvgCost) || 0;
+      // Use backend pre-calculated 3-currency metrics & prices directly
+      const avgCost =
+        data.prices?.avg_cost?.USD ??
+        (parseFloat(data.avg_cost ?? data.avgCost) || 0);
 
-      let currentPrice = parseFloat(data.current_price) || 0;
+      const currentPrice =
+        data.prices?.current?.USD ??
+        (parseFloat(data.current_price) || 0);
 
-      // Rate conversion if asset is still marked in local currency
-      let rate = 1.0;
-      if (currency !== 'USD') {
-        const match = rates.find((r) => r.from === currency && r.to === 'USD');
-        if (match && match.rate > 0) {
-          rate = match.rate;
-        }
-        avgCost = avgCost * rate;
-        if (data.source !== 'IBKR') {
-          currentPrice = currentPrice * rate;
-        }
-      }
+      const marketValue =
+        data.metrics?.market_value?.USD ??
+        (data.value !== undefined && data.value !== null && !isNaN(parseFloat(data.value))
+          ? parseFloat(data.value)
+          : data.market_value !== undefined && data.market_value !== null && !isNaN(parseFloat(data.market_value))
+            ? parseFloat(data.market_value)
+            : amount * currentPrice * multiplier);
 
-      let unrealizedPnl = (currentPrice - avgCost) * amount * multiplier;
-      let marketValue = amount * currentPrice * multiplier;
-
-      if (data.source === 'IBKR') {
-        if (data.value !== undefined && data.value !== null && !isNaN(parseFloat(data.value))) {
-          marketValue = parseFloat(data.value);
-        }
-        if (data.unrealized_pnl !== undefined && data.unrealized_pnl !== null && !isNaN(parseFloat(data.unrealized_pnl))) {
-          unrealizedPnl = parseFloat(data.unrealized_pnl);
-        }
-      }
+      const unrealizedPnl =
+        data.metrics?.unrealized_pnl?.USD ??
+        (data.unrealized_pnl !== undefined && data.unrealized_pnl !== null && !isNaN(parseFloat(data.unrealized_pnl))
+          ? parseFloat(data.unrealized_pnl)
+          : (currentPrice - avgCost) * amount * multiplier);
 
       return {
         id: doc.id,
-        symbol: symbol,
-        name: data.name || '',
-        amount: amount,
+        symbol,
+        name: data.name || symbol,
+        amount,
         avg_cost: avgCost,
         current_price: currentPrice,
         market_value: marketValue,
@@ -76,15 +81,16 @@ export async function getAssetsAction(userId: string): Promise<Asset[]> {
         currency: 'USD',
         source: data.source || 'MANUAL',
         category_id: data.category_id || 'uncategorized',
-        multiplier: multiplier,
-
-        original_currency: currency,
-        original_avg_cost: avgCost,
+        multiplier,
+        prices: data.prices || undefined,
+        metrics: data.metrics || undefined,
+        original_currency: data.original_currency || data.currency || 'USD',
+        original_avg_cost: parseFloat(data.original_avg_cost ?? avgCost) || avgCost,
         original_current_price: currentPrice,
         strike: data.strike || '',
         right: data.right || '',
         expiry: data.expiry || '',
-        type: type,
+        type,
         sector: data.sector || null,
         industry: data.industry || null,
       };

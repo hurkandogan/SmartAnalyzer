@@ -115,6 +115,7 @@ export default function Dashboard() {
           profitPercentage={portfolio?.pnl_percentage || 0}
           prevTotalValue={lastHistory?.total_market_value}
           prevInvested={lastHistory?.total_cost_basis}
+          totals={portfolio?.totals}
         />
 
         <AccountSummaryWidget selectedCurrency={dashboardCurrency} />

@@ -25,7 +25,7 @@ const COLORS = [
 ];
 
 const renderActiveShape = (props: any) => {
-  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, payload, value } = props;
+  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, payload } = props;
 
   return (
     <g>
@@ -52,12 +52,12 @@ const renderActiveShape = (props: any) => {
 export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChartProps) => {
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const data = useMemo(() => {
-    if (!assets || assets.length === 0) return [];
-    
+  const { data, negativeCashAsset } = useMemo(() => {
+    if (!assets || assets.length === 0) return { data: [], negativeCashAsset: null };
+
     // Filter out options as they distort the underlying asset allocation
-    const nonOptionAssets = assets.filter(a => {
-      const isOption = 
+    const nonOptionAssets = assets.filter((a) => {
+      const isOption =
         a.type === 'OPTION' ||
         Boolean(a.strike) ||
         Boolean(a.expiry) ||
@@ -69,66 +69,62 @@ export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChar
       return !isOption;
     });
 
-    if (nonOptionAssets.length === 0) return [];
+    if (nonOptionAssets.length === 0) return { data: [], negativeCashAsset: null };
 
-    // Calculate value for each asset properly using amount, current_price, and multiplier
-    const calculatedAssets = nonOptionAssets.map(a => {
-      // Avoid NaN issues by defaulting to 0 or 1
+    // Calculate true signed market value (NEVER Math.abs negative cash/margin!)
+    const calculatedAssets = nonOptionAssets.map((a) => {
       const amt = a.amount || 0;
       const price = a.current_price || 0;
       const mult = a.multiplier || 1;
-      
-      // Calculate true market value, taking absolute value to handle short positions in the donut chart
-      let val = Math.abs(amt * price * mult);
-      
-      // If there's a pre-calculated market_value property, you can also use that
-      if (a.market_value !== undefined) {
-        val = Math.abs(a.market_value);
-      }
-      
+
+      const val =
+        a.metrics?.market_value?.USD ??
+        (a.market_value !== undefined ? a.market_value : amt * price * mult);
+
       return {
         ...a,
-        calculatedValue: val
+        calculatedValue: val,
       };
     });
 
-    const positiveAssets = calculatedAssets.filter(a => a.calculatedValue > 0);
-    if (positiveAssets.length === 0) return [];
+    const negCash = calculatedAssets.find(
+      (a) => (a.type === 'CASH' || a.category_id === 'cash') && a.calculatedValue <= 0
+    );
 
-    // Base the distribution percentages on the actual sum of displayed assets so it sums to 100%
+    // Only strictly positive assets (> 0) enter the pie chart slices
+    const positiveAssets = calculatedAssets.filter((a) => a.calculatedValue > 0);
+    if (positiveAssets.length === 0) return { data: [], negativeCashAsset: negCash || null };
+
     const totalAllocatedValue = positiveAssets.reduce((sum, item) => sum + item.calculatedValue, 0);
     const denominator = totalAllocatedValue > 0 ? totalAllocatedValue : totalValue;
 
-    // Sort by value descending
     positiveAssets.sort((a, b) => b.calculatedValue - a.calculatedValue);
-    
-    let chartData = positiveAssets.map(a => {
-      return {
-        name: a.name || a.symbol,
-        symbol: a.symbol,
-        value: a.calculatedValue,
-        percent: denominator > 0 ? a.calculatedValue / denominator : 0
-      };
-    });
-    
+
+    let chartData = positiveAssets.map((a) => ({
+      name: a.name || a.symbol,
+      symbol: a.symbol,
+      value: a.calculatedValue,
+      percent: denominator > 0 ? a.calculatedValue / denominator : 0,
+    }));
+
     // Group small assets into "Other" if there are more than 12
     if (chartData.length > 12) {
       const top11 = chartData.slice(0, 11);
       const others = chartData.slice(11);
       const othersValue = others.reduce((sum, item) => sum + item.value, 0);
-      
+
       chartData = [
         ...top11,
         {
           name: 'Other Assets',
           symbol: 'OTHER',
           value: othersValue,
-          percent: denominator > 0 ? othersValue / denominator : 0
-        }
+          percent: denominator > 0 ? othersValue / denominator : 0,
+        },
       ];
     }
-    
-    return chartData;
+
+    return { data: chartData, negativeCashAsset: negCash || null };
   }, [assets, totalValue]);
 
   if (data.length === 0) return null;
@@ -170,24 +166,24 @@ export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChar
                   paddingAngle={2}
                 >
                   {data.map((entry, index) => (
-                    <Cell 
-                      key={`cell-${index}`} 
-                      fill={COLORS[index % COLORS.length]} 
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={COLORS[index % COLORS.length]}
                       className="transition-all duration-300 hover:opacity-80 cursor-pointer"
                     />
                   ))}
                 </Pie>
-                <Tooltip 
+                <Tooltip
                   formatter={(value: any, name: any, props: any) => [
-                    `${(props.payload.percent * 100).toFixed(2)}%`, 
-                    props.payload.symbol
+                    `${(props.payload.percent * 100).toFixed(2)}%`,
+                    props.payload.symbol,
                   ]}
                   contentStyle={{
                     backgroundColor: 'rgba(0, 0, 0, 0.8)',
                     borderRadius: '12px',
                     border: 'none',
                     color: '#fff',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
                   }}
                   itemStyle={{ color: '#fff', fontWeight: 'bold' }}
                 />
@@ -198,18 +194,18 @@ export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChar
           {/* Legend Boxes Section */}
           <div className="w-full lg:w-1/2 grid grid-cols-2 sm:grid-cols-3 gap-3">
             {data.map((entry, index) => (
-              <div 
+              <div
                 key={entry.symbol}
                 className={`flex flex-col gap-1 p-3 rounded-xl border transition-all duration-300 cursor-pointer ${
-                  activeIndex === index 
-                    ? 'bg-base-200 border-base-content/20 shadow-sm scale-[1.02]' 
+                  activeIndex === index
+                    ? 'bg-base-200 border-base-content/20 shadow-sm scale-[1.02]'
                     : 'bg-base-100/50 border-base-content/5 hover:bg-base-200/50 hover:border-base-content/10'
                 }`}
                 onMouseEnter={() => setActiveIndex(index)}
               >
                 <div className="flex items-center gap-2">
-                  <div 
-                    className="w-3 h-3 rounded-full shadow-sm" 
+                  <div
+                    className="w-3 h-3 rounded-full shadow-sm"
                     style={{ backgroundColor: COLORS[index % COLORS.length] }}
                   />
                   <span className="font-bold text-sm truncate" title={entry.name}>
@@ -226,6 +222,29 @@ export const AssetAllocationChart = ({ assets, totalValue }: AssetAllocationChar
                 </div>
               </div>
             ))}
+
+            {negativeCashAsset && (
+              <div
+                key="negative-cash-indicator"
+                className="flex flex-col gap-1 p-3 rounded-xl border border-error/20 bg-error/5 opacity-80"
+                title={`Margin Cash: $${negativeCashAsset.calculatedValue.toFixed(0)}`}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-error/60 shadow-sm" />
+                  <span className="font-bold text-sm truncate text-error">
+                    {negativeCashAsset.symbol}
+                  </span>
+                </div>
+                <div className="flex items-end justify-between pl-5">
+                  <span className="text-xs text-error/70 truncate max-w-[65px]">
+                    Margin
+                  </span>
+                  <span className="font-mono font-medium text-sm text-error">
+                    0.0%
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

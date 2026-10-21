@@ -110,6 +110,7 @@ class ScreenerUniverse(Base):
     source_index = Column(String(50), nullable=True) # e.g. SP500, Custom
     added_at = Column(DateTime, nullable=True)
     is_active = Column(Integer, default=1) # 1=Active, 0=Dropped
+    is_starred = Column(Integer, default=0) # 1=Superlist (Starred), 0=Normal
 
     # IBKR contract details cache
     con_id = Column(Integer, nullable=True)

@@ -1,7 +1,6 @@
 import React from 'react';
 import JobPanel from './JobPanel';
 import LogTerminal from './LogTerminal';
-import ScreenerAdmin from './ScreenerAdmin';
 
 export default function ManagementTerminal() {
   return (
@@ -11,9 +10,8 @@ export default function ManagementTerminal() {
         <JobPanel />
       </div>
 
-      {/* Main Content: Screener & Logs */}
+      {/* Main Content: Logs */}
       <div className="flex-1 w-full flex flex-col gap-8 min-w-0">
-        <ScreenerAdmin />
         <LogTerminal />
       </div>
     </div>

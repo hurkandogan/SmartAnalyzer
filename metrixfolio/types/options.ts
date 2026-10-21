@@ -1,4 +1,5 @@
 export type OptionType = 'BUY_PUT' | 'BUY_CALL' | 'SELL_PUT' | 'SELL_CALL';
+export type OptionCloseType = 'NORMAL' | 'ASSIGNED';
 
 export interface OptionPosition {
   id: string;
@@ -14,7 +15,15 @@ export interface OptionPosition {
   note: string;
   created_at: number;
 
-  // New fields
+  // Closure / Assignment handling
+  close_type?: OptionCloseType | null;
+  is_assigned?: boolean | null;
+
+  // Multi-leg strategy grouping
+  group_id?: string | null;
+  strategy_name?: string | null;
+
+  // Option Greeks & Metrics
   strike_price?: number | null;
   expiry_date?: string | null;
   delta?: number | null;
@@ -26,5 +35,5 @@ export interface OptionPosition {
   earnings_date?: string | null;
   margin_required?: number | null;
   aroc?: number | null;
+  dte?: number | null;
 }
-

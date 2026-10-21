@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import useSWR from 'swr';
 import { useAuth } from '@/context/AuthProvider';
 import {
@@ -27,6 +27,7 @@ import {
 import { Asset, ClosedAsset } from '@/types/positions';
 import { Category } from '@/types/settings';
 import { getCategoriesAction } from '@/actions/categories';
+import { getExchangeRatesAction } from '@/actions/currency';
 import AddManualAssetModal from './components/AddManualAssetsModal';
 
 type SortKey =
@@ -54,6 +55,19 @@ const calculateDTE = (expiryStr: string) => {
 export default function PositionsPage() {
   const { user } = useAuth();
   const [currentTab, setCurrentTab] = useState<'OPEN' | 'CLOSED'>('OPEN');
+  const [selectedCurrency, setSelectedCurrency] = useState<'USD' | 'EUR' | 'TRY'>('USD');
+
+  useEffect(() => {
+    const saved = localStorage.getItem('preferred_currency') as 'USD' | 'EUR' | 'TRY';
+    if (saved && ['USD', 'EUR', 'TRY'].includes(saved)) {
+      setSelectedCurrency(saved);
+    }
+  }, []);
+
+  const handleCurrencyChange = (curr: 'USD' | 'EUR' | 'TRY') => {
+    setSelectedCurrency(curr);
+    localStorage.setItem('preferred_currency', curr);
+  };
 
   const [sortConfig, setSortConfig] = useState<{
     key: SortKey;
@@ -77,10 +91,11 @@ export default function PositionsPage() {
   const { data, mutate, isLoading } = useSWR(
     user ? ['positions-data', user.uid] : null,
     async ([_, uid]) => {
-      let [assetsData, closedData, categoriesData] = await Promise.all([
+      let [assetsData, closedData, categoriesData, ratesData] = await Promise.all([
         getAssetsAction(uid),
         getClosedAssetsAction(uid),
         getCategoriesAction(uid),
+        getExchangeRatesAction(),
       ]);
 
       const zeroQtyIds = assetsData
@@ -91,7 +106,12 @@ export default function PositionsPage() {
         assetsData = assetsData.filter((a) => a.amount !== 0);
       }
 
-      return { assets: assetsData, closedAssets: closedData, categories: categoriesData };
+      return {
+        assets: assetsData,
+        closedAssets: closedData,
+        categories: categoriesData,
+        rates: ratesData,
+      };
     },
     { revalidateOnFocus: true }
   );
@@ -99,6 +119,7 @@ export default function PositionsPage() {
   const assets = data?.assets || [];
   const closedAssets = data?.closedAssets || [];
   const categories = data?.categories || [];
+  const rates = data?.rates || [];
 
   const modalRef = useRef<HTMLDialogElement>(null);
   const closePortalRef = useRef<HTMLDialogElement>(null);
@@ -206,17 +227,71 @@ export default function PositionsPage() {
     return cat ? cat.name : catId;
   };
 
-  const formatMoney = (val: string, currency: string) => {
-    const num = parseFloat(val);
+  const ratesMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    rates.forEach((r) => {
+      map[`${r.from}_${r.to}`] = r.rate;
+    });
+    return map;
+  }, [rates]);
+
+  const getAssetPrice = (asset: Asset, curr: 'USD' | 'EUR' | 'TRY'): number => {
+    if (asset.prices?.current?.[curr] !== undefined) return asset.prices.current[curr];
+    const usd = asset.current_price || 0;
+    if (curr === 'USD') return usd;
+    const rate = ratesMap[`USD_${curr}`];
+    return rate ? usd * rate : usd;
+  };
+
+  const getAssetAvgCost = (asset: Asset, curr: 'USD' | 'EUR' | 'TRY'): number => {
+    if (asset.prices?.avg_cost?.[curr] !== undefined) return asset.prices.avg_cost[curr];
+    const usd = asset.avg_cost || 0;
+    if (curr === 'USD') return usd;
+    const rate = ratesMap[`USD_${curr}`];
+    return rate ? usd * rate : usd;
+  };
+
+  const getAssetMarketValue = (asset: Asset, curr: 'USD' | 'EUR' | 'TRY'): number => {
+    if (asset.metrics?.market_value?.[curr] !== undefined) return asset.metrics.market_value[curr];
+    const usd = asset.market_value !== undefined ? asset.market_value : (asset.current_price || 0) * (asset.amount || 0) * (asset.multiplier || 1);
+    if (curr === 'USD') return usd;
+    const rate = ratesMap[`USD_${curr}`];
+    return rate ? usd * rate : usd;
+  };
+
+  const getAssetUnrealizedPnl = (asset: Asset, curr: 'USD' | 'EUR' | 'TRY'): number => {
+    if (asset.metrics?.unrealized_pnl?.[curr] !== undefined) return asset.metrics.unrealized_pnl[curr];
+    const usd = asset.unrealized_pnl !== undefined ? asset.unrealized_pnl : ((asset.current_price || 0) - (asset.avg_cost || 0)) * (asset.amount || 0) * (asset.multiplier || 1);
+    if (curr === 'USD') return usd;
+    const rate = ratesMap[`USD_${curr}`];
+    return rate ? usd * rate : usd;
+  };
+
+  const convertMoney = (val: number, fromCurr: string, toCurr: 'USD' | 'EUR' | 'TRY'): number => {
+    if (!val) return 0;
+    if (fromCurr === toCurr) return val;
+    let inUsd = val;
+    if (fromCurr !== 'USD') {
+      const fromRate = ratesMap[`${fromCurr}_USD`] || (ratesMap[`USD_${fromCurr}`] ? 1 / ratesMap[`USD_${fromCurr}`] : 1);
+      inUsd = val * fromRate;
+    }
+    if (toCurr === 'USD') return inUsd;
+    const toRate = ratesMap[`USD_${toCurr}`] || 1;
+    return inUsd * toRate;
+  };
+
+  const formatMoney = (val: number | string, currency: string) => {
+    const num = typeof val === 'number' ? val : parseFloat(val);
     if (isNaN(num)) return '-';
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat(currency === 'TRY' ? 'tr-TR' : currency === 'EUR' ? 'de-DE' : 'en-US', {
       style: 'currency',
       currency: currency,
       minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(num);
   };
 
-  const enrichedAssets = assets.map(asset => {
+  const enrichedAssets = assets.map((asset) => {
     const mult = asset.multiplier || 1;
     const computedPnl = asset.unrealized_pnl !== undefined
       ? asset.unrealized_pnl
@@ -227,7 +302,7 @@ export default function PositionsPage() {
     return {
       ...asset,
       unrealized_pnl: computedPnl,
-      market_value: computedValue
+      market_value: computedValue,
     };
   });
 
@@ -266,9 +341,18 @@ export default function PositionsPage() {
       if (key === 'category_id') {
         valA = getCategoryName(a.category_id);
         valB = getCategoryName(b.category_id);
+      } else if (key === 'avg_cost') {
+        valA = getAssetAvgCost(a, selectedCurrency);
+        valB = getAssetAvgCost(b, selectedCurrency);
+      } else if (key === 'current_price') {
+        valA = getAssetPrice(a, selectedCurrency);
+        valB = getAssetPrice(b, selectedCurrency);
+      } else if (key === 'market_value') {
+        valA = getAssetMarketValue(a, selectedCurrency);
+        valB = getAssetMarketValue(b, selectedCurrency);
       } else if (key === 'unrealized_pnl') {
-        valA = parseFloat(a.unrealized_pnl as any) || 0;
-        valB = parseFloat(b.unrealized_pnl as any) || 0;
+        valA = getAssetUnrealizedPnl(a, selectedCurrency);
+        valB = getAssetUnrealizedPnl(b, selectedCurrency);
       }
       if (valA < valB) return direction === 'asc' ? -1 : 1;
       if (valA > valB) return direction === 'asc' ? 1 : -1;
@@ -294,11 +378,11 @@ export default function PositionsPage() {
   };
 
   const totalMarketValue = portfolioAssets.reduce(
-    (sum, asset) => sum + (asset.market_value || 0),
+    (sum, asset) => sum + getAssetMarketValue(asset, selectedCurrency),
     0,
   );
   const totalUnrealizedPnl = portfolioAssets.reduce(
-    (sum, asset) => sum + (asset.unrealized_pnl || 0),
+    (sum, asset) => sum + getAssetUnrealizedPnl(asset, selectedCurrency),
     0,
   );
 
@@ -522,15 +606,33 @@ export default function PositionsPage() {
       </dialog>
 
       {/* Header */}
-      <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
+      <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="text-3xl font-bold">Positions</h1>
           <p className="text-base-content/70">
             Manage your assets and categories
           </p>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <AddManualAssetModal categories={categories} onSuccess={() => mutate()} />
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Currency Switcher (USD / EUR / TRY) */}
+          <div className="join bg-base-100/90 border-base-content/15 border shadow-sm">
+            {(['USD', 'EUR', 'TRY'] as const).map((curr) => (
+              <button
+                key={curr}
+                type="button"
+                className={`join-item btn btn-sm font-bold transition-all ${
+                  selectedCurrency === curr
+                    ? 'btn-primary shadow text-primary-content'
+                    : 'btn-ghost opacity-70 hover:opacity-100'
+                }`}
+                onClick={() => handleCurrencyChange(curr)}
+                title={`Display positions in ${curr}`}
+              >
+                {curr === 'USD' ? '$ USD' : curr === 'EUR' ? '€ EUR' : '₺ TRY'}
+              </button>
+            ))}
+          </div>
+
           <div className="join bg-base-100 border-base-200 border">
             <button
               className={`join-item btn btn-sm px-6 ${currentTab === 'OPEN' ? 'btn-primary' : 'btn-ghost'}`}
@@ -545,6 +647,8 @@ export default function PositionsPage() {
               Closed
             </button>
           </div>
+
+          <AddManualAssetModal categories={categories} onSuccess={() => mutate()} />
         </div>
       </div>
 
@@ -565,7 +669,7 @@ export default function PositionsPage() {
                     <th>Source</th>
                     <th>Asset</th>
                     <th>Qty</th>
-                    <th>Price</th>
+                    <th>Price ({selectedCurrency})</th>
                     <th className="text-right">Action</th>
                   </tr>
                 </thead>
@@ -582,8 +686,11 @@ export default function PositionsPage() {
                         <div className="text-xs opacity-50">{asset.name}</div>
                       </td>
                       <td>{asset.amount}</td>
-                      <td>
-                        {formatMoney(asset.current_price.toString(), 'USD')}
+                      <td className="font-mono">
+                        {formatMoney(
+                          getAssetPrice(asset, selectedCurrency),
+                          selectedCurrency,
+                        )}
                       </td>
                       <td className="text-right">
                         <div className="flex justify-end gap-2">
@@ -618,10 +725,16 @@ export default function PositionsPage() {
               {currentTab === 'OPEN' ? (
                 <>
                   <FiCheckCircle className="text-success" /> Active Portfolio
+                  <span className="badge badge-sm badge-ghost font-mono opacity-80">
+                    in {selectedCurrency}
+                  </span>
                 </>
               ) : (
                 <>
                   <FiCalendar className="text-primary" /> Realized Performance
+                  <span className="badge badge-sm badge-ghost font-mono opacity-80">
+                    in {selectedCurrency}
+                  </span>
                 </>
               )}
             </h2>
@@ -670,98 +783,123 @@ export default function PositionsPage() {
                       className="hover:bg-base-200 cursor-pointer text-right"
                       onClick={() => handleSort('avg_cost')}
                     >
-                      Avg Cost {renderSortIcon('avg_cost')}
+                      Avg Cost ({selectedCurrency}) {renderSortIcon('avg_cost')}
                     </th>
                     <th
                       className="hover:bg-base-200 cursor-pointer text-right"
                       onClick={() => handleSort('current_price')}
                     >
-                      Price {renderSortIcon('current_price')}
+                      Price ({selectedCurrency}) {renderSortIcon('current_price')}
                     </th>
                     <th
                       className="hover:bg-base-200 cursor-pointer text-right"
                       onClick={() => handleSort('market_value')}
                     >
-                      Value {renderSortIcon('market_value')}
+                      Value ({selectedCurrency}) {renderSortIcon('market_value')}
                     </th>
                     <th
                       className="hover:bg-base-200 cursor-pointer text-right"
                       onClick={() => handleSort('unrealized_pnl')}
                     >
-                      P/L {renderSortIcon('unrealized_pnl')}
+                      P/L ({selectedCurrency}) {renderSortIcon('unrealized_pnl')}
                     </th>
                     <th className="text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAndSortedAssets.map((asset) => (
-                    <tr key={asset.id} className="hover">
-                      <td>
-                        <span
-                          className={`badge text-xs font-bold ${asset.source === 'IBKR' ? 'badge-error text-white' : 'badge-info text-white'}`}
+                  {filteredAndSortedAssets.map((asset) => {
+                    const priceVal = getAssetPrice(asset, selectedCurrency);
+                    const avgCostVal = getAssetAvgCost(asset, selectedCurrency);
+                    const marketVal = getAssetMarketValue(asset, selectedCurrency);
+                    const pnlVal = getAssetUnrealizedPnl(asset, selectedCurrency);
+                    const pnlPct = asset.metrics?.pnl_percent;
+
+                    return (
+                      <tr key={asset.id} className="hover">
+                        <td>
+                          <span
+                            className={`badge text-xs font-bold ${asset.source === 'IBKR' ? 'badge-error text-white' : 'badge-info text-white'}`}
+                          >
+                            {asset.source}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="font-bold">
+                            {asset.symbol}
+                            {asset.type === 'OPTION' && asset.expiry && (
+                              (() => {
+                                const dte = calculateDTE(asset.expiry);
+                                return dte !== null ? (
+                                  <span
+                                    className={`ml-2 badge badge-xs font-bold text-white ${
+                                      dte <= 14
+                                        ? 'badge-error'
+                                        : dte <= 21
+                                          ? 'badge-warning'
+                                          : 'badge-success'
+                                    }`}
+                                  >
+                                    {dte} DTE
+                                  </span>
+                                ) : null;
+                              })()
+                            )}
+                          </div>
+                          <div className="text-xs opacity-50">{asset.name}</div>
+                        </td>
+                        <td>
+                          <div className="badge badge-outline">
+                            {getCategoryName(asset.category_id)}
+                          </div>
+                        </td>
+                        <td className="text-right font-mono">{asset.amount}</td>
+                        <td className="text-right font-mono">
+                          {formatMoney(avgCostVal, selectedCurrency)}
+                        </td>
+                        <td className="text-right font-mono">
+                          {formatMoney(priceVal, selectedCurrency)}
+                        </td>
+                        <td className="text-right font-mono">
+                          {formatMoney(marketVal, selectedCurrency)}
+                        </td>
+                        <td
+                          className={`text-right font-mono font-bold ${
+                            pnlVal >= 0 ? 'text-success' : 'text-error'
+                          }`}
                         >
-                          {asset.source}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="font-bold">
-                          {asset.symbol}
-                          {asset.type === 'OPTION' && asset.expiry && (
-                            (() => {
-                              const dte = calculateDTE(asset.expiry);
-                              return dte !== null ? (
-                                <span className={`ml-2 badge badge-xs font-bold text-white ${dte <= 14 ? 'badge-error' : dte <= 21 ? 'badge-warning' : 'badge-success'}`}>
-                                  {dte} DTE
-                                </span>
-                              ) : null;
-                            })()
-                          )}
-                        </div>
-                        <div className="text-xs opacity-50">{asset.name}</div>
-                      </td>
-                      <td>
-                        <div className="badge badge-outline">
-                          {getCategoryName(asset.category_id)}
-                        </div>
-                      </td>
-                      <td className="text-right font-mono">{asset.amount}</td>
-                      <td className="text-right font-mono">
-                        {formatMoney(asset.avg_cost.toString(), 'USD')}
-                      </td>
-                      <td className="text-right font-mono">
-                        {formatMoney(asset.current_price.toString(), 'USD')}
-                      </td>
-                      <td className="text-right font-mono">
-                        {formatMoney(
-                          (asset.market_value || 0).toString(),
-                          'USD',
-                        )}
-                      </td>
-                      <td
-                        className={`text-right font-mono font-bold ${asset.unrealized_pnl >= 0 ? 'text-success' : 'text-error'}`}
-                      >
-                        {asset.unrealized_pnl > 0 ? '+' : ''}
-                        {formatMoney(asset.unrealized_pnl.toString(), 'USD')}
-                      </td>
-                      <td className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            className="btn btn-square btn-ghost btn-xs text-info"
-                            onClick={() => openEditModal(asset)}
-                            title="Edit"
-                          >
-                            <FiEdit2 />
-                          </button>
-                          <button
-                            className="btn btn-outline btn-primary btn-xs"
-                            onClick={() => openCloseModal(asset)}
-                          >
-                            Close
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                          <div className="flex flex-col items-end">
+                            <span>
+                              {pnlVal > 0 ? '+' : ''}
+                              {formatMoney(pnlVal, selectedCurrency)}
+                            </span>
+                            {pnlPct !== undefined && pnlPct !== null && (
+                              <span className="text-[10px] font-normal opacity-70">
+                                {pnlPct >= 0 ? '+' : ''}
+                                {pnlPct.toFixed(2)}%
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              className="btn btn-square btn-ghost btn-xs text-info"
+                              onClick={() => openEditModal(asset)}
+                              title="Edit"
+                            >
+                              <FiEdit2 />
+                            </button>
+                            <button
+                              className="btn btn-outline btn-primary btn-xs"
+                              onClick={() => openCloseModal(asset)}
+                            >
+                              Close
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {filteredAndSortedAssets.length === 0 && (
                     <tr>
                       <td colSpan={9} className="py-8 text-center opacity-50">
@@ -774,15 +912,18 @@ export default function PositionsPage() {
                   <tfoot>
                     <tr className="bg-base-200/50 text-base-content font-bold">
                       <td colSpan={6} className="text-right">
-                        TOTALS:
+                        TOTALS ({selectedCurrency}):
                       </td>
                       <td className="text-right font-mono text-lg">
-                        {formatMoney(totalMarketValue.toString(), 'USD')}
+                        {formatMoney(totalMarketValue, selectedCurrency)}
                       </td>
                       <td
-                        className={`text-right font-mono text-lg ${totalUnrealizedPnl >= 0 ? 'text-success' : 'text-error'}`}
+                        className={`text-right font-mono text-lg ${
+                          totalUnrealizedPnl >= 0 ? 'text-success' : 'text-error'
+                        }`}
                       >
-                        {formatMoney(totalUnrealizedPnl.toString(), 'USD')}
+                        {totalUnrealizedPnl > 0 ? '+' : ''}
+                        {formatMoney(totalUnrealizedPnl, selectedCurrency)}
                       </td>
                       <td></td>
                     </tr>
@@ -797,64 +938,88 @@ export default function PositionsPage() {
                     <th>Source</th>
                     <th>Asset</th>
                     <th className="text-right">Qty</th>
-                    <th className="text-right">Avg Cost</th>
-                    <th className="text-right">Exit Price</th>
-                    <th className="text-right">Realized P/L</th>
+                    <th className="text-right">Avg Cost ({selectedCurrency})</th>
+                    <th className="text-right">Exit Price ({selectedCurrency})</th>
+                    <th className="text-right">Realized P/L ({selectedCurrency})</th>
                     <th className="text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredClosedAssets.map((asset) => (
-                    <tr key={asset.id} className="hover">
-                      <td className="text-xs opacity-70">
-                        {new Date(asset.close_date * 1000).toLocaleDateString()}
-                      </td>
-                      <td>
-                        <span
-                          className={`badge badge-xs text-[10px] font-bold ${asset.source === 'IBKR' ? 'badge-error text-white' : 'badge-info text-white'}`}
+                  {filteredClosedAssets.map((asset) => {
+                    const avgCostConverted = convertMoney(
+                      asset.avg_cost,
+                      asset.currency || 'USD',
+                      selectedCurrency,
+                    );
+                    const closePriceConverted = convertMoney(
+                      asset.close_price,
+                      asset.currency || 'USD',
+                      selectedCurrency,
+                    );
+                    const realizedPnlConverted = convertMoney(
+                      asset.realized_pnl,
+                      asset.currency || 'USD',
+                      selectedCurrency,
+                    );
+
+                    return (
+                      <tr key={asset.id} className="hover">
+                        <td className="text-xs opacity-70">
+                          {new Date(asset.close_date * 1000).toLocaleDateString()}
+                        </td>
+                        <td>
+                          <span
+                            className={`badge badge-xs text-[10px] font-bold ${
+                              asset.source === 'IBKR'
+                                ? 'badge-error text-white'
+                                : 'badge-info text-white'
+                            }`}
+                          >
+                            {asset.source}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="font-bold">{asset.symbol}</div>
+                          <div className="text-[10px] opacity-50">
+                            {asset.name}
+                          </div>
+                        </td>
+                        <td className="text-right font-mono">{asset.amount}</td>
+                        <td className="small text-right font-mono">
+                          {formatMoney(avgCostConverted, selectedCurrency)}
+                        </td>
+                        <td className="small text-primary text-right font-mono">
+                          {formatMoney(closePriceConverted, selectedCurrency)}
+                        </td>
+                        <td
+                          className={`text-right font-mono font-bold ${
+                            realizedPnlConverted >= 0 ? 'text-success' : 'text-error'
+                          }`}
                         >
-                          {asset.source}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="font-bold">{asset.symbol}</div>
-                        <div className="text-[10px] opacity-50">
-                          {asset.name}
-                        </div>
-                      </td>
-                      <td className="text-right font-mono">{asset.amount}</td>
-                      <td className="small text-right font-mono">
-                        {formatMoney(asset.avg_cost.toString(), 'USD')}
-                      </td>
-                      <td className="small text-primary text-right font-mono">
-                        {formatMoney(asset.close_price.toString(), 'USD')}
-                      </td>
-                      <td
-                        className={`text-right font-mono font-bold ${asset.realized_pnl >= 0 ? 'text-success' : 'text-error'}`}
-                      >
-                        {asset.realized_pnl > 0 ? '+' : ''}
-                        {formatMoney(asset.realized_pnl.toString(), 'USD')}
-                      </td>
-                      <td className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            className="btn btn-square btn-ghost btn-xs text-info"
-                            onClick={() => openEditModal(asset)}
-                            title="Edit Trade"
-                          >
-                            <FiEdit2 />
-                          </button>
-                          <button
-                            className="btn btn-square btn-ghost btn-xs text-error"
-                            onClick={() => handleDeleteClosedAsset(asset.id)}
-                            title="Delete Trade"
-                          >
-                            <FiTrash2 />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                          {realizedPnlConverted > 0 ? '+' : ''}
+                          {formatMoney(realizedPnlConverted, selectedCurrency)}
+                        </td>
+                        <td className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              className="btn btn-square btn-ghost btn-xs text-info"
+                              onClick={() => openEditModal(asset)}
+                              title="Edit Trade"
+                            >
+                              <FiEdit2 />
+                            </button>
+                            <button
+                              className="btn btn-square btn-ghost btn-xs text-error"
+                              onClick={() => handleDeleteClosedAsset(asset.id)}
+                              title="Delete Trade"
+                            >
+                              <FiTrash2 />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {filteredClosedAssets.length === 0 && (
                     <tr>
                       <td colSpan={8} className="py-8 text-center opacity-50">
