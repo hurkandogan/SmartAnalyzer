@@ -3,7 +3,16 @@
 import { FC, useState, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useCurrencyConverter } from '@/hooks/useCurrencyConverter';
-import { FiArrowUp, FiArrowDown, FiCheck, FiAlertTriangle, FiActivity, FiPieChart, FiSun } from 'react-icons/fi';
+import {
+  FiArrowUp,
+  FiArrowDown,
+  FiCheck,
+  FiAlertTriangle,
+  FiActivity,
+  FiPieChart,
+  FiSun,
+  FiChevronRight,
+} from 'react-icons/fi';
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/context/AuthProvider';
 import { updateCategoryTargetAction } from '@/actions/categories';
@@ -30,6 +39,18 @@ interface CategoryCardsProps {
   totalPortfolioValue?: number;
   selectedCurrency?: string;
 }
+
+const computeProgressValue = (actualPct: number, targetPct: number) => {
+  if (targetPct > 0) {
+    if (actualPct <= 0) return 0;
+    return Math.min((actualPct / targetPct) * 100, 100);
+  }
+  if (targetPct < 0) {
+    if (actualPct >= 0) return 0;
+    return Math.min((Math.abs(actualPct) / Math.abs(targetPct)) * 100, 100);
+  }
+  return 0;
+};
 
 export const CategoryCards: FC<CategoryCardsProps> = ({
   categories,
@@ -117,14 +138,24 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
     return { sellAssignmentRisk, buyPremiumPaid };
   }, [assets, convert, ccy]);
 
-  const sortedCategories = [...categories].sort((a, b) => {
-    const ORDER = ['uncategorized', 'defensive', 'growth', 'cash', 'crypto', 'others', 'options_sell', 'options_buy'];
-    const indexA = ORDER.indexOf(a.id);
-    const indexB = ORDER.indexOf(b.id);
-    const sortA = indexA === -1 ? 99 : indexA;
-    const sortB = indexB === -1 ? 99 : indexB;
-    return sortA - sortB;
-  });
+  const sortedCategories = useMemo(() => {
+    const ORDER: Record<string, number> = {
+      uncategorized: 0,
+      cash: 10,
+      defensive: 20,
+      growth: 30,
+      options_sell: 40,
+      options_buy: 41,
+      options: 42,
+      crypto: 50,
+      others: 90,
+    };
+    return [...categories].sort((a, b) => {
+      const sortA = ORDER[a.id] ?? 60;
+      const sortB = ORDER[b.id] ?? 60;
+      return sortA - sortB;
+    });
+  }, [categories]);
 
   return (
     <>
@@ -246,7 +277,16 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
         </form>
       </dialog>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between px-1 mb-1">
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <span>🏷️</span> Category Allocations
+          </h2>
+          <span className="text-xs opacity-50 hidden sm:inline">
+            Click any category to view history or adjust target
+          </span>
+        </div>
+
         {sortedCategories.map((cat) => {
           const isUncategorized = cat.id === 'uncategorized';
           const isShortCategory = cat.target_percentage < 0;
@@ -321,28 +361,46 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
             }
           }
 
+          const progressValue = computeProgressValue(
+            cat.actual_percentage,
+            cat.target_percentage,
+          );
+
           if (isUncategorized) {
             return (
               <div
                 key={cat.id}
-                className="card bg-warning/10 backdrop-blur-md border-warning/30 relative overflow-hidden border shadow-md transition-all hover:shadow-lg h-full"
+                className="card bg-warning/10 backdrop-blur-md border border-warning/30 shadow-sm p-4 rounded-2xl"
               >
-                <div className="text-warning/10 absolute -top-6 -right-6">
-                  <FiAlertTriangle size={120} />
-                </div>
-                <div className="card-body relative z-10 flex flex-col h-full">
-                  <h3 className="card-title text-warning flex items-center gap-2">
-                    <FiAlertTriangle /> Action Needed
-                  </h3>
-                  <p className="text-sm opacity-80">
-                    You have{' '}
-                    <span className="font-bold">
+                <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4 w-full">
+                  <div className="sm:col-span-4 flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-warning/20 text-warning flex items-center justify-center shrink-0">
+                      <FiAlertTriangle size={20} />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-sm text-warning truncate">
+                        Uncategorized Assets
+                      </h3>
+                      <span className="badge badge-warning/20 text-warning border-warning/30 badge-xs font-semibold py-1 px-1.5 mt-0.5">
+                        Action Needed
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-4 flex flex-col items-start sm:items-center justify-center text-left sm:text-center min-w-0">
+                    <span className="text-lg sm:text-xl font-extrabold tracking-tight">
                       {formatCcy(cCatValue)}
-                    </span>{' '}
-                    in uncategorized assets.
-                  </p>
-                  <div className="card-actions mt-auto justify-end pt-4">
-                    <Link href="/positions" className="btn btn-warning btn-sm">
+                    </span>
+                    <span className="text-xs text-base-content/60 mt-0.5">
+                      Needs Classification
+                    </span>
+                  </div>
+
+                  <div className="sm:col-span-4 flex items-center justify-end w-full">
+                    <Link
+                      href="/positions"
+                      className="btn btn-warning btn-sm shrink-0"
+                    >
                       Fix Positions
                     </Link>
                   </div>
@@ -353,104 +411,143 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
 
           if (cat.id === 'options_sell') {
             const isDanger = optionsMetrics.sellAssignmentRisk > totalPortfolioValue;
+            const coveragePct =
+              totalPortfolioValue > 0
+                ? (optionsMetrics.sellAssignmentRisk / totalPortfolioValue) * 100
+                : 0;
             
             return (
               <div
                 key={cat.id}
                 onClick={() => handleCardClick(cat)}
-                className="card bg-base-100/50 backdrop-blur-md cursor-pointer border border-base-content/5 shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md h-full"
+                className="card bg-base-100/60 backdrop-blur-md cursor-pointer border border-base-content/10 shadow-sm transition-all duration-200 hover:border-primary/40 hover:shadow-md hover:bg-base-100 p-4 rounded-2xl group"
               >
-                <div className="card-body p-5 flex flex-col h-full">
-                  <div className="mb-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 truncate text-xs font-bold tracking-wider uppercase opacity-50">
+                <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4 w-full">
+                  {/* Category Name & Color Bar (Left) */}
+                  <div className="sm:col-span-4 flex items-center gap-3 min-w-0">
+                    <div
+                      className="w-1.5 h-10 rounded-full shrink-0"
+                      style={{ backgroundColor: cat.color || '#ef4444' }}
+                    />
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold text-base text-base-content truncate group-hover:text-primary transition-colors">
                         {cat.name}
                       </span>
-                      <div
-                        className={`badge ${isDanger ? 'badge-error/10 text-error border-error/20' : 'badge-success/10 text-success border-success/20'} shrink-0 gap-1 whitespace-nowrap text-xs font-bold`}
-                      >
-                        {isDanger ? <FiAlertTriangle /> : <FiSun />} {isDanger ? 'High Risk' : 'Safe'}
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span
+                          className={`badge ${
+                            isDanger
+                              ? 'badge-error/10 text-error border-error/20'
+                              : 'badge-success/10 text-success border-success/20'
+                          } badge-xs font-semibold gap-1 py-1 px-1.5 shrink-0`}
+                        >
+                          {isDanger ? <FiAlertTriangle size={10} /> : <FiSun size={10} />}
+                          {isDanger ? 'High Risk' : 'Safe'}
+                        </span>
+                        <span className="text-[11px] opacity-50 truncate hidden xl:inline-block">
+                          • Short Option Exposure
+                        </span>
                       </div>
                     </div>
-                    <span className="text-2xl font-extrabold tracking-tight">
-                      {formatCcy(cCatValue)}
-                    </span>
-                  <div className="flex items-center text-xs font-bold invisible mt-1">
-                    <FiActivity className="mr-1" /> $0.00 (0.00%)
-                  </div>
-                </div>
-                
-                <div className="mt-auto w-full pt-4">
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span className="opacity-60">Total Assignment Risk</span>
-                      <span className={isDanger ? 'text-error' : 'text-success'}>
-                        {formatCcy(optionsMetrics.sellAssignmentRisk)}
-                      </span>
-                    </div>
-                    <progress
-                      className={`progress w-full ${isDanger ? 'progress-error' : 'progress-success'}`}
-                      value={totalPortfolioValue > 0 ? Math.min((optionsMetrics.sellAssignmentRisk / totalPortfolioValue) * 100, 100) : 0}
-                      max={100}
-                    ></progress>
                   </div>
 
-                  <div className="mt-3 flex items-center justify-between text-xs font-semibold opacity-60">
-                    <span>Portfolio Coverage</span>
-                    <span className={isDanger ? 'text-error' : 'text-success'}>
-                      {totalPortfolioValue > 0 ? ((optionsMetrics.sellAssignmentRisk / totalPortfolioValue) * 100).toFixed(1) : 0}%
+                  {/* Value & Metrics (Center - vertically straight line) */}
+                  <div className="sm:col-span-4 flex flex-col items-start sm:items-center justify-center text-left sm:text-center min-w-0">
+                    <span className="text-lg sm:text-xl font-extrabold tracking-tight">
+                      {formatCcy(cCatValue)}
+                    </span>
+                    <span className="text-xs text-base-content/60 mt-0.5">
+                      Assignment Risk: <span className={isDanger ? 'text-error font-bold' : 'font-semibold'}>{formatCcy(optionsMetrics.sellAssignmentRisk)}</span>
                     </span>
                   </div>
-                </div>
+
+                  {/* Progress & Portfolio Coverage (Right - completely right-aligned) */}
+                  <div className="sm:col-span-4 flex items-center justify-end gap-2 w-full min-w-0">
+                    <div className="w-full flex flex-col justify-center">
+                      <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                        <span className="opacity-60">Portfolio Coverage</span>
+                        <span className={isDanger ? 'text-error font-bold' : 'text-success font-bold'}>
+                          {coveragePct.toFixed(1)}%
+                        </span>
+                      </div>
+                      <progress
+                        className={`progress w-full h-2 ${isDanger ? 'progress-error' : 'progress-success'}`}
+                        value={Math.min(coveragePct, 100)}
+                        max={100}
+                      />
+                    </div>
+
+                    <div className="hidden sm:flex items-center text-base-content/20 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0 pl-1">
+                      <FiChevronRight size={18} />
+                    </div>
+                  </div>
                 </div>
               </div>
             );
           }
 
           if (cat.id === 'options_buy') {
+            const allocPct =
+              totalPortfolioValue > 0
+                ? (optionsMetrics.buyPremiumPaid / totalPortfolioValue) * 100
+                : 0;
+
             return (
               <div
                 key={cat.id}
                 onClick={() => handleCardClick(cat)}
-                className="card bg-base-100/50 backdrop-blur-md cursor-pointer border border-base-content/5 shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md h-full"
+                className="card bg-base-100/60 backdrop-blur-md cursor-pointer border border-base-content/10 shadow-sm transition-all duration-200 hover:border-primary/40 hover:shadow-md hover:bg-base-100 p-4 rounded-2xl group"
               >
-                <div className="card-body p-5 flex flex-col h-full">
-                  <div className="mb-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 truncate text-xs font-bold tracking-wider uppercase opacity-50">
+                <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4 w-full">
+                  {/* Category Name & Color Bar (Left) */}
+                  <div className="sm:col-span-4 flex items-center gap-3 min-w-0">
+                    <div
+                      className="w-1.5 h-10 rounded-full shrink-0"
+                      style={{ backgroundColor: cat.color || '#84cc16' }}
+                    />
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold text-base text-base-content truncate group-hover:text-primary transition-colors">
                         {cat.name}
                       </span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="badge badge-info/10 text-info border-info/20 badge-xs font-semibold gap-1 py-1 px-1.5 shrink-0">
+                          <FiActivity size={10} /> Long Option
+                        </span>
+                        <span className="text-[11px] opacity-50 truncate hidden xl:inline-block">
+                          • Premium Capital
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-2xl font-extrabold tracking-tight">
-                      {formatCcy(cCatValue)}
-                    </span>
-                  <div className="flex items-center text-xs font-bold invisible mt-1">
-                    <FiActivity className="mr-1" /> $0.00 (0.00%)
-                  </div>
-                </div>
-                
-                <div className="mt-auto w-full pt-4">
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span className="opacity-60">Total Premium Paid</span>
-                      <span>
-                        {formatCcy(optionsMetrics.buyPremiumPaid)}
-                      </span>
-                    </div>
-                    <progress
-                      className="progress w-full progress-info"
-                      value={totalPortfolioValue > 0 ? Math.min((optionsMetrics.buyPremiumPaid / totalPortfolioValue) * 100, 100) : 0}
-                      max={100}
-                    ></progress>
                   </div>
 
-                  <div className="mt-3 flex items-center justify-between text-xs font-semibold opacity-60">
-                    <span>Portfolio Allocation</span>
-                    <span className="text-info">
-                      {totalPortfolioValue > 0 ? ((optionsMetrics.buyPremiumPaid / totalPortfolioValue) * 100).toFixed(1) : 0}%
+                  {/* Value & Metrics (Center - vertically straight line) */}
+                  <div className="sm:col-span-4 flex flex-col items-start sm:items-center justify-center text-left sm:text-center min-w-0">
+                    <span className="text-lg sm:text-xl font-extrabold tracking-tight">
+                      {formatCcy(cCatValue)}
+                    </span>
+                    <span className="text-xs text-base-content/60 mt-0.5">
+                      Premium Paid: <span className="font-semibold">{formatCcy(optionsMetrics.buyPremiumPaid)}</span>
                     </span>
                   </div>
-                </div>
+
+                  {/* Progress & Portfolio Allocation (Right - completely right-aligned) */}
+                  <div className="sm:col-span-4 flex items-center justify-end gap-2 w-full min-w-0">
+                    <div className="w-full flex flex-col justify-center">
+                      <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                        <span className="opacity-60">Portfolio Allocation</span>
+                        <span className="text-info font-bold">{allocPct.toFixed(1)}%</span>
+                      </div>
+                      <progress
+                        className="progress w-full h-2 progress-info"
+                        value={Math.min(allocPct, 100)}
+                        max={100}
+                      />
+                    </div>
+
+                    <div className="hidden sm:flex items-center text-base-content/20 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0 pl-1">
+                      <FiChevronRight size={18} />
+                    </div>
+                  </div>
                 </div>
               </div>
             );
@@ -460,49 +557,74 @@ export const CategoryCards: FC<CategoryCardsProps> = ({
             <div
               key={cat.id}
               onClick={() => handleCardClick(cat)}
-              className="card bg-base-100/50 backdrop-blur-md cursor-pointer border border-base-content/5 shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-md h-full"
+              className="card bg-base-100/60 backdrop-blur-md cursor-pointer border border-base-content/10 shadow-sm transition-all duration-200 hover:border-primary/40 hover:shadow-md hover:bg-base-100 p-4 rounded-2xl group"
             >
-              <div className="card-body p-5 flex flex-col h-full">
-                <div className="mb-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-xs font-bold tracking-wider uppercase opacity-50">
+              <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4 w-full">
+                {/* Category Name & Color Bar (Left) */}
+                <div className="sm:col-span-4 flex items-center gap-3 min-w-0">
+                  <div
+                    className="w-1.5 h-10 rounded-full shrink-0"
+                    style={{ backgroundColor: cat.color || '#3ABFF8' }}
+                  />
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-bold text-base text-base-content truncate group-hover:text-primary transition-colors">
                       {cat.name}
                     </span>
-                    <div
-                      className={`badge ${badgeClass} shrink-0 gap-1 whitespace-nowrap text-xs font-bold`}
-                    >
-                      <Icon /> {statusText}
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className={`badge ${badgeClass} badge-xs font-semibold gap-1 py-1 px-1.5 shrink-0`}>
+                        <Icon size={10} /> {statusText}
+                      </span>
+                      {rebalanceHint && (
+                        <span className="text-[11px] opacity-50 truncate hidden xl:inline-block">
+                          • {rebalanceHint}
+                        </span>
+                      )}
                     </div>
-                  </div>
-                  <span className="text-2xl font-extrabold tracking-tight">
-                    {formatCcy(cCatValue)}
-                  </span>
-                  <div className={`flex items-center text-xs font-bold ${isProfit ? 'text-success' : 'text-error'} mt-1 ${prevAlloc ? 'visible' : 'invisible'}`}>
-                    {isProfit ? <FiArrowUp className="mr-1" /> : <FiArrowDown className="mr-1" />}
-                    {formatCcy(Math.abs(cDailyPnl))} ({isProfit ? '+' : ''}{(prevAlloc && prevAlloc.value !== 0 ? (cDailyPnl / Math.abs(cPrevAllocVal)) * 100 : 0).toFixed(2)}%)
                   </div>
                 </div>
 
-                <div className="mt-auto w-full pt-4">
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs font-semibold">
+                {/* Value & Daily PnL (Center - vertically straight line) */}
+                <div className="sm:col-span-4 flex flex-col items-start sm:items-center justify-center text-left sm:text-center min-w-0">
+                  <span className="text-lg sm:text-xl font-extrabold tracking-tight">
+                    {formatCcy(cCatValue)}
+                  </span>
+                  <div
+                    className={`flex items-center text-xs font-semibold ${
+                      isProfit ? 'text-success' : 'text-error'
+                    } mt-0.5 ${prevAlloc ? 'visible' : 'invisible'}`}
+                  >
+                    {isProfit ? <FiArrowUp className="mr-0.5 shrink-0" size={12} /> : <FiArrowDown className="mr-0.5 shrink-0" size={12} />}
+                    <span>{formatCcy(Math.abs(cDailyPnl))}</span>
+                    <span className="ml-1 opacity-80 text-[11px]">
+                      ({isProfit ? '+' : ''}
+                      {(prevAlloc && prevAlloc.value !== 0
+                        ? (cDailyPnl / Math.abs(cPrevAllocVal)) * 100
+                        : 0
+                      ).toFixed(1)}%)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Progress Bar & Target vs Actual (Right - completely right-aligned) */}
+                <div className="sm:col-span-4 flex items-center justify-end gap-2 w-full min-w-0">
+                  <div className="w-full flex flex-col justify-center">
+                    <div className="flex items-center justify-between text-xs font-semibold mb-1">
                       <span className={statusColor}>
-                        {cat.actual_percentage.toFixed(1)}% Actual
+                        {cat.actual_percentage.toFixed(1)}% <span className="text-base-content/60 font-normal">Actual</span>
                       </span>
-                      <span className="opacity-50">
-                        {cat.target_percentage.toFixed(1)}% Target
+                      <span className="text-base-content/70">
+                        {cat.target_percentage.toFixed(1)}% <span className="opacity-50 font-normal">Target</span>
                       </span>
                     </div>
                     <progress
-                      className={`progress w-full ${progressColor}`}
-                      value={absTarget > 0 ? Math.min((absActual / absTarget) * 100, 150) : 0}
+                      className={`progress w-full h-2 ${progressColor}`}
+                      value={progressValue}
                       max={100}
-                    ></progress>
+                    />
                   </div>
 
-                  <div className={`mt-3 flex items-center gap-1 text-xs opacity-60 ${!isBalanced ? 'visible' : 'invisible'}`}>
-                    <FiActivity />
-                    {rebalanceHint || 'Balanced'}
+                  <div className="hidden sm:flex items-center text-base-content/20 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0 pl-1">
+                    <FiChevronRight size={18} />
                   </div>
                 </div>
               </div>
