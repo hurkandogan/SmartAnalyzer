@@ -6,7 +6,8 @@ import { cn } from '../utils';
 export default function Header({ connected }) {
   const location = useLocation();
   const activePage = location.pathname === '/' ? 'dashboard' : 
-                     location.pathname === '/universe' ? 'universe' : '';
+                     location.pathname === '/universe' ? 'universe' :
+                     location.pathname === '/performance' ? 'performance' : '';
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 px-6 py-4 flex justify-between items-center bg-base-300/30 backdrop-blur-md border-b border-white/5">
@@ -19,7 +20,7 @@ export default function Header({ connected }) {
         </h1>
       </Link>
 
-      <div className="hidden md:flex items-center gap-1 bg-white/5 rounded-lg p-1 border border-white/5">
+      <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1 border border-white/5">
         <Link
           to="/"
           className={cn(
@@ -37,6 +38,15 @@ export default function Header({ connected }) {
           )}
         >
           Universe
+        </Link>
+        <Link
+          to="/performance"
+          className={cn(
+            "px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200",
+            activePage === 'performance' ? "bg-indigo-600 text-white shadow" : "text-white/60 hover:text-white/90 hover:bg-white/5"
+          )}
+        >
+          Performance Lab
         </Link>
       </div>
 

@@ -34,8 +34,8 @@ export function startScheduler() {
     }
   });
 
-  // ── Daily Stock Analysis (Qullamaggie etc): daily at 14:00 ──
-  cron.schedule('0 14 * * 1-5', async () => {
+  // ── Daily Stock Analysis (Qullamaggie etc): daily at 08:00 ──
+  cron.schedule('0 8 * * 1-5', async () => {
     logger.info('[CRON] Analysis Bot triggered');
     try {
       await runAnalysisBot();

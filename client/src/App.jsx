@@ -5,6 +5,7 @@ import ManagementTerminal from './components/ManagementTerminal';
 import UniversePage from './pages/UniversePage';
 import SymbolAnalysisPage from './pages/SymbolAnalysisPage';
 import SymbolDataPage from './pages/SymbolDataPage';
+import AnalysisPerformancePage from './pages/AnalysisPerformancePage';
 
 function App() {
   const [connection, setConnection] = useState({ connected: false });
@@ -54,6 +55,7 @@ function App() {
               </>
             } />
             <Route path="/universe" element={<UniversePage />} />
+            <Route path="/performance" element={<AnalysisPerformancePage />} />
             <Route path="/analysis/:symbol" element={<SymbolAnalysisPage />} />
             <Route path="/data/:symbol" element={<SymbolDataPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
