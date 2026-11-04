@@ -49,18 +49,18 @@ const RETURN_BUCKETS = [
 ];
 
 const MONTHS_CONFIG = [
-  { num: 1, label: 'Ocak', en: 'Jan' },
-  { num: 2, label: 'Şubat', en: 'Feb' },
-  { num: 3, label: 'Mart', en: 'Mar' },
-  { num: 4, label: 'Nisan', en: 'Apr' },
-  { num: 5, label: 'Mayıs', en: 'May' },
-  { num: 6, label: 'Haziran', en: 'Jun' },
-  { num: 7, label: 'Temmuz', en: 'Jul' },
-  { num: 8, label: 'Ağustos', en: 'Aug' },
-  { num: 9, label: 'Eylül', en: 'Sep' },
-  { num: 10, label: 'Ekim', en: 'Oct' },
-  { num: 11, label: 'Kasım', en: 'Nov' },
-  { num: 12, label: 'Aralık', en: 'Dec' },
+  { num: 1, label: 'Jan', full: 'January' },
+  { num: 2, label: 'Feb', full: 'February' },
+  { num: 3, label: 'Mar', full: 'March' },
+  { num: 4, label: 'Apr', full: 'April' },
+  { num: 5, label: 'May', full: 'May' },
+  { num: 6, label: 'Jun', full: 'June' },
+  { num: 7, label: 'Jul', full: 'July' },
+  { num: 8, label: 'Aug', full: 'August' },
+  { num: 9, label: 'Sep', full: 'September' },
+  { num: 10, label: 'Oct', full: 'October' },
+  { num: 11, label: 'Nov', full: 'November' },
+  { num: 12, label: 'Dec', full: 'December' },
 ];
 
 function formatPct(val, showPlus = true) {
@@ -1303,27 +1303,27 @@ export default function AnalysisPerformancePage() {
                 </div>
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-bold text-white">Analiz Başlangıç Dönemi</span>
+                    <span className="text-sm font-bold text-white">Analysis Start Period</span>
                     <span className="text-[11px] font-semibold text-white/40 uppercase tracking-wider">
-                      (Start Wave Period)
+                      (Signal Waves)
                     </span>
                     {/* Active Period Summary Badge */}
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                       {selectedYear} •{' '}
                       {selectedMonths.length === 0
-                        ? 'Ay Seçilmedi (0)'
+                        ? 'No Months Selected (0)'
                         : selectedMonths.length === 1
-                        ? `${MONTHS_CONFIG.find((m) => m.num === selectedMonths[0])?.label} (${filteredEpisodes.length} Dalga)`
-                        : `${selectedMonths.length} Ay Seçili (${filteredEpisodes.length} Dalga)`}
+                        ? `${MONTHS_CONFIG.find((m) => m.num === selectedMonths[0])?.full} (${filteredEpisodes.length} Waves)`
+                        : `${selectedMonths.length} Months Selected (${filteredEpisodes.length} Waves)`}
                     </span>
                   </div>
                   <p className="text-xs text-white/45 mt-0.5">
-                    Sadece seçilen yıl ve aylarda başlayan analiz dalgaları hesaplamalara ve tabloya dahil edilir.
+                    Only signal waves starting in the selected year and months are evaluated across performance metrics and the table.
                   </p>
                 </div>
               </div>
 
-              {/* Action Buttons: Bu Ay, Tümünü Seç, Temizle */}
+              {/* Action Buttons: This Month, Select All Active Months, Clear */}
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <button
                   type="button"
@@ -1335,19 +1335,19 @@ export default function AnalysisPerformancePage() {
                       ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm'
                       : 'bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10'
                   }`}
-                  title="İçinde bulunduğumuz yıla ve aya sıfırla"
+                  title={`Reset to current month (${MONTHS_CONFIG.find((m) => m.num === currentMonth)?.full} ${currentYear})`}
                 >
                   <Sparkles size={12} className="text-amber-300" />
-                  <span>Bu Ay ({MONTHS_CONFIG.find((m) => m.num === currentMonth)?.label} {currentYear})</span>
+                  <span>This Month ({MONTHS_CONFIG.find((m) => m.num === currentMonth)?.full} {currentYear})</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleSelectAllAvailableMonths}
                   className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white font-semibold transition-all cursor-pointer"
-                  title="Bu yıldaki verisi olan tüm ayları seç"
+                  title={`Select all months with wave data in ${selectedYear}`}
                 >
-                  Tüm Mevcut Ayları Seç
+                  Select All Active Months
                 </button>
 
                 {selectedMonths.length > 0 && (
@@ -1355,10 +1355,10 @@ export default function AnalysisPerformancePage() {
                     type="button"
                     onClick={handleClearMonths}
                     className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 text-rose-300 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1"
-                    title="Ay seçimlerini temizle"
+                    title="Clear selected months"
                   >
                     <X size={12} />
-                    <span>Temizle</span>
+                    <span>Clear</span>
                   </button>
                 )}
               </div>
@@ -1369,7 +1369,7 @@ export default function AnalysisPerformancePage() {
               {/* Year Selector */}
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-white/40 shrink-0">
-                  Yıl:
+                  Year:
                 </span>
                 <div className="flex items-center gap-1.5 bg-black/40 p-1 rounded-xl border border-white/5">
                   {availableYears.map((yr) => {
@@ -1403,9 +1403,9 @@ export default function AnalysisPerformancePage() {
               {/* Month Selector Pills (Multiple Selection) */}
               <div className="flex-1 w-full flex flex-col gap-1">
                 <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-white/40">
-                  <span>Aylar (Çoklu Seçim):</span>
+                  <span>Months (Multi-Select):</span>
                   <span className="text-[10px] text-white/35 lowercase font-normal">
-                    Birden fazla aya tıklayarak filtreyi genişletebilirsiniz
+                    Click multiple months to expand or narrow the evaluation period
                   </span>
                 </div>
 
@@ -1425,10 +1425,10 @@ export default function AnalysisPerformancePage() {
                         onClick={() => handleToggleMonth(m.num)}
                         title={
                           isFuture
-                            ? `${m.label} ${selectedYear}: Gelecek tarih (henüz ulaşılamadı)`
+                            ? `${m.full} ${selectedYear}: Future month (not yet reached)`
                             : !hasData
-                            ? `${m.label} ${selectedYear}: Analiz dalgası verisi yok`
-                            : `${m.label} ${selectedYear}: ${count} analiz dalgası (${isSelected ? 'Seçili - kaldırmak için tıkla' : 'Seçmek için tıkla'})`
+                            ? `${m.full} ${selectedYear}: No wave episodes recorded`
+                            : `${m.full} ${selectedYear}: ${count} wave episodes (${isSelected ? 'Selected - click to unselect' : 'Click to select'})`
                         }
                         className={`px-2 py-1.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 border ${
                           !isAvailable
@@ -2341,10 +2341,10 @@ export default function AnalysisPerformancePage() {
                         <div className="flex flex-col items-center justify-center gap-2">
                           <Calendar size={28} className="text-white/20 mb-1" />
                           <p className="text-sm font-semibold text-white/70">
-                            Seçili döneme veya filtrelere uyan analiz dalgası bulunamadı.
+                            No signal wave episodes match the selected period or filters.
                           </p>
                           <p className="text-xs text-white/40 max-w-sm">
-                            Farklı aylar seçebilir, filtre kriterlerini genişletebilir veya &quot;Tüm Mevcut Ayları Seç&quot; butonunu kullanabilirsiniz.
+                            Try selecting different months, broadening your filter criteria, or clicking &quot;Select All Active Months&quot;.
                           </p>
                         </div>
                       </td>
