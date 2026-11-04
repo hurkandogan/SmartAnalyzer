@@ -17,62 +17,7 @@ export async function runAnalysisBot() {
   try {
     await dbLogger('analysis-bot', 'info', 'Started analysis jobs');
 
-    const pythonScript = path.resolve(process.cwd(), 'python/jobs/qullamaggie_job.py');
-    const pythonEnv = path.resolve(process.cwd(), 'python/.venv/bin/python');
-    
-    logger.info(`[AnalysisBot] Running Python script: ${pythonScript}`);
-    
-    const { spawn } = await import('child_process');
-    
-    await new Promise((resolve, reject) => {
-      let pyProcess = spawn(pythonEnv, [pythonScript], {
-        env: { ...process.env, PYTHONUNBUFFERED: '1' }
-      });
-      
-      pyProcess.on('error', (err) => {
-        logger.warn(`Failed with venv, trying global python: ${err.message}`);
-        pyProcess = spawn('python3', [pythonScript], {
-          env: { ...process.env, PYTHONUNBUFFERED: '1' }
-        });
-        setupListeners(pyProcess);
-      });
-      
-      if (pyProcess.pid) {
-        setupListeners(pyProcess);
-      }
-      
-      function setupListeners(child) {
-        child.stdout.on('data', (data) => {
-          const lines = data.toString().split('\n').filter(Boolean);
-          for (const line of lines) {
-             logger.info(`[Python] ${line}`);
-             if (line.includes('Score:') || line.includes('Analyzing')) {
-               dbLogger('analysis-bot', 'info', line.trim());
-             }
-          }
-        });
-
-        child.stderr.on('data', (data) => {
-          const lines = data.toString().split('\n').filter(Boolean);
-          for (const line of lines) {
-             logger.info(`[Python] ${line}`);
-             if (line.includes('Score:') || line.includes('Analyzing')) {
-               const cleanLine = line.replace(/.*\[INFO\] qullamaggie_job:\s*/, '').trim();
-               dbLogger('analysis-bot', 'info', cleanLine);
-             }
-          }
-        });
-
-        child.on('close', (code) => {
-          if (code !== 0) reject(new Error(`Python script exited with code ${code}`));
-          else resolve();
-        });
-      }
-    });
-    
-    logger.info(`[AnalysisBot] Python Qullamaggie script finished successfully.`);
-
-    // RUN FUNDAMENTALS SCRIPT
+    // 1. RUN FUNDAMENTALS SCRIPT
     const fundScript = path.resolve(process.cwd(), 'python/jobs/fundamentals_job.py');
     logger.info(`[AnalysisBot] Running Python Fundamentals script: ${fundScript}`);
     
@@ -86,33 +31,131 @@ export async function runAnalysisBot() {
         pyProcess = spawn('python3', [fundScript], {
           env: { ...process.env, PYTHONUNBUFFERED: '1' }
         });
-        setupListeners(pyProcess);
+        setupListeners(pyProcess, 'Python Fund');
       });
       
       if (pyProcess.pid) {
-        setupListeners(pyProcess);
+        setupListeners(pyProcess, 'Python Fund');
       }
       
-      function setupListeners(child) {
+      function setupListeners(child, tag) {
         child.stdout.on('data', (data) => {
           const lines = data.toString().split('\n').filter(Boolean);
           for (const line of lines) {
-             logger.info(`[Python Fund] ${line}`);
+             logger.info(`[${tag}] ${line}`);
           }
         });
         child.stderr.on('data', (data) => {
           const lines = data.toString().split('\n').filter(Boolean);
           for (const line of lines) {
-             logger.info(`[Python Fund] ${line}`);
+             logger.info(`[${tag}] ${line}`);
           }
         });
         child.on('close', (code) => {
-          if (code !== 0) reject(new Error(`Python script exited with code ${code}`));
+          if (code !== 0) reject(new Error(`${tag} script exited with code ${code}`));
           else resolve();
         });
       }
     });
     logger.info(`[AnalysisBot] Python Fundamentals script finished successfully.`);
+
+    // 2. RUN QULLAMAGGIE SCRIPT
+    const pythonScript = path.resolve(process.cwd(), 'python/jobs/qullamaggie_job.py');
+    logger.info(`[AnalysisBot] Running Python Qullamaggie script: ${pythonScript}`);
+    
+    await new Promise((resolve, reject) => {
+      let pyProcess = spawn(pythonEnv, [pythonScript], {
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      });
+      
+      pyProcess.on('error', (err) => {
+        logger.warn(`Failed with venv, trying global python: ${err.message}`);
+        pyProcess = spawn('python3', [pythonScript], {
+          env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        });
+        setupListeners(pyProcess, 'Python Qulla');
+      });
+      
+      if (pyProcess.pid) {
+        setupListeners(pyProcess, 'Python Qulla');
+      }
+      
+      function setupListeners(child, tag) {
+        child.stdout.on('data', (data) => {
+          const lines = data.toString().split('\n').filter(Boolean);
+          for (const line of lines) {
+             logger.info(`[${tag}] ${line}`);
+             if (line.includes('Score:') || line.includes('Analyzing')) {
+               dbLogger('analysis-bot', 'info', line.trim());
+             }
+          }
+        });
+
+        child.stderr.on('data', (data) => {
+          const lines = data.toString().split('\n').filter(Boolean);
+          for (const line of lines) {
+             logger.info(`[${tag}] ${line}`);
+             if (line.includes('Score:') || line.includes('Analyzing')) {
+               const cleanLine = line.replace(/.*\[INFO\] qullamaggie_job:\s*/, '').trim();
+               dbLogger('analysis-bot', 'info', cleanLine);
+             }
+          }
+        });
+
+        child.on('close', (code) => {
+          if (code !== 0) reject(new Error(`${tag} script exited with code ${code}`));
+          else resolve();
+        });
+      }
+    });
+    logger.info(`[AnalysisBot] Python Qullamaggie script finished successfully.`);
+
+    // 3. RUN EARLY SURF SCRIPT
+    const earlySurfScript = path.resolve(process.cwd(), 'python/jobs/early_surf_job.py');
+    logger.info(`[AnalysisBot] Running Python Early Surf script: ${earlySurfScript}`);
+    
+    await new Promise((resolve, reject) => {
+      let pyProcess = spawn(pythonEnv, [earlySurfScript], {
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      });
+      
+      pyProcess.on('error', (err) => {
+        logger.warn(`Failed with venv, trying global python: ${err.message}`);
+        pyProcess = spawn('python3', [earlySurfScript], {
+          env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        });
+        setupListeners(pyProcess, 'Python EarlySurf');
+      });
+      
+      if (pyProcess.pid) {
+        setupListeners(pyProcess, 'Python EarlySurf');
+      }
+      
+      function setupListeners(child, tag) {
+        child.stdout.on('data', (data) => {
+          const lines = data.toString().split('\n').filter(Boolean);
+          for (const line of lines) {
+             logger.info(`[${tag}] ${line}`);
+             if (line.includes('CANDIDATE') || line.includes('WATCH')) {
+               dbLogger('analysis-bot', 'info', line.trim());
+             }
+          }
+        });
+
+        child.stderr.on('data', (data) => {
+          const lines = data.toString().split('\n').filter(Boolean);
+          for (const line of lines) {
+             logger.info(`[${tag}] ${line}`);
+          }
+        });
+
+        child.on('close', (code) => {
+          if (code !== 0) reject(new Error(`${tag} script exited with code ${code}`));
+          else resolve();
+        });
+      }
+    });
+    logger.info(`[AnalysisBot] Python Early Surf script finished successfully.`);
 
     const res = await syncAnalysisToFirebase();
     await dbLogger('analysis-bot', 'success', `Analysis finished. Processed ${res.total} symbols, synced ${res.synced} active analyses.`);
@@ -210,6 +253,26 @@ export async function syncAnalysisToFirebase() {
         to_char(COALESCE(as_of_date, created_at::date), 'YYYY-MM-DD') as sig_date
       FROM analysis_scores
       WHERE analysis_type = 'qullamaggie'
+        AND status IN ('candidate', 'watch')
+        AND score > 0
+        AND COALESCE(as_of_date, created_at::date) >= CURRENT_DATE - INTERVAL '90 days'
+      ORDER BY symbol, COALESCE(as_of_date, created_at::date) ASC, created_at DESC
+    `);
+
+    // Fetch qualifying early_surf signals in the last 90 days ordered ASC for wave clustering
+    const earlySurfWavesRes = await client.query(`
+      SELECT DISTINCT ON (symbol, COALESCE(as_of_date, created_at::date))
+        symbol,
+        analysis_type,
+        score,
+        status,
+        reason,
+        price,
+        created_at,
+        as_of_date,
+        to_char(COALESCE(as_of_date, created_at::date), 'YYYY-MM-DD') as sig_date
+      FROM analysis_scores
+      WHERE analysis_type = 'early_surf'
         AND status IN ('candidate', 'watch')
         AND score > 0
         AND COALESCE(as_of_date, created_at::date) >= CURRENT_DATE - INTERVAL '90 days'
@@ -322,77 +385,84 @@ export async function syncAnalysisToFirebase() {
     const PAUSE_GRACE_DAYS = 5; // 5 business days before dropping
     const DROPPED_RETENTION_CALENDAR_DAYS = 14; // keep in dropped list for 14 calendar days
 
-    const qullaSignalsBySym = new Map();
-    for (const r of qullaWavesRes.rows) {
-      if (!qullaSignalsBySym.has(r.symbol)) qullaSignalsBySym.set(r.symbol, []);
-      qullaSignalsBySym.get(r.symbol).push(r);
-    }
-
-    const latestWaveBySym = new Map();
-    for (const [sym, sigs] of qullaSignalsBySym.entries()) {
-      let currentWave = [];
-      const waves = [];
-      for (const sig of sigs) {
-        if (currentWave.length === 0) {
-          currentWave.push(sig);
-        } else {
-          const prevDate = currentWave[currentWave.length - 1].sig_date;
-          const bDays = businessDaysBetween(prevDate, sig.sig_date);
-          if (bDays <= WAVE_COOLDOWN_DAYS) {
+    const clusterWaves = (signalRows) => {
+      const bySym = new Map();
+      for (const r of signalRows) {
+        if (!bySym.has(r.symbol)) bySym.set(r.symbol, []);
+        bySym.get(r.symbol).push(r);
+      }
+      const latestWaveMap = new Map();
+      for (const [sym, sigs] of bySym.entries()) {
+        let currentWave = [];
+        const waves = [];
+        for (const sig of sigs) {
+          if (currentWave.length === 0) {
             currentWave.push(sig);
           } else {
-            waves.push(currentWave);
-            currentWave = [sig];
+            const prevDate = currentWave[currentWave.length - 1].sig_date;
+            const bDays = businessDaysBetween(prevDate, sig.sig_date);
+            if (bDays <= WAVE_COOLDOWN_DAYS) {
+              currentWave.push(sig);
+            } else {
+              waves.push(currentWave);
+              currentWave = [sig];
+            }
           }
         }
+        if (currentWave.length > 0) waves.push(currentWave);
+
+        if (waves.length > 0) {
+          const lastWave = waves[waves.length - 1];
+          const firstSig = lastWave[0];
+          const lastSig = lastWave[lastWave.length - 1];
+          const maxScore = Math.max(...lastWave.map((s) => Number(s.score) || 0));
+          const initialStatus = firstSig.status;
+          const peakStatus = lastWave.some((s) => s.status === 'candidate') ? 'candidate' : 'watch';
+          const upgradedToCandidate = initialStatus === 'watch' && peakStatus === 'candidate';
+          const firstCandSig = upgradedToCandidate ? lastWave.find((s) => s.status === 'candidate') : null;
+          const upgradeDate = firstCandSig ? firstCandSig.sig_date : null;
+
+          const historyDesc = [...lastWave]
+            .reverse()
+            .slice(0, 5)
+            .map((s) => ({
+              date: s.sig_date,
+              score: Number(s.score) || 0,
+              status: s.status,
+            }));
+
+          latestWaveMap.set(sym, {
+            wave_number: waves.length,
+            wave_start_date: firstSig.sig_date,
+            wave_last_date: lastSig.sig_date,
+            wave_active_days: lastWave.length,
+            wave_max_score: maxScore,
+            wave_initial_status: initialStatus,
+            wave_peak_status: peakStatus,
+            upgraded_to_candidate: upgradedToCandidate,
+            upgrade_date: upgradeDate,
+            last_qualifying_row: lastSig,
+            history: historyDesc,
+          });
+        }
       }
-      if (currentWave.length > 0) waves.push(currentWave);
+      return latestWaveMap;
+    };
 
-      if (waves.length > 0) {
-        const lastWave = waves[waves.length - 1];
-        const firstSig = lastWave[0];
-        const lastSig = lastWave[lastWave.length - 1];
-        const maxScore = Math.max(...lastWave.map((s) => Number(s.score) || 0));
-        const initialStatus = firstSig.status;
-        const peakStatus = lastWave.some((s) => s.status === 'candidate') ? 'candidate' : 'watch';
-        const upgradedToCandidate = initialStatus === 'watch' && peakStatus === 'candidate';
-        const firstCandSig = upgradedToCandidate ? lastWave.find((s) => s.status === 'candidate') : null;
-        const upgradeDate = firstCandSig ? firstCandSig.sig_date : null;
-
-        const historyDesc = [...lastWave]
-          .reverse()
-          .slice(0, 5)
-          .map((s) => ({
-            date: s.sig_date,
-            score: Number(s.score) || 0,
-            status: s.status,
-          }));
-
-        latestWaveBySym.set(sym, {
-          wave_number: waves.length,
-          wave_start_date: firstSig.sig_date,
-          wave_last_date: lastSig.sig_date,
-          wave_active_days: lastWave.length,
-          wave_max_score: maxScore,
-          wave_initial_status: initialStatus,
-          wave_peak_status: peakStatus,
-          upgraded_to_candidate: upgradedToCandidate,
-          upgrade_date: upgradeDate,
-          last_qualifying_row: lastSig,
-          history: historyDesc,
-        });
-      }
-    }
+    const latestWaveBySym = clusterWaves(qullaWavesRes.rows);
+    const latestEarlySurfWaveBySym = clusterWaves(earlySurfWavesRes.rows);
 
     const allSymbols = new Set([
       ...technicalsMap.keys(),
       ...latestScoresMap.keys(),
       ...fundamentalsMap.keys(),
       ...latestWaveBySym.keys(),
+      ...latestEarlySurfWaveBySym.keys(),
     ]);
 
     let syncedAnalysisCount = 0;
     let pausedAnalysisCount = 0;
+    let syncedEarlySurfCount = 0;
     const droppedAnalysesList = [];
 
     let batch = firestore.batch();
@@ -412,44 +482,65 @@ export async function syncAnalysisToFirebase() {
 
       const latestScores = latestScoresMap.get(sym) || {};
       const latestQulla = latestScores['qullamaggie'];
+      const latestEarlySurf = latestScores['early_surf'];
       const latestFund = latestScores['fundamentals'];
       const waveInfo = latestWaveBySym.get(sym);
+      const earlySurfWaveInfo = latestEarlySurfWaveBySym.get(sym);
       const perf = performanceMap.get(sym) || { d1: null, w1: null, m1: null, latest_price: null };
 
-      const isTodayQualifying =
+      // Qullamaggie Lifecycle
+      const isTodayQualifyingQulla =
         latestQulla &&
         (latestQulla.status === 'candidate' || latestQulla.status === 'watch') &&
         Number(latestQulla.score) > 0 &&
         latestQulla.sig_date === latestGlobalRunDate;
 
-      const missedBusinessDays = waveInfo
+      const missedBusinessDaysQulla = waveInfo
         ? businessDaysBetween(waveInfo.wave_last_date, latestGlobalRunDate)
         : 999;
 
-      const isActiveOrPaused =
-        waveInfo && (isTodayQualifying || (missedBusinessDays >= 0 && missedBusinessDays <= PAUSE_GRACE_DAYS));
+      const isQullaActiveOrPaused =
+        waveInfo && (isTodayQualifyingQulla || (missedBusinessDaysQulla >= 0 && missedBusinessDaysQulla <= PAUSE_GRACE_DAYS));
 
-      if (isActiveOrPaused) {
-        const lifecycleStatus = isTodayQualifying || missedBusinessDays === 0 ? 'active' : 'paused';
-        if (lifecycleStatus === 'paused') pausedAnalysisCount++;
-        syncedAnalysisCount++;
+      // Early Surf Lifecycle
+      const isTodayQualifyingEarlySurf =
+        latestEarlySurf &&
+        (latestEarlySurf.status === 'candidate' || latestEarlySurf.status === 'watch') &&
+        Number(latestEarlySurf.score) > 0 &&
+        latestEarlySurf.sig_date === latestGlobalRunDate;
 
-        const baseQullaRow = isTodayQualifying ? latestQulla : waveInfo.last_qualifying_row;
-        const effectivePrice =
-          perf.latest_price ??
-          (latestQulla?.price ? Number(latestQulla.price) : Number(baseQullaRow.price) || 0);
+      const missedBusinessDaysEarlySurf = earlySurfWaveInfo
+        ? businessDaysBetween(earlySurfWaveInfo.wave_last_date, latestGlobalRunDate)
+        : 999;
 
+      const isEarlySurfActiveOrPaused =
+        earlySurfWaveInfo && (isTodayQualifyingEarlySurf || (missedBusinessDaysEarlySurf >= 0 && missedBusinessDaysEarlySurf <= PAUSE_GRACE_DAYS));
+
+      if (isQullaActiveOrPaused || isEarlySurfActiveOrPaused) {
         data.analysis = {
           performance: {
             d1: perf.d1,
             w1: perf.w1,
             m1: perf.m1,
           },
-          qullamaggie: {
+        };
+
+        // Attach Qullamaggie if active or paused
+        if (isQullaActiveOrPaused) {
+          const lifecycleStatus = isTodayQualifyingQulla || missedBusinessDaysQulla === 0 ? 'active' : 'paused';
+          if (lifecycleStatus === 'paused') pausedAnalysisCount++;
+          syncedAnalysisCount++;
+
+          const baseQullaRow = isTodayQualifyingQulla ? latestQulla : waveInfo.last_qualifying_row;
+          const effectivePrice =
+            perf.latest_price ??
+            (latestQulla?.price ? Number(latestQulla.price) : Number(baseQullaRow.price) || 0);
+
+          data.analysis.qullamaggie = {
             ...baseQullaRow,
             price: effectivePrice,
             lifecycle_status: lifecycleStatus,
-            paused_days: lifecycleStatus === 'paused' ? missedBusinessDays : 0,
+            paused_days: lifecycleStatus === 'paused' ? missedBusinessDaysQulla : 0,
             max_pause_days: PAUSE_GRACE_DAYS,
             wave_start_date: waveInfo.wave_start_date,
             wave_last_date: waveInfo.wave_last_date,
@@ -467,14 +558,57 @@ export async function syncAnalysisToFirebase() {
               w1: perf.w1,
               m1: perf.m1,
             },
-          },
-        };
+          };
 
-        if (data.technicals) {
-          data.analysis.qullamaggie.technicals = data.technicals;
+          if (data.technicals) data.analysis.qullamaggie.technicals = data.technicals;
+          if (data.fundamentals) data.analysis.qullamaggie.fundamentals = data.fundamentals;
         }
-        if (data.fundamentals) {
-          data.analysis.qullamaggie.fundamentals = data.fundamentals;
+
+        // Attach Early Surf if active or paused
+        if (isEarlySurfActiveOrPaused) {
+          syncedEarlySurfCount++;
+          const esLifecycleStatus = isTodayQualifyingEarlySurf || missedBusinessDaysEarlySurf === 0 ? 'active' : 'paused';
+          const baseESRow = isTodayQualifyingEarlySurf ? latestEarlySurf : earlySurfWaveInfo.last_qualifying_row;
+          const effectivePrice =
+            perf.latest_price ??
+            (latestEarlySurf?.price ? Number(latestEarlySurf.price) : Number(baseESRow.price) || 0);
+
+          let parsedReason = baseESRow.reason;
+          if (typeof parsedReason === 'string') {
+            try {
+              parsedReason = JSON.parse(parsedReason);
+            } catch {}
+          }
+
+          data.analysis.early_surf = {
+            ...baseESRow,
+            reason: parsedReason,
+            price: effectivePrice,
+            lifecycle_status: esLifecycleStatus,
+            paused_days: esLifecycleStatus === 'paused' ? missedBusinessDaysEarlySurf : 0,
+            max_pause_days: PAUSE_GRACE_DAYS,
+            wave_start_date: earlySurfWaveInfo.wave_start_date,
+            wave_last_date: earlySurfWaveInfo.wave_last_date,
+            wave_active_days: earlySurfWaveInfo.wave_active_days,
+            wave_max_score: earlySurfWaveInfo.wave_max_score,
+            wave_initial_status: earlySurfWaveInfo.wave_initial_status,
+            wave_peak_status: earlySurfWaveInfo.wave_peak_status,
+            upgraded_to_candidate: earlySurfWaveInfo.upgraded_to_candidate,
+            upgrade_date: earlySurfWaveInfo.upgrade_date,
+            wave_number: earlySurfWaveInfo.wave_number,
+            history: earlySurfWaveInfo.history,
+            history_dates: earlySurfWaveInfo.history.map((h) => h.date),
+            suggested_stop: parsedReason?.trade_params?.suggested_stop || null,
+            risk_pct: parsedReason?.trade_params?.risk_pct || null,
+            performance: {
+              d1: perf.d1,
+              w1: perf.w1,
+              m1: perf.m1,
+            },
+          };
+
+          if (data.technicals) data.analysis.early_surf.technicals = data.technicals;
+          if (data.fundamentals) data.analysis.early_surf.fundamentals = data.fundamentals;
         }
 
         if (latestFund) {
@@ -489,7 +623,8 @@ export async function syncAnalysisToFirebase() {
         }
 
         data.analysis.history = {
-          qullamaggie: waveInfo.history,
+          qullamaggie: waveInfo?.history || [],
+          early_surf: earlySurfWaveInfo?.history || [],
           fundamentals: fundHistoryMap.get(sym) || [],
         };
 
@@ -498,7 +633,7 @@ export async function syncAnalysisToFirebase() {
         batch.set(docRef, data, { merge: true });
       } else {
         // Check if this symbol dropped within the last 14 calendar days
-        if (waveInfo && missedBusinessDays > PAUSE_GRACE_DAYS) {
+        if (waveInfo && missedBusinessDaysQulla > PAUSE_GRACE_DAYS) {
           const droppedDate = addBusinessDays(waveInfo.wave_last_date, PAUSE_GRACE_DAYS + 1);
           const daysSinceDropped = calendarDaysBetween(droppedDate, latestGlobalRunDate);
           if (daysSinceDropped >= 0 && daysSinceDropped <= DROPPED_RETENTION_CALENDAR_DAYS) {
@@ -517,7 +652,7 @@ export async function syncAnalysisToFirebase() {
               wave_last_date: waveInfo.wave_last_date,
               dropped_date: droppedDate,
               days_since_dropped: daysSinceDropped,
-              missed_business_days: missedBusinessDays,
+              missed_business_days: missedBusinessDaysQulla,
               wave_active_days: waveInfo.wave_active_days,
               peak_status: waveInfo.wave_peak_status,
               max_score: waveInfo.wave_max_score,
@@ -569,12 +704,13 @@ export async function syncAnalysisToFirebase() {
     });
 
     logger.info(
-      `[AnalysisBot] Processed ${allSymbols.size} symbols. Synced ${syncedAnalysisCount} analyses (${syncedAnalysisCount - pausedAnalysisCount} active, ${pausedAnalysisCount} paused) and ${droppedAnalysesList.length} dropped analyses (14d window) to Firebase.`
+      `[AnalysisBot] Processed ${allSymbols.size} symbols. Synced ${syncedAnalysisCount} Qullamaggie (${syncedAnalysisCount - pausedAnalysisCount} active, ${pausedAnalysisCount} paused), ${syncedEarlySurfCount} Early Surf, and ${droppedAnalysesList.length} dropped analyses to Firebase.`
     );
     return {
       total: allSymbols.size,
       synced: syncedAnalysisCount,
       paused: pausedAnalysisCount,
+      early_surf: syncedEarlySurfCount,
       dropped: droppedAnalysesList.length,
     };
   } finally {

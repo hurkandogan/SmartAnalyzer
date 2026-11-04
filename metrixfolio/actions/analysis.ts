@@ -73,10 +73,19 @@ export async function getAnalysisCandidatesAction() {
       const data = doc.data();
       if (data.analysis) {
         const qulla = data.analysis.qullamaggie;
-        if (!qulla) return;
-        const status = qulla.status;
-        const score = Number(qulla.score) || 0;
-        if (status === 'no_setup' || (status !== 'candidate' && status !== 'watch') || score <= 0) {
+        const earlySurf = data.analysis.early_surf;
+
+        const hasValidQulla =
+          qulla &&
+          (qulla.status === 'candidate' || qulla.status === 'watch') &&
+          (Number(qulla.score) || 0) > 0;
+
+        const hasValidEarlySurf =
+          earlySurf &&
+          (earlySurf.status === 'candidate' || earlySurf.status === 'watch') &&
+          (Number(earlySurf.score) || 0) > 0;
+
+        if (!hasValidQulla && !hasValidEarlySurf) {
           return;
         }
 

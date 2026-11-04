@@ -101,13 +101,16 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
     setAssets(initialAssets);
   }, [initialAssets]);
 
-  // Top Tabs: 'active' | 'dropped' | 'trades'
-  const [activeTab, setActiveTab] = useState<'active' | 'dropped' | 'trades'>('active');
+  // Top Tabs: 'active' (Qullamaggie) | 'early_surf' (Early Surf) | 'dropped' | 'trades'
+  const [activeTab, setActiveTab] = useState<'active' | 'early_surf' | 'dropped' | 'trades'>('active');
 
   // Filter & Sort State (Default: newest_wave so new analyses appear at top, older ones at bottom)
   const [searchQuery, setSearchQuery] = useState('');
   const [qullaFilter, setQullaFilter] = useState<
     'all' | 'candidate' | 'upgraded' | 'watch' | 'active_only' | 'paused_only' | 'score_90' | 'score_80' | 'score_70'
+  >('all');
+  const [earlySurfFilter, setEarlySurfFilter] = useState<
+    'all' | 'candidate' | 'watch' | 'active_only' | 'paused_only' | 'score_90' | 'score_80' | 'score_70'
   >('all');
   const [fundFilter, setFundFilter] = useState<'all' | 'score_70' | 'score_60' | 'score_50' | 'score_40'>('all');
   const [sortBy, setSortBy] = useState<
@@ -298,14 +301,24 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
   };
 
   // ── FILTER & SORT ASSETS ──────────────────────────────────────
+  const isEarlySurfTab = activeTab === 'early_surf';
+
   const filteredAssets = useMemo(() => {
     return assets
       .filter((asset) => {
         const qullamaggie = asset.analysis?.qullamaggie;
+        const earlySurf = asset.analysis?.early_surf;
         const fundamentals = asset.analysis?.fundamentals;
-        if (!qullamaggie && !fundamentals) return false;
 
-        if (qullamaggie) {
+        if (isEarlySurfTab) {
+          if (!earlySurf) return false;
+          const esScore = Number(earlySurf.score) || 0;
+          const esStatus = earlySurf.status;
+          if (esStatus === 'no_setup' || (esStatus !== 'candidate' && esStatus !== 'watch') || esScore <= 0) {
+            return false;
+          }
+        } else {
+          if (!qullamaggie) return false;
           const qScore = Number(qullamaggie.score) || 0;
           const qStatus = qullamaggie.status;
           if (qStatus === 'no_setup' || (qStatus !== 'candidate' && qStatus !== 'watch') || qScore <= 0) {
@@ -330,7 +343,7 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
           if (!sym.includes(query) && !sector.includes(query)) return false;
         }
 
-        if (qullaFilter !== 'all') {
+        if (!isEarlySurfTab && qullaFilter !== 'all') {
           if (!qullamaggie) return false;
           const qScore = Number(qullamaggie.score) || 0;
           const qStatus = qullamaggie.status;
@@ -346,6 +359,21 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
           if (qullaFilter === 'score_70' && qScore < 70) return false;
         }
 
+        if (isEarlySurfTab && earlySurfFilter !== 'all') {
+          if (!earlySurf) return false;
+          const esScore = Number(earlySurf.score) || 0;
+          const esStatus = earlySurf.status;
+          const lifecycle = earlySurf.lifecycle_status || 'active';
+
+          if (earlySurfFilter === 'candidate' && esStatus !== 'candidate') return false;
+          if (earlySurfFilter === 'watch' && esStatus !== 'watch') return false;
+          if (earlySurfFilter === 'active_only' && lifecycle !== 'active') return false;
+          if (earlySurfFilter === 'paused_only' && lifecycle !== 'paused') return false;
+          if (earlySurfFilter === 'score_90' && esScore < 90) return false;
+          if (earlySurfFilter === 'score_80' && esScore < 80) return false;
+          if (earlySurfFilter === 'score_70' && esScore < 70) return false;
+        }
+
         if (fundFilter !== 'all') {
           if (!fundamentals) return false;
           const fScore = Number(fundamentals.score) || 0;
@@ -358,51 +386,55 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
         return true;
       })
       .sort((a, b) => {
-        const qa = a.analysis?.qullamaggie || {};
-        const qb = b.analysis?.qullamaggie || {};
-        const qScoreA = Number(qa.score) || 0;
-        const qScoreB = Number(qb.score) || 0;
+        const targetA = isEarlySurfTab ? a.analysis?.early_surf || {} : a.analysis?.qullamaggie || {};
+        const targetB = isEarlySurfTab ? b.analysis?.early_surf || {} : b.analysis?.qullamaggie || {};
+        const targetScoreA = Number(targetA.score) || 0;
+        const targetScoreB = Number(targetB.score) || 0;
         const fScoreA = Number(a.analysis?.fundamentals?.score) || 0;
         const fScoreB = Number(b.analysis?.fundamentals?.score) || 0;
 
         // Wave start date fallback to earliest history date
         const waveStartA =
-          qa.wave_start_date ||
-          (Array.isArray(qa.history) && qa.history.length > 0 ? qa.history[qa.history.length - 1].date : '1970-01-01');
+          targetA.wave_start_date ||
+          (Array.isArray(targetA.history) && targetA.history.length > 0 ? targetA.history[targetA.history.length - 1].date : '1970-01-01');
         const waveStartB =
-          qb.wave_start_date ||
-          (Array.isArray(qb.history) && qb.history.length > 0 ? qb.history[qb.history.length - 1].date : '1970-01-01');
+          targetB.wave_start_date ||
+          (Array.isArray(targetB.history) && targetB.history.length > 0 ? targetB.history[targetB.history.length - 1].date : '1970-01-01');
 
-        const perfA = a.analysis?.performance || qa.performance || {};
-        const perfB = b.analysis?.performance || qb.performance || {};
+        const perfA = a.analysis?.performance || targetA.performance || {};
+        const perfB = b.analysis?.performance || targetB.performance || {};
 
         if (sortBy === 'newest_wave') {
-          // Newest wave_start_date at the top; if tied, active before paused, then higher score
           if (waveStartA !== waveStartB) return waveStartB.localeCompare(waveStartA);
-          const lifeA = qa.lifecycle_status === 'paused' ? 0 : 1;
-          const lifeB = qb.lifecycle_status === 'paused' ? 0 : 1;
+          const lifeA = targetA.lifecycle_status === 'paused' ? 0 : 1;
+          const lifeB = targetB.lifecycle_status === 'paused' ? 0 : 1;
           if (lifeA !== lifeB) return lifeB - lifeA;
-          return qScoreB - qScoreA;
+          return targetScoreB - targetScoreA;
         }
         if (sortBy === 'oldest_wave') {
           if (waveStartA !== waveStartB) return waveStartA.localeCompare(waveStartB);
-          return qScoreB - qScoreA;
+          return targetScoreB - targetScoreA;
         }
-        if (sortBy === 'qulla_score_desc') return qScoreB - qScoreA;
+        if (sortBy === 'qulla_score_desc') return targetScoreB - targetScoreA;
         if (sortBy === 'fund_score_desc') return fScoreB - fScoreA;
         if (sortBy === 'perf_1d_desc') return (Number(perfB.d1) || -999) - (Number(perfA.d1) || -999);
         if (sortBy === 'perf_1w_desc') return (Number(perfB.w1) || -999) - (Number(perfA.w1) || -999);
         if (sortBy === 'symbol_asc') return (a.symbol || '').localeCompare(b.symbol || '');
         return 0;
       });
-  }, [assets, searchQuery, qullaFilter, fundFilter, sortBy, onlyMyOpenTrades, openPositionsBySymbol]);
+  }, [assets, isEarlySurfTab, searchQuery, qullaFilter, earlySurfFilter, fundFilter, sortBy, onlyMyOpenTrades, openPositionsBySymbol]);
 
   const isFiltered =
-    searchQuery.trim() !== '' || qullaFilter !== 'all' || fundFilter !== 'all' || onlyMyOpenTrades;
+    searchQuery.trim() !== '' ||
+    (!isEarlySurfTab && qullaFilter !== 'all') ||
+    (isEarlySurfTab && earlySurfFilter !== 'all') ||
+    fundFilter !== 'all' ||
+    onlyMyOpenTrades;
 
   const resetFilters = () => {
     setSearchQuery('');
     setQullaFilter('all');
+    setEarlySurfFilter('all');
     setFundFilter('all');
     setOnlyMyOpenTrades(false);
     setSortBy('newest_wave');
@@ -415,28 +447,62 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
     let watch = 0;
     let activeToday = 0;
     let paused = 0;
+    let totalEligible = 0;
+
+    let esCandidate = 0;
+    let esWatch = 0;
+    let esActiveToday = 0;
+    let esPaused = 0;
+    let esTotal = 0;
+
     for (const a of assets) {
       const q = a.analysis?.qullamaggie;
-      if (!q || (Number(q.score) || 0) <= 0) continue;
-      if (q.status === 'candidate') candidate++;
-      if (isAssetUpgraded(q)) upgraded++;
-      if (q.status === 'watch') watch++;
-      if (q.lifecycle_status === 'paused') paused++;
-      else activeToday++;
+      if (q && (Number(q.score) || 0) > 0) {
+        totalEligible++;
+        if (q.status === 'candidate') candidate++;
+        if (isAssetUpgraded(q)) upgraded++;
+        if (q.status === 'watch') watch++;
+        if (q.lifecycle_status === 'paused') paused++;
+        else activeToday++;
+      }
+
+      const es = a.analysis?.early_surf;
+      if (es && (Number(es.score) || 0) > 0) {
+        esTotal++;
+        if (es.status === 'candidate') esCandidate++;
+        if (es.status === 'watch') esWatch++;
+        if (es.lifecycle_status === 'paused') esPaused++;
+        else esActiveToday++;
+      }
     }
-    return { candidate, upgraded, watch, activeToday, paused };
+    return {
+      candidate,
+      upgraded,
+      watch,
+      activeToday,
+      paused,
+      totalEligible,
+      esCandidate,
+      esWatch,
+      esActiveToday,
+      esPaused,
+      esTotal,
+    };
   }, [assets]);
 
   // ── HANDLERS FOR POSITIONS & NOTES ────────────────────────────
   const handleOpenTradeModal = (asset: any) => {
-    const q = asset.analysis?.qullamaggie;
+    const q = isEarlySurfTab ? asset.analysis?.early_surf : asset.analysis?.qullamaggie;
     let reasons: any = {};
     try {
       if (q?.reason) reasons = typeof q.reason === 'string' ? JSON.parse(q.reason) : q.reason;
     } catch {}
     const currentPrice = Number(q?.price ?? asset.analysis?.fundamentals?.price ?? 0);
     const suggestedStop =
-      Number(reasons.stop_loss_lod) ||
+      Number(q?.suggested_stop) ||
+      Number(reasons?.trade_params?.suggested_stop) ||
+      Number(reasons?.stop_loss_lod) ||
+      Number(asset.technicals?.sma_50) ||
       Number(asset.technicals?.ema_10) ||
       Number((currentPrice * 0.95).toFixed(2));
 
@@ -717,7 +783,20 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
             }`}
           >
             <FiTrendingUp className="w-3.5 h-3.5" />
-            <span>Active &amp; Paused Setups ({assets.length})</span>
+            <span>Qullamaggie Setups ({counts.totalEligible})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('early_surf')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'early_surf'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'opacity-70 hover:opacity-100'
+            }`}
+          >
+            <span className="text-sm leading-none">🌊</span>
+            <span>Early Surf ({counts.esTotal})</span>
           </button>
 
           <button
@@ -751,7 +830,10 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
       {/* ════════════════════════════════════════════════════════════════
           TAB 1: ACTIVE & PAUSED ANALYSIS SETUPS
          ════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'active' && (
+      {/* ════════════════════════════════════════════════════════════════
+          TAB 1 & 2: QULLAMAGGIE SETUPS & EARLY SURF SETUPS
+         ════════════════════════════════════════════════════════════════ */}
+      {(activeTab === 'active' || activeTab === 'early_surf') && (
         <>
           {/* ── FILTER & SORT CONTROL BAR ── */}
           <div className="bg-base-200/60 backdrop-blur-md rounded-2xl border border-base-300 p-3.5 shadow-sm space-y-3">
@@ -781,20 +863,38 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
 
               {/* Quick Filter Pills */}
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setQullaFilter((prev) => (prev === 'upgraded' ? 'all' : 'upgraded'))
-                  }
-                  className={`btn btn-xs rounded-lg gap-1 font-bold ${
-                    qullaFilter === 'upgraded'
-                      ? 'bg-secondary text-secondary-content border-secondary shadow-sm'
-                      : 'bg-secondary/10 text-secondary border border-secondary/30 hover:bg-secondary/20'
-                  }`}
-                  title="Show only setups that started as Watch and upgraded to Candidate during the current wave"
-                >
-                  🚀 Watch &rarr; Candidate ({counts.upgraded})
-                </button>
+                {!isEarlySurfTab && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setQullaFilter((prev) => (prev === 'upgraded' ? 'all' : 'upgraded'))
+                    }
+                    className={`btn btn-xs rounded-lg gap-1 font-bold ${
+                      qullaFilter === 'upgraded'
+                        ? 'bg-secondary text-secondary-content border-secondary shadow-sm'
+                        : 'bg-secondary/10 text-secondary border border-secondary/30 hover:bg-secondary/20'
+                    }`}
+                    title="Show only setups that started as Watch and upgraded to Candidate during the current wave"
+                  >
+                    🚀 Watch &rarr; Candidate ({counts.upgraded})
+                  </button>
+                )}
+
+                {isEarlySurfTab && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEarlySurfFilter((prev) => (prev === 'candidate' ? 'all' : 'candidate'))
+                    }
+                    className={`btn btn-xs rounded-lg gap-1 font-bold ${
+                      earlySurfFilter === 'candidate'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20'
+                    }`}
+                  >
+                    🌊 Candidate Only ({counts.esCandidate})
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -807,7 +907,7 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
                 </button>
 
                 <span className="text-xs font-mono opacity-60">
-                  {filteredAssets.length} / {assets.length} setups
+                  {filteredAssets.length} / {isEarlySurfTab ? counts.esTotal : counts.totalEligible} setups
                 </span>
 
                 {isFiltered && (
@@ -824,26 +924,48 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
 
             {/* Bottom Filter Row */}
             <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-base-300/60">
-              {/* Qullamaggie Filter */}
+              {/* Setup Filter */}
               <div className="flex items-center gap-1.5">
                 <span className="text-[11px] font-bold uppercase tracking-wider opacity-60 flex items-center gap-1">
-                  <FiTrendingUp className="w-3 h-3 text-success" /> Setup:
+                  {isEarlySurfTab ? (
+                    <span className="text-xs">🌊</span>
+                  ) : (
+                    <FiTrendingUp className="w-3 h-3 text-success" />
+                  )}
+                  {isEarlySurfTab ? 'Surf Setup:' : 'Setup:'}
                 </span>
-                <select
-                  value={qullaFilter}
-                  onChange={(e) => setQullaFilter(e.target.value as any)}
-                  className="select select-xs select-bordered rounded-lg bg-base-100 font-medium text-xs"
-                >
-                  <option value="all">All Setups ({assets.length})</option>
-                  <option value="candidate">🟢 Candidate Only ({counts.candidate})</option>
-                  <option value="upgraded">🚀 Watch &rarr; Candidate Upgraded ({counts.upgraded})</option>
-                  <option value="watch">🟡 Watch Only ({counts.watch})</option>
-                  <option value="active_only">⚡ Continuing Today ({counts.activeToday})</option>
-                  <option value="paused_only">⏸️ Paused / Grace 1-5d ({counts.paused})</option>
-                  <option value="score_90">⭐ Score 90+</option>
-                  <option value="score_80">🔥 Score 80+</option>
-                  <option value="score_70">Score 70+</option>
-                </select>
+                {!isEarlySurfTab ? (
+                  <select
+                    value={qullaFilter}
+                    onChange={(e) => setQullaFilter(e.target.value as any)}
+                    className="select select-xs select-bordered rounded-lg bg-base-100 font-medium text-xs"
+                  >
+                    <option value="all">All Setups ({counts.totalEligible})</option>
+                    <option value="candidate">🟢 Candidate Only ({counts.candidate})</option>
+                    <option value="upgraded">🚀 Watch &rarr; Candidate Upgraded ({counts.upgraded})</option>
+                    <option value="watch">🟡 Watch Only ({counts.watch})</option>
+                    <option value="active_only">⚡ Continuing Today ({counts.activeToday})</option>
+                    <option value="paused_only">⏸️ Paused / Grace 1-5d ({counts.paused})</option>
+                    <option value="score_90">⭐ Score 90+</option>
+                    <option value="score_80">🔥 Score 80+</option>
+                    <option value="score_70">Score 70+</option>
+                  </select>
+                ) : (
+                  <select
+                    value={earlySurfFilter}
+                    onChange={(e) => setEarlySurfFilter(e.target.value as any)}
+                    className="select select-xs select-bordered rounded-lg bg-base-100 font-medium text-xs"
+                  >
+                    <option value="all">All Early Surfs ({counts.esTotal})</option>
+                    <option value="candidate">🟢 Candidate Only ({counts.esCandidate})</option>
+                    <option value="watch">🟡 Watch Only ({counts.esWatch})</option>
+                    <option value="active_only">⚡ Active Today ({counts.esActiveToday})</option>
+                    <option value="paused_only">⏸️ Paused ({counts.esPaused})</option>
+                    <option value="score_90">⭐ Score 90+</option>
+                    <option value="score_80">🔥 Score 80+</option>
+                    <option value="score_70">Score 70+</option>
+                  </select>
+                )}
               </div>
 
               {/* Fundamentals Filter (Wheel:Pass Removed!) */}
@@ -889,30 +1011,39 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
           {/* ── COMPACT HIGH-DENSITY STOCK ROWS ── */}
           <div className="flex flex-col gap-3">
             {filteredAssets.map((asset) => {
+              const currentSetup = isEarlySurfTab ? asset.analysis?.early_surf : asset.analysis?.qullamaggie;
               const qullamaggie = asset.analysis?.qullamaggie;
+              const earlySurf = asset.analysis?.early_surf;
               const fundamentals = asset.analysis?.fundamentals;
-              if (!qullamaggie && !fundamentals) return null;
+              if (!currentSetup && !fundamentals) return null;
 
-              const isCandidate = qullamaggie?.status === 'candidate';
-              const isUpgraded = isAssetUpgraded(qullamaggie);
+              const isCandidate = currentSetup?.status === 'candidate';
+              const isUpgraded = !isEarlySurfTab && isAssetUpgraded(qullamaggie);
               const upgradeDate = qullamaggie?.upgrade_date || null;
-              const isPaused = qullamaggie?.lifecycle_status === 'paused';
-              const pausedDays = Number(qullamaggie?.paused_days) || 0;
+              const isPaused = currentSetup?.lifecycle_status === 'paused';
+              const pausedDays = Number(currentSetup?.paused_days) || 0;
               const waveStartDate =
-                qullamaggie?.wave_start_date ||
-                (Array.isArray(qullamaggie?.history) && qullamaggie.history.length > 0
-                  ? qullamaggie.history[qullamaggie.history.length - 1].date
+                currentSetup?.wave_start_date ||
+                (Array.isArray(currentSetup?.history) && currentSetup.history.length > 0
+                  ? currentSetup.history[currentSetup.history.length - 1].date
                   : null);
-              const waveActiveDays = Number(qullamaggie?.wave_active_days || qullamaggie?.history?.length || 1);
+              const waveActiveDays = Number(currentSetup?.wave_active_days || currentSetup?.history?.length || 1);
               const isBrandNew = !isPaused && waveActiveDays === 1;
 
-              const perf = asset.analysis?.performance || qullamaggie?.performance || {};
-              const price = Number(qullamaggie?.price ?? fundamentals?.price ?? 0);
+              const perf = asset.analysis?.performance || currentSetup?.performance || {};
+              const price = Number(currentSetup?.price ?? fundamentals?.price ?? 0);
 
               let qReasons: any = {};
               try {
                 if (qullamaggie?.reason) {
                   qReasons = typeof qullamaggie.reason === 'string' ? JSON.parse(qullamaggie.reason) : qullamaggie.reason;
+                }
+              } catch {}
+
+              let esReasons: any = {};
+              try {
+                if (earlySurf?.reason) {
+                  esReasons = typeof earlySurf.reason === 'string' ? JSON.parse(earlySurf.reason) : earlySurf.reason;
                 }
               } catch {}
 
@@ -1015,7 +1146,19 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
 
                     {/* Right: Setup Score Badges & Quick Action Buttons */}
                     <div className="flex flex-wrap items-center gap-2">
-                      {qullamaggie && (
+                      {isEarlySurfTab && earlySurf && (
+                        <span
+                          className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider border ${
+                            isCandidate
+                              ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-400'
+                              : 'bg-warning/15 border-warning/35 text-warning'
+                          }`}
+                        >
+                          🌊 SURF: {earlySurf.score}
+                        </span>
+                      )}
+
+                      {!isEarlySurfTab && qullamaggie && (
                         <span
                           className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider border ${
                             isCandidate
@@ -1036,7 +1179,9 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
                       <button
                         type="button"
                         onClick={() => handleOpenTradeModal(asset)}
-                        className="btn btn-xs btn-primary rounded-lg gap-1 font-bold"
+                        className={`btn btn-xs rounded-lg gap-1 font-bold ${
+                          isEarlySurfTab ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'btn-primary'
+                        }`}
                       >
                         <FiPlus className="w-3.5 h-3.5" />
                         <span>Open Trade</span>
@@ -1059,8 +1204,74 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
 
                   {/* ── ROW 2: COMPACT VERTICAL/STACKED METRICS LISTS (NO EMPTY SPACE) ── */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 text-xs">
+                    {/* Early Surf Setup Breakdown */}
+                    {isEarlySurfTab && earlySurf && (
+                      <div className="bg-emerald-500/[0.04] rounded-lg border border-emerald-500/25 p-2.5 space-y-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold uppercase opacity-75 border-b border-emerald-500/20 pb-1">
+                          <span className="text-emerald-400 font-black flex items-center gap-1">
+                            <span>🌊</span> Early Surf Breakdown
+                          </span>
+                          {esReasons.breakdown && (
+                            <span className="font-mono text-emerald-400">
+                              SMA50: <b>{esReasons.breakdown.sma50_pinch || 0}</b> • Surf: <b>{esReasons.breakdown.ema_surf || 0}</b> • Vol: <b>{esReasons.breakdown.volume_pocket || 0}</b> • RSI: <b>{esReasons.breakdown.rsi_sweetspot || 0}</b> • Coil: <b>{esReasons.breakdown.coiling || 0}</b>
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-[11px]">
+                          <div className="flex justify-between sm:justify-start sm:gap-1.5">
+                            <span className="opacity-60">SMA50 Dist:</span>
+                            <span className="font-mono font-bold text-emerald-400">
+                              {esReasons.metrics?.ext_sma50_pct !== undefined ? `${esReasons.metrics.ext_sma50_pct > 0 ? '+' : ''}${esReasons.metrics.ext_sma50_pct}%` : '—'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between sm:justify-start sm:gap-1.5">
+                            <span className="opacity-60">Surf Lead:</span>
+                            <span className="font-bold">{esReasons.metrics?.ema10_gt_20_days ?? '—'} / 10d</span>
+                          </div>
+                          <div className="flex justify-between sm:justify-start sm:gap-1.5">
+                            <span className="opacity-60">Pocket Pivots:</span>
+                            <span className="font-bold text-success">{esReasons.metrics?.pocket_pivots_10d ?? 0} {Number(esReasons.metrics?.pocket_pivots_10d) > 0 ? '🔥' : ''}</span>
+                          </div>
+                          <div className="flex justify-between sm:justify-start sm:gap-1.5">
+                            <span className="opacity-60">Vol Dry Days:</span>
+                            <span className="font-mono font-semibold">{esReasons.metrics?.dryup_days_10d ?? 0} / 10d</span>
+                          </div>
+                          <div className="flex justify-between sm:justify-start sm:gap-1.5">
+                            <span className="opacity-60">RSI (14):</span>
+                            <span className="font-mono font-semibold">{esReasons.metrics?.rsi ?? '—'}</span>
+                          </div>
+                          <div className="flex justify-between sm:justify-start sm:gap-1.5">
+                            <span className="opacity-60">Coiling / ADR:</span>
+                            <span className="font-mono">{esReasons.metrics?.range_3d_to_adr ? `${esReasons.metrics.range_3d_to_adr}x` : '—'}</span>
+                          </div>
+                          <div className="flex justify-between sm:justify-start sm:gap-1.5">
+                            <span className="opacity-60">Stop Ref:</span>
+                            <span className="font-mono text-error font-semibold">
+                              ${esReasons.trade_params?.suggested_stop?.toFixed(2) ?? earlySurf.suggested_stop?.toFixed(2) ?? '—'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between sm:justify-start sm:gap-1.5">
+                            <span className="opacity-60">Risk %:</span>
+                            <span className="font-mono font-bold text-emerald-400">
+                              -{esReasons.trade_params?.risk_pct ?? earlySurf.risk_pct ?? '—'}%
+                            </span>
+                          </div>
+                          <div className="col-span-2 sm:col-span-4 flex flex-wrap items-center gap-2 font-mono text-[10px] opacity-75 pt-0.5 border-t border-emerald-500/15">
+                            <span>EMA10: ${asset.technicals?.ema_10?.toFixed(2) ?? '—'}</span>
+                            <span>•</span>
+                            <span>EMA20: ${asset.technicals?.ema_20?.toFixed(2) ?? '—'}</span>
+                            <span>•</span>
+                            <span>SMA50: ${asset.technicals?.sma_50?.toFixed(2) ?? '—'}</span>
+                            <span>•</span>
+                            <span>ADR: {esReasons.metrics?.adr20 ? `${esReasons.metrics.adr20}%` : '—'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Qullamaggie Compact Details List */}
-                    {qullamaggie && (
+                    {!isEarlySurfTab && qullamaggie && (
                       <div className="bg-base-200/40 rounded-lg border border-base-300/70 p-2.5 space-y-1.5">
                         <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold uppercase opacity-75 border-b border-base-300/60 pb-1">
                           <span className="text-primary">Qullamaggie Setup Breakdown</span>
