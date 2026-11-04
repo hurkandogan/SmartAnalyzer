@@ -48,6 +48,21 @@ const RETURN_BUCKETS = [
   { id: 'big_loss', label: '🛑 Deep Loss (< -10%)', short: '< -10%', min: -Infinity, max: -10, color: 'bg-rose-500', text: 'text-rose-400', border: 'border-rose-500/30', bgSoft: 'bg-rose-500/15' },
 ];
 
+const MONTHS_CONFIG = [
+  { num: 1, label: 'Ocak', en: 'Jan' },
+  { num: 2, label: 'Şubat', en: 'Feb' },
+  { num: 3, label: 'Mart', en: 'Mar' },
+  { num: 4, label: 'Nisan', en: 'Apr' },
+  { num: 5, label: 'Mayıs', en: 'May' },
+  { num: 6, label: 'Haziran', en: 'Jun' },
+  { num: 7, label: 'Temmuz', en: 'Jul' },
+  { num: 8, label: 'Ağustos', en: 'Aug' },
+  { num: 9, label: 'Eylül', en: 'Sep' },
+  { num: 10, label: 'Ekim', en: 'Oct' },
+  { num: 11, label: 'Kasım', en: 'Nov' },
+  { num: 12, label: 'Aralık', en: 'Dec' },
+];
+
 function formatPct(val, showPlus = true) {
   if (val === null || val === undefined || Number.isNaN(val)) return '—';
   const num = Number(val);
@@ -797,6 +812,93 @@ export default function AnalysisPerformancePage() {
   const [sortDir, setSortDir] = useState('desc');
   const [selectedEpisode, setSelectedEpisode] = useState(null);
 
+  // Current calendar boundaries & Year/Multi-Month Filter State
+  const now = useMemo(() => new Date(), []);
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-12
+
+  const [selectedYear, setSelectedYear] = useState(() => currentYear);
+  const [selectedMonths, setSelectedMonths] = useState(() => [currentMonth]);
+
+  // Group episodes counts by year and month (only Qullamaggie episodes)
+  const { availableYears, episodesCountByYear, episodesCountByMonth } = useMemo(() => {
+    const yearCounts = {};
+    const monthCounts = {};
+
+    for (const ep of rawData.episodes || []) {
+      if (ep.analysis_type !== 'qullamaggie' || !ep.start_date) continue;
+      const y = parseInt(ep.start_date.slice(0, 4), 10);
+      const m = parseInt(ep.start_date.slice(5, 7), 10);
+
+      // Only count up to current year (prevent future years like 2027)
+      if (y && y <= currentYear) {
+        yearCounts[y] = (yearCounts[y] || 0) + 1;
+        if (y === selectedYear) {
+          monthCounts[m] = (monthCounts[m] || 0) + 1;
+        }
+      }
+    }
+
+    const years = Object.keys(yearCounts).map(Number).sort((a, b) => b - a);
+    if (years.length === 0) {
+      years.push(currentYear);
+    }
+
+    return {
+      availableYears: years,
+      episodesCountByYear: yearCounts,
+      episodesCountByMonth: monthCounts,
+    };
+  }, [rawData.episodes, currentYear, selectedYear]);
+
+  const handleToggleMonth = (m) => {
+    setSelectedMonths((prev) => {
+      if (prev.includes(m)) {
+        return prev.filter((x) => x !== m);
+      } else {
+        return [...prev, m].sort((a, b) => a - b);
+      }
+    });
+  };
+
+  const handleSelectAllAvailableMonths = () => {
+    const active = [];
+    for (let m = 1; m <= 12; m++) {
+      const isFuture = selectedYear === currentYear && m > currentMonth;
+      if (!isFuture && (episodesCountByMonth[m] || 0) > 0) {
+        active.push(m);
+      }
+    }
+    setSelectedMonths(active);
+  };
+
+  const handleSelectCurrentMonth = () => {
+    setSelectedYear(currentYear);
+    setSelectedMonths([currentMonth]);
+  };
+
+  const handleClearMonths = () => {
+    setSelectedMonths([]);
+  };
+
+  const handleSelectYear = (year) => {
+    setSelectedYear(year);
+    if (year === currentYear) {
+      setSelectedMonths([currentMonth]);
+    } else {
+      const active = [];
+      for (const ep of rawData.episodes || []) {
+        if (ep.analysis_type !== 'qullamaggie' || !ep.start_date) continue;
+        const ey = parseInt(ep.start_date.slice(0, 4), 10);
+        const em = parseInt(ep.start_date.slice(5, 7), 10);
+        if (ey === year && !active.includes(em)) {
+          active.push(em);
+        }
+      }
+      setSelectedMonths(active.sort((a, b) => a - b));
+    }
+  };
+
   useEffect(() => {
     let active = true;
     async function fetchPerformance() {
@@ -823,10 +925,20 @@ export default function AnalysisPerformancePage() {
 
   const myPortfolio = rawData.my_portfolio_analysis || null;
 
-  // 1. Base filtered episodes (Qullamaggie only)
+  // 1. Base filtered episodes (Qullamaggie only + Year & Month date filter)
   const filteredEpisodes = useMemo(() => {
     return (rawData.episodes || []).filter((ep) => {
       if (ep.analysis_type !== 'qullamaggie') return false;
+
+      // Start date year & month filter
+      if (!ep.start_date) return false;
+      const epYear = parseInt(ep.start_date.slice(0, 4), 10);
+      const epMonth = parseInt(ep.start_date.slice(5, 7), 10);
+
+      if (selectedYear && epYear !== selectedYear) return false;
+      if (selectedMonths.length === 0) return false; // No months selected
+      if (!selectedMonths.includes(epMonth)) return false;
+
       if (statusFilter === 'candidate' && ep.peak_status !== 'candidate') return false;
       if (statusFilter === 'watch' && ep.peak_status !== 'watch') return false;
       if (statusFilter === 'upgraded' && !ep.upgraded_to_candidate) return false;
@@ -838,7 +950,7 @@ export default function AnalysisPerformancePage() {
       if (onlyMyTraded && !ep.my_trade) return false;
       return true;
     });
-  }, [rawData.episodes, statusFilter, traitFilter, onlyMultiWave, onlyMyTraded]);
+  }, [rawData.episodes, selectedYear, selectedMonths, statusFilter, traitFilter, onlyMultiWave, onlyMyTraded]);
 
   // 2. Main KPI & distribution stats for the active horizon
   const mainStats = useMemo(
@@ -1180,6 +1292,171 @@ export default function AnalysisPerformancePage() {
               </button>
             </div>
           )}
+
+          {/* Analysis Start Period Filter (Year & Multi-Month Selector) */}
+          <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-4 flex flex-col gap-3.5">
+            {/* Header: Title, Description & Action Shortcuts */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                  <Calendar size={16} />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-bold text-white">Analiz Başlangıç Dönemi</span>
+                    <span className="text-[11px] font-semibold text-white/40 uppercase tracking-wider">
+                      (Start Wave Period)
+                    </span>
+                    {/* Active Period Summary Badge */}
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                      {selectedYear} •{' '}
+                      {selectedMonths.length === 0
+                        ? 'Ay Seçilmedi (0)'
+                        : selectedMonths.length === 1
+                        ? `${MONTHS_CONFIG.find((m) => m.num === selectedMonths[0])?.label} (${filteredEpisodes.length} Dalga)`
+                        : `${selectedMonths.length} Ay Seçili (${filteredEpisodes.length} Dalga)`}
+                    </span>
+                  </div>
+                  <p className="text-xs text-white/45 mt-0.5">
+                    Sadece seçilen yıl ve aylarda başlayan analiz dalgaları hesaplamalara ve tabloya dahil edilir.
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons: Bu Ay, Tümünü Seç, Temizle */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={handleSelectCurrentMonth}
+                  className={`px-3 py-1.5 rounded-lg border font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    selectedYear === currentYear &&
+                    selectedMonths.length === 1 &&
+                    selectedMonths[0] === currentMonth
+                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm'
+                      : 'bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10'
+                  }`}
+                  title="İçinde bulunduğumuz yıla ve aya sıfırla"
+                >
+                  <Sparkles size={12} className="text-amber-300" />
+                  <span>Bu Ay ({MONTHS_CONFIG.find((m) => m.num === currentMonth)?.label} {currentYear})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSelectAllAvailableMonths}
+                  className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white font-semibold transition-all cursor-pointer"
+                  title="Bu yıldaki verisi olan tüm ayları seç"
+                >
+                  Tüm Mevcut Ayları Seç
+                </button>
+
+                {selectedMonths.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearMonths}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 text-rose-300 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1"
+                    title="Ay seçimlerini temizle"
+                  >
+                    <X size={12} />
+                    <span>Temizle</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Year & Months Selector Grid */}
+            <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4">
+              {/* Year Selector */}
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-white/40 shrink-0">
+                  Yıl:
+                </span>
+                <div className="flex items-center gap-1.5 bg-black/40 p-1 rounded-xl border border-white/5">
+                  {availableYears.map((yr) => {
+                    const count = episodesCountByYear[yr] || 0;
+                    const isSel = selectedYear === yr;
+                    return (
+                      <button
+                        key={yr}
+                        type="button"
+                        onClick={() => handleSelectYear(yr)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          isSel
+                            ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                            : 'text-white/60 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <span>{yr}</span>
+                        <span
+                          className={`text-[10px] px-1.5 py-0.2 rounded-md font-mono ${
+                            isSel ? 'bg-black/30 text-indigo-100' : 'bg-white/5 text-white/40'
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Month Selector Pills (Multiple Selection) */}
+              <div className="flex-1 w-full flex flex-col gap-1">
+                <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-white/40">
+                  <span>Aylar (Çoklu Seçim):</span>
+                  <span className="text-[10px] text-white/35 lowercase font-normal">
+                    Birden fazla aya tıklayarak filtreyi genişletebilirsiniz
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-1.5">
+                  {MONTHS_CONFIG.map((m) => {
+                    const isFuture = selectedYear === currentYear && m.num > currentMonth;
+                    const count = episodesCountByMonth[m.num] || 0;
+                    const hasData = count > 0;
+                    const isAvailable = !isFuture && hasData;
+                    const isSelected = selectedMonths.includes(m.num);
+
+                    return (
+                      <button
+                        key={m.num}
+                        type="button"
+                        disabled={!isAvailable}
+                        onClick={() => handleToggleMonth(m.num)}
+                        title={
+                          isFuture
+                            ? `${m.label} ${selectedYear}: Gelecek tarih (henüz ulaşılamadı)`
+                            : !hasData
+                            ? `${m.label} ${selectedYear}: Analiz dalgası verisi yok`
+                            : `${m.label} ${selectedYear}: ${count} analiz dalgası (${isSelected ? 'Seçili - kaldırmak için tıkla' : 'Seçmek için tıkla'})`
+                        }
+                        className={`px-2 py-1.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 border ${
+                          !isAvailable
+                            ? 'opacity-25 bg-black/20 border-white/5 text-white/30 cursor-not-allowed'
+                            : isSelected
+                            ? 'bg-emerald-500/25 border-emerald-500/50 text-emerald-200 shadow-sm shadow-emerald-500/20 cursor-pointer ring-1 ring-emerald-400/40'
+                            : 'bg-black/40 border-white/10 text-white/60 hover:text-white hover:bg-white/10 cursor-pointer'
+                        }`}
+                      >
+                        <span className="leading-tight">{m.label}</span>
+                        <span
+                          className={`text-[10px] font-mono leading-tight ${
+                            !isAvailable
+                              ? 'text-white/20'
+                              : isSelected
+                              ? 'text-emerald-300 font-extrabold'
+                              : 'text-white/40'
+                          }`}
+                        >
+                          {isFuture ? '—' : count > 0 ? count : '0'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
 
           {/* Main Control & Filter Bar */}
           <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-4 flex flex-col gap-4">
@@ -2057,6 +2334,22 @@ export default function AnalysisPerformancePage() {
                       </tr>
                     );
                   })}
+
+                  {tableEpisodes.length === 0 && (
+                    <tr>
+                      <td colSpan={11} className="py-16 text-center text-white/40">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <Calendar size={28} className="text-white/20 mb-1" />
+                          <p className="text-sm font-semibold text-white/70">
+                            Seçili döneme veya filtrelere uyan analiz dalgası bulunamadı.
+                          </p>
+                          <p className="text-xs text-white/40 max-w-sm">
+                            Farklı aylar seçebilir, filtre kriterlerini genişletebilir veya &quot;Tüm Mevcut Ayları Seç&quot; butonunu kullanabilirsiniz.
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
