@@ -268,45 +268,69 @@ def calculate_early_surf(symbol: str, df: pd.DataFrame, fund_data: dict):
 
     raw_score = int(round(total_score))
 
-    # ── 7. Trade Parametreleri (Giriş Referansı ve Stop) ────────
-    # Stop noktası: SMA50'nin %1 altı veya son 3 günün en düşüğü (hangisi daha yakın ve mantıklıysa)
-    recent_3d_low = float(low.tail(3).min())
-    stop_ref_sma50 = current_sma50 * 0.99
-    suggested_stop = round(min(recent_3d_low, stop_ref_sma50), 2)
-    # Emniyet: stop fiyatı girişin üzerinde olamaz, girişten en fazla %7.5 uzakta olabilir
-    if suggested_stop >= current_price:
-        suggested_stop = round(current_price * 0.96, 2)
-    elif suggested_stop < current_price * 0.925:
-        suggested_stop = round(current_price * 0.94, 2)
+    # ── 7. Trade Parametreleri (Giriş Referansı ve EMA20 Altı Stop) ────────
+    # Stop noktası: Doğrudan EMA20'nin bir tık (%0.5) altı (1-2.5% sıkı risk disipliniyle uyumlu)
+    suggested_stop = round(current_ema20 * 0.995, 2)
+    # Emniyet: stop fiyatı girişin en az %1.2 altında, en fazla %3.5 altında olsun
+    if suggested_stop >= current_price * 0.988:
+        suggested_stop = round(current_price * 0.982, 2)
+    elif suggested_stop < current_price * 0.965:
+        suggested_stop = round(current_price * 0.975, 2)
 
     risk_pct = round(((current_price - suggested_stop) / current_price) * 100.0, 2)
 
-    # ── 8. Katı Eleme Kuralları (Hard Structural Gates & Anti-Pinning) ──
+    # ── 8. Faz 1 (Pre-Cross) & Faz 2 (Bridge Cross) ve Katı Eleme Kuralları ──
     avg_dollar_vol = vol_ma20 * current_price
     tail_10_high = float(high.tail(10).max()) if len(high) >= 10 else float(high.max())
     tail_10_low = float(low.tail(10).min()) if len(low) >= 10 else float(low.min())
     ten_day_range_pct = float(((tail_10_high - tail_10_low) / tail_10_low) * 100.0) if tail_10_low > 0 else 0.0
     is_pinned = bool(range_5d_mean < 1.2 or ten_day_range_pct < 2.5)
 
+    ema10_vs_sma50_pct = float(((current_ema10 / current_sma50) - 1.0) * 100.0)
+    ema20_vs_sma50_pct = float(((current_ema20 / current_sma50) - 1.0) * 100.0)
+    ema10_3d_ago = float(ema10_series.iloc[-4]) if len(ema10_series) >= 4 else current_ema10
+    ema20_3d_ago = float(ema20_series.iloc[-4]) if len(ema20_series) >= 4 else current_ema20
+    ema10_slope_3d = float(((current_ema10 / ema10_3d_ago) - 1.0) * 100.0) if ema10_3d_ago > 0 else 0.0
+    ema20_slope_3d = float(((current_ema20 / ema20_3d_ago) - 1.0) * 100.0) if ema20_3d_ago > 0 else 0.0
+
+    surf_phase = None
+    if current_ema10 > current_ema20 and ema10_slope_3d > 0.0 and ema20_slope_3d >= -0.05:
+        # Faz 1 (Pre-Cross): EMA10 > EMA20, ikisi de yukarı eğimli ve SMA50'nin hemen altında (-2.5%..0%), fiyat SMA50 sınırında
+        if (
+            -2.5 <= ema10_vs_sma50_pct < 0.0
+            and -3.5 <= ema20_vs_sma50_pct < 0.0
+            and -1.2 <= ext_sma50_pct <= 2.5
+        ):
+            surf_phase = 'phase_1_pre_cross'
+        # Faz 2 (Bridge Cross): EMA10 SMA50'yi yeni kırmış (0%..+1.8%), EMA20 hemen alttan (-2.0%..+0.3%) takip ediyor
+        elif (
+            0.0 <= ema10_vs_sma50_pct <= 1.8
+            and -2.0 <= ema20_vs_sma50_pct <= 0.30
+            and -0.5 <= ext_sma50_pct <= 3.5
+        ):
+            surf_phase = 'phase_2_bridge_cross'
+
     is_no_setup = False
     if avg_dollar_vol < 10_000_000:
         is_no_setup = True
-    if current_adr20 < 2.2:
+    if current_adr20 < 2.5:
         is_no_setup = True
     if is_pinned:
         is_no_setup = True
-    if ext_sma50_pct < -2.5 or ext_sma50_pct > 5.5:
+    if surf_phase is None:
         is_no_setup = True
-    if ema10_gt_20_days < 1:
+    if ext_ema10_pct < -1.2 or ext_ema10_pct > 3.5:
         is_no_setup = True
-    if current_rsi < 45.0 or current_rsi > 72.0:
+    if current_rsi < 48.0 or current_rsi > 65.0:
+        is_no_setup = True
+    if current_ud_vol < 1.0 or dryup_days_10d < 2:
         is_no_setup = True
 
     if is_no_setup:
         status = 'no_setup'
-    elif raw_score >= 72 and sma50_score >= 17.0 and surf_score >= 12.0:
+    elif (surf_phase == 'phase_2_bridge_cross' and raw_score >= 74) or (surf_phase == 'phase_1_pre_cross' and raw_score >= 76):
         status = 'candidate'
-    elif raw_score >= 58 and sma50_score >= 10.0:
+    elif raw_score >= 65:
         status = 'watch'
     else:
         status = 'no_setup'
@@ -317,11 +341,15 @@ def calculate_early_surf(symbol: str, df: pd.DataFrame, fund_data: dict):
         'status': status,
         'score': final_score,
         'raw_score': raw_score,
+        'surf_phase': surf_phase,
         'pinned_stock': is_pinned,
         'breakdown': score_breakdown,
         'metrics': {
+            'surf_phase': surf_phase,
             'ext_sma50_pct': round(ext_sma50_pct, 2),
             'ext_ema10_pct': round(ext_ema10_pct, 2),
+            'ema10_vs_sma50_pct': round(ema10_vs_sma50_pct, 2),
+            'ema20_vs_sma50_pct': round(ema20_vs_sma50_pct, 2),
             'ema10_gt_20_days': ema10_gt_20_days,
             'close_gt_sma50_days': close_gt_sma50_days,
             'rsi': round(current_rsi, 1),
@@ -337,6 +365,7 @@ def calculate_early_surf(symbol: str, df: pd.DataFrame, fund_data: dict):
         'trade_params': {
             'entry_reference': current_price,
             'suggested_stop': suggested_stop,
+            'stop_basis': 'ema20_minus_0.5pct',
             'risk_pct': risk_pct,
         },
         'fundamentals': {

@@ -564,6 +564,8 @@ export async function syncAnalysisToFirebase() {
 
           if (data.technicals) data.analysis.qullamaggie.technicals = data.technicals;
           if (data.fundamentals) data.analysis.qullamaggie.fundamentals = data.fundamentals;
+        } else {
+          data.analysis.qullamaggie = FieldValue.delete();
         }
 
         // Attach Early Surf if active or paused
@@ -611,6 +613,8 @@ export async function syncAnalysisToFirebase() {
 
           if (data.technicals) data.analysis.early_surf.technicals = data.technicals;
           if (data.fundamentals) data.analysis.early_surf.fundamentals = data.fundamentals;
+        } else {
+          data.analysis.early_surf = FieldValue.delete();
         }
 
         if (latestFund) {
