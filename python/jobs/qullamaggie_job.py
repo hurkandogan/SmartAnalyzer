@@ -7,6 +7,9 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env'))
+
 # Adjust path to import from database
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

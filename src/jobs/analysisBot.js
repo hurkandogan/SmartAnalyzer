@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import util from 'util';
 import path from 'path';
 import { logger, dbLogger } from '../utils/logger.js';
@@ -11,6 +11,8 @@ const execPromise = util.promisify(exec);
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
+
+const pythonEnv = path.resolve(process.cwd(), 'python/.venv/bin/python');
 
 export async function runAnalysisBot() {
   logger.info('[AnalysisBot] Starting daily analysis jobs...');
