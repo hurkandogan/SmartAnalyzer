@@ -48,6 +48,30 @@ export default function SymbolAnalysisPage() {
       );
     }
     
+    if (type === 'early_surf') {
+      const m = reason.metrics || {};
+      const b = reason.breakdown || {};
+      return (
+        <div className="flex flex-wrap gap-2 text-xs">
+          <span className="bg-cyan-500/10 border border-cyan-500/20 px-2 py-1 rounded text-cyan-300">
+            Pinch: {b.sma50_pinch ?? '-'} ({m.ext_sma50_pct !== undefined ? `${m.ext_sma50_pct}%` : '-'})
+          </span>
+          <span className="bg-white/5 border border-white/10 px-2 py-1 rounded text-white/80">
+            Surf: {b.ema_surf ?? '-'} ({m.ema10_gt_20_days ?? 0}d)
+          </span>
+          <span className="bg-white/5 border border-white/10 px-2 py-1 rounded text-white/80">
+            Vol/Pocket: {b.volume_pocket ?? '-'} (PP:{m.pocket_pivots_10d ?? 0})
+          </span>
+          <span className="bg-white/5 border border-white/10 px-2 py-1 rounded text-white/80">
+            RSI: {m.rsi ?? '-'} ({b.rsi_sweetspot ?? '-'}pt)
+          </span>
+          <span className="bg-white/5 border border-white/10 px-2 py-1 rounded text-white/80">
+            Coiling: {b.coiling ?? '-'} (ADR:{m.adr20 ?? '-'}%)
+          </span>
+        </div>
+      );
+    }
+
     if (type === 'fundamentals') {
       return (
         <div className="flex flex-wrap gap-2 text-xs">
@@ -70,8 +94,8 @@ export default function SymbolAnalysisPage() {
     <div className="w-full flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center gap-4 border-b border-white/10 pb-6">
         <button 
-          onClick={() => navigate('/universe')}
-          className="p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-colors text-white/70 hover:text-white"
+          onClick={() => navigate(-1)}
+          className="p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-colors text-white/70 hover:text-white cursor-pointer"
         >
           <ArrowLeft size={24} />
         </button>
@@ -87,13 +111,19 @@ export default function SymbolAnalysisPage() {
 
       <div className="flex gap-2 p-1 bg-black/20 border border-white/5 rounded-xl w-fit">
         <button 
-          className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'qullamaggie' ? 'bg-indigo-600 text-white shadow-lg' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
+          className={`px-6 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${activeTab === 'qullamaggie' ? 'bg-indigo-600 text-white shadow-lg' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
           onClick={() => setActiveTab('qullamaggie')}
         >
           Qullamaggie
         </button>
         <button 
-          className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'fundamentals' ? 'bg-indigo-600 text-white shadow-lg' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
+          className={`px-6 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${activeTab === 'early_surf' ? 'bg-cyan-600 text-white shadow-lg' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
+          onClick={() => setActiveTab('early_surf')}
+        >
+          Early Surf
+        </button>
+        <button 
+          className={`px-6 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${activeTab === 'fundamentals' ? 'bg-indigo-600 text-white shadow-lg' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
           onClick={() => setActiveTab('fundamentals')}
         >
           Fundamentals

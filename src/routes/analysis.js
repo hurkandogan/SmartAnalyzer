@@ -260,61 +260,32 @@ analysisRoutes.get('/performance', async (c) => {
       { key: '3m', days: 63 },
     ];
 
-    const episodes = rawEpisodes.map((ep) => {
-      const firstSig = ep.signals[0];
-      const lastSig = ep.signals[ep.signals.length - 1];
-      const startDate = firstSig.date;
-      const endDate = lastSig.date;
-
-      const scores = ep.signals.map((s) => s.score);
-      const initialScore = firstSig.score;
-      const maxScore = Math.max(...scores);
-      const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-      const initialStatus = firstSig.status;
-      const hasCandidate = ep.signals.some((s) => s.status === 'candidate');
-      const peakStatus = hasCandidate ? 'candidate' : 'watch';
-      const upgradedToCandidate = initialStatus === 'watch' && peakStatus === 'candidate';
-      const candidateDays = ep.signals.filter((s) => s.status === 'candidate').length;
-      const watchDays = ep.signals.filter((s) => s.status === 'watch').length;
-
-      // Match fundamentals on or before startDate
-      const fundList = fundBySymbol.get(ep.symbol) || [];
-      let matchedFund = null;
-      for (const f of fundList) {
-        if (f.date <= startDate) matchedFund = f;
-        else if (!matchedFund) matchedFund = f;
-      }
-
-      const fundStatus = matchedFund ? matchedFund.status : 'unknown';
-      const fundScore = matchedFund ? matchedFund.score : null;
-      const fundReason = matchedFund?.reason || {};
-
-      // Match candles and determine entry price & forward trading days
-      const candles = candlesBySymbol.get(ep.symbol) || [];
-      const sameDayIdx = candles.findIndex((c) => c.date === startDate);
+    const computeForwardMetrics = (anchorSig, candles) => {
+      const anchorDate = anchorSig.date;
+      const sameDayIdx = candles.findIndex((c) => c.date === anchorDate);
       let prevDayIdx = -1;
       for (let i = candles.length - 1; i >= 0; i--) {
-        if (candles[i].date < startDate) {
+        if (candles[i].date < anchorDate) {
           prevDayIdx = i;
           break;
         }
       }
 
-      const sigPrice = firstSig.price && firstSig.price > 0 ? firstSig.price : null;
+      const sigPrice = anchorSig.price && anchorSig.price > 0 ? anchorSig.price : null;
       let entryPrice = sigPrice;
-      let baseCandleDate = startDate;
+      let baseCandleDate = anchorDate;
       let forwardStartIdx = -1;
 
       if (sameDayIdx !== -1 && prevDayIdx !== -1 && sigPrice !== null) {
         const diffSame = Math.abs(candles[sameDayIdx].close - sigPrice);
         const diffPrev = Math.abs(candles[prevDayIdx].close - sigPrice);
         if (diffSame < diffPrev) {
-          // Signal was generated after startDate close
+          // Signal was generated after anchorDate close
           entryPrice = sigPrice;
           baseCandleDate = candles[sameDayIdx].date;
           forwardStartIdx = sameDayIdx + 1;
         } else {
-          // Signal was generated pre-market on startDate using prevDay close
+          // Signal was generated pre-market on anchorDate using prevDay close
           entryPrice = sigPrice;
           baseCandleDate = candles[prevDayIdx].date;
           forwardStartIdx = sameDayIdx;
@@ -324,8 +295,8 @@ analysisRoutes.get('/performance', async (c) => {
         if (!entryPrice && prevDayIdx !== -1) {
           entryPrice = candles[prevDayIdx].close;
         }
-        baseCandleDate = prevDayIdx !== -1 ? candles[prevDayIdx].date : startDate;
-        forwardStartIdx = candles.findIndex((c) => c.date >= startDate);
+        baseCandleDate = prevDayIdx !== -1 ? candles[prevDayIdx].date : anchorDate;
+        forwardStartIdx = candles.findIndex((c) => c.date >= anchorDate);
       } else {
         // prevDayIdx === -1 && sameDayIdx !== -1
         if (!entryPrice) entryPrice = candles[sameDayIdx].close;
@@ -350,7 +321,8 @@ analysisRoutes.get('/performance', async (c) => {
         const closeReturn = completed && hasData ? pctChange(slice[h.days - 1].close, entryPrice) : null;
         const toDateReturn = hasData ? pctChange(slice[slice.length - 1].close, entryPrice) : null;
         const maxGain = hasData ? pctChange(Math.max(...slice.map((c) => c.high)), entryPrice) : null;
-        const maxDd = hasData ? pctChange(Math.min(...slice.map((c) => c.low)), entryPrice) : null;
+        const rawDd = hasData ? pctChange(Math.min(...slice.map((c) => c.low)), entryPrice) : null;
+        const maxDd = rawDd !== null ? Math.min(0, rawDd) : null;
 
         horizons[h.key] = {
           completed,
@@ -387,14 +359,14 @@ analysisRoutes.get('/performance', async (c) => {
           }
         });
         mfe = pctChange(bestHigh, entryPrice);
-        mae = pctChange(worstLow, entryPrice);
+        const rawMae = pctChange(worstLow, entryPrice);
+        mae = rawMae !== null ? Math.min(0, rawMae) : null;
       }
 
-      const endTrackingClose =
-        forwardCandles.length > 0
-          ? forwardCandles[forwardCandles.length - 1].close
-          : latestPrice;
-      const currentReturn = pctChange(endTrackingClose, entryPrice);
+      const currentReturn =
+        forwardCandles.length > 0 && entryPrice > 0
+          ? pctChange(forwardCandles[forwardCandles.length - 1].close, entryPrice)
+          : null;
 
       const forwardCurve =
         entryPrice > 0
@@ -408,6 +380,76 @@ analysisRoutes.get('/performance', async (c) => {
           : [];
 
       return {
+        entry_price: entryPrice ? Number(entryPrice.toFixed(2)) : null,
+        latest_price: latestPrice ? Number(latestPrice.toFixed(2)) : null,
+        base_candle_date: baseCandleDate,
+        trading_days_elapsed: tradingDaysElapsed,
+        horizons,
+        mfe,
+        mfe_days: mfeDays,
+        mfe_date: mfeDate,
+        mae,
+        mae_days: maeDays,
+        mae_date: maeDate,
+        current_return: currentReturn,
+        forward_curve: forwardCurve,
+      };
+    };
+
+    const episodes = rawEpisodes.map((ep) => {
+      const firstSig = ep.signals[0];
+      const lastSig = ep.signals[ep.signals.length - 1];
+      const startDate = firstSig.date;
+      const endDate = lastSig.date;
+
+      const scores = ep.signals.map((s) => s.score);
+      const initialScore = firstSig.score;
+      const maxScore = Math.max(...scores);
+      const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+      const initialStatus = firstSig.status;
+      const firstCandSig = ep.signals.find((s) => s.status === 'candidate') || null;
+      const peakSig = ep.signals.reduce((best, s) => (s.score > best.score ? s : best), firstSig);
+      const hasCandidate = Boolean(firstCandSig);
+      const peakStatus = hasCandidate ? 'candidate' : 'watch';
+      const upgradedToCandidate = initialStatus === 'watch' && peakStatus === 'candidate';
+      const candidateDays = ep.signals.filter((s) => s.status === 'candidate').length;
+      const watchDays = ep.signals.filter((s) => s.status === 'watch').length;
+
+      // Match fundamentals on or before startDate
+      const fundList = fundBySymbol.get(ep.symbol) || [];
+      let matchedFund = null;
+      for (const f of fundList) {
+        if (f.date <= startDate) matchedFund = f;
+        else if (!matchedFund) matchedFund = f;
+      }
+
+      const fundStatus = matchedFund ? matchedFund.status : 'unknown';
+      const fundScore = matchedFund ? matchedFund.score : null;
+      const fundReason = matchedFund?.reason || {};
+
+      const candles = candlesBySymbol.get(ep.symbol) || [];
+      const initialTrajectory = computeForwardMetrics(firstSig, candles);
+
+      let candidateEntry = null;
+      if (firstCandSig) {
+        const candTrajectory =
+          firstCandSig.date === firstSig.date
+            ? initialTrajectory
+            : computeForwardMetrics(firstCandSig, candles);
+        const preUpgradeReturnPct =
+          upgradedToCandidate && initialTrajectory.entry_price && candTrajectory.entry_price
+            ? pctChange(candTrajectory.entry_price, initialTrajectory.entry_price)
+            : 0;
+        candidateEntry = {
+          start_date: firstCandSig.date,
+          score: firstCandSig.score,
+          reason: firstCandSig.reason,
+          pre_upgrade_return_pct: preUpgradeReturnPct,
+          ...candTrajectory,
+        };
+      }
+
+      return {
         id: `${ep.symbol}-${ep.analysis_type}-${ep.episode_number}-${startDate}`,
         symbol: ep.symbol,
         analysis_type: ep.analysis_type,
@@ -415,7 +457,7 @@ analysisRoutes.get('/performance', async (c) => {
         total_episodes_for_symbol: ep.total_episodes_for_symbol,
         start_date: startDate,
         end_date: endDate,
-        base_candle_date: baseCandleDate,
+        base_candle_date: initialTrajectory.base_candle_date,
         calendar_span_days: daysBetween(startDate, endDate) + 1,
         alert_days: ep.signals.length,
         candidate_days: candidateDays,
@@ -427,30 +469,32 @@ analysisRoutes.get('/performance', async (c) => {
         max_score: maxScore,
         avg_score: avgScore,
         initial_reason: firstSig.reason,
+        peak_reason: peakSig.reason,
         fund_status: fundStatus,
         fund_score: fundScore,
         sector: fundReason.sector || 'Unknown',
         market_cap_bucket: fundReason.market_cap_bucket || 'Unknown',
         wheel_fit: fundReason.wheel_fit || null,
         has_net_cash: Boolean(fundReason.has_net_cash),
-        entry_price: entryPrice ? Number(entryPrice.toFixed(2)) : null,
-        latest_price: latestPrice ? Number(latestPrice.toFixed(2)) : null,
-        trading_days_elapsed: tradingDaysElapsed,
-        horizons,
-        mfe,
-        mfe_days: mfeDays,
-        mfe_date: mfeDate,
-        mae,
-        mae_days: maeDays,
-        mae_date: maeDate,
-        current_return: currentReturn,
+        entry_price: initialTrajectory.entry_price,
+        latest_price: initialTrajectory.latest_price,
+        trading_days_elapsed: initialTrajectory.trading_days_elapsed,
+        horizons: initialTrajectory.horizons,
+        mfe: initialTrajectory.mfe,
+        mfe_days: initialTrajectory.mfe_days,
+        mfe_date: initialTrajectory.mfe_date,
+        mae: initialTrajectory.mae,
+        mae_days: initialTrajectory.mae_days,
+        mae_date: initialTrajectory.mae_date,
+        current_return: initialTrajectory.current_return,
+        forward_curve: initialTrajectory.forward_curve,
+        candidate_entry: candidateEntry,
         signals: ep.signals.map((s) => ({
           date: s.date,
           score: s.score,
           status: s.status,
           price: s.price,
         })),
-        forward_curve: forwardCurve,
       };
     });
 

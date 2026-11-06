@@ -26,7 +26,7 @@ export default function AnalysisTable() {
 
   const filteredData = data.filter(item => {
     if (item.analysis_type !== activeTab) return false;
-    if (activeTab === 'qullamaggie' && (item.status === 'no_setup' || (item.status !== 'candidate' && item.status !== 'watch') || Number(item.score) <= 0)) {
+    if ((activeTab === 'qullamaggie' || activeTab === 'early_surf') && (item.status === 'no_setup' || (item.status !== 'candidate' && item.status !== 'watch') || Number(item.score) <= 0)) {
       return false;
     }
     if (searchQuery && !item.symbol.toLowerCase().includes(searchQuery.toLowerCase())) {
@@ -47,6 +47,20 @@ export default function AnalysisTable() {
           <span className="badge badge-sm badge-outline">Dry: {reason.vol_score} ({reason.is_dry ? 'Yes' : 'No'})</span>
           {reason.rvol && <span className="badge badge-sm badge-outline">RVOL: {reason.rvol.toFixed(2)}</span>}
           {reason.ext_pct !== undefined && <span className="badge badge-sm badge-outline">Ext: {(reason.ext_pct * 100).toFixed(1)}%</span>}
+        </div>
+      );
+    }
+
+    if (type === 'early_surf') {
+      const m = reason.metrics || {};
+      const b = reason.breakdown || {};
+      return (
+        <div className="flex flex-wrap gap-2 text-xs">
+          <span className="badge badge-sm badge-outline">Pinch: {b.sma50_pinch ?? '-'} ({m.ext_sma50_pct ?? '-'}%)</span>
+          <span className="badge badge-sm badge-outline">Surf: {b.ema_surf ?? '-'} ({m.ema10_gt_20_days ?? 0}d)</span>
+          <span className="badge badge-sm badge-outline">Vol: {b.volume_pocket ?? '-'} (PP:{m.pocket_pivots_10d ?? 0})</span>
+          <span className="badge badge-sm badge-outline">RSI: {m.rsi ?? '-'}</span>
+          <span className="badge badge-sm badge-outline">ADR: {m.adr20 ?? '-'}%</span>
         </div>
       );
     }
@@ -89,6 +103,12 @@ export default function AnalysisTable() {
           onClick={() => setActiveTab('qullamaggie')}
         >
           Qullamaggie
+        </button>
+        <button 
+          className={`tab ${activeTab === 'early_surf' ? 'bg-cyan-600 text-white font-bold rounded' : 'text-white/60'}`}
+          onClick={() => setActiveTab('early_surf')}
+        >
+          Early Surf
         </button>
         <button 
           className={`tab ${activeTab === 'fundamentals' ? 'bg-indigo-600 text-white font-bold rounded' : 'text-white/60'}`}

@@ -123,50 +123,68 @@ function getPctColor(val) {
   return 'text-rose-400/80';
 }
 
-function getEpisodeHorizonValue(ep, horizonKey, returnMode, includePartial) {
+function getEpisodeTrajectory(ep, entryBasis = 'first_alert') {
   if (!ep) return null;
-  if (horizonKey === 'overall') {
-    return returnMode === 'peak' ? ep.mfe : ep.current_return;
+  if (entryBasis === 'candidate_trigger' && ep.candidate_entry) {
+    return ep.candidate_entry;
   }
-  const h = ep.horizons?.[horizonKey];
+  return ep;
+}
+
+function getEpisodeHorizonValue(ep, horizonKey, returnMode, includePartial, entryBasis = 'first_alert') {
+  const traj = getEpisodeTrajectory(ep, entryBasis);
+  if (!traj) return null;
+  if (!traj.trading_days_elapsed || traj.trading_days_elapsed <= 0) return null;
+
+  if (horizonKey === 'overall') {
+    if (!includePartial && traj.trading_days_elapsed < 5) return null;
+    return returnMode === 'peak' ? traj.mfe : traj.current_return;
+  }
+  const h = traj.horizons?.[horizonKey];
   if (!h) return null;
   if (returnMode === 'peak') {
     if (!includePartial && !h.completed) return null;
-    return h.max_gain;
+    return h.days_available > 0 ? h.max_gain : null;
   }
   if (h.completed) return h.close_return;
   if (includePartial && h.days_available > 0) return h.to_date_return;
   return null;
 }
 
-function computeGroupStats(episodes, horizonKey, returnMode, includePartial) {
+function computeGroupStats(episodes, horizonKey, returnMode, includePartial, entryBasis = 'first_alert') {
   const valid = [];
   const mfeList = [];
   const maeList = [];
   const ddList = [];
 
   for (const ep of episodes) {
-    const val = getEpisodeHorizonValue(ep, horizonKey, returnMode, includePartial);
-    if (val !== null && val !== undefined && !Number.isNaN(val)) {
-      valid.push(val);
+    const val = getEpisodeHorizonValue(ep, horizonKey, returnMode, includePartial, entryBasis);
+    if (val === null || val === undefined || Number.isNaN(val)) {
+      continue;
     }
+    valid.push(val);
 
-    // Horizon-specific peak gain and drawdown
+    const traj = getEpisodeTrajectory(ep, entryBasis);
+    if (!traj) continue;
+
+    // Horizon-specific peak gain and drawdown for evaluated episodes only
     if (horizonKey === 'overall') {
-      if (ep.mfe !== null && ep.mfe !== undefined) mfeList.push(ep.mfe);
-      if (ep.mae !== null && ep.mae !== undefined) {
-        maeList.push(ep.mae);
-        ddList.push(ep.mae);
+      if (traj.mfe !== null && traj.mfe !== undefined) mfeList.push(traj.mfe);
+      if (traj.mae !== null && traj.mae !== undefined) {
+        const clampedMae = Math.min(0, traj.mae);
+        maeList.push(clampedMae);
+        ddList.push(clampedMae);
       }
     } else {
-      const h = ep.horizons?.[horizonKey];
+      const h = traj.horizons?.[horizonKey];
       if (h) {
-        if (h.max_gain !== null && h.max_gain !== undefined && (includePartial || h.completed)) {
+        if (h.max_gain !== null && h.max_gain !== undefined) {
           mfeList.push(h.max_gain);
         }
-        if (h.max_dd !== null && h.max_dd !== undefined && (includePartial || h.completed)) {
-          maeList.push(h.max_dd);
-          ddList.push(h.max_dd);
+        if (h.max_dd !== null && h.max_dd !== undefined) {
+          const clampedDd = Math.min(0, h.max_dd);
+          maeList.push(clampedDd);
+          ddList.push(clampedDd);
         }
       }
     }
@@ -182,8 +200,11 @@ function computeGroupStats(episodes, horizonKey, returnMode, includePartial) {
       medianReturn: 0,
       hit10Rate: 0,
       hit20Rate: 0,
+      hit10Count: 0,
+      hit20Count: 0,
       loss5Rate: 0,
       loss10Rate: 0,
+      loss10Count: 0,
       avgMfe: 0,
       avgMae: 0,
       buckets: RETURN_BUCKETS.map((b) => ({ ...b, count: 0, pct: 0 })),
@@ -380,6 +401,22 @@ function EpisodeChartModal({ episode, allSymbolEpisodes, onClose, navigate }) {
       });
     }
 
+    // If upgraded from Watch to Candidate, also show Candidate Upgrade Entry Price line
+    if (
+      episode.upgraded_to_candidate &&
+      episode.candidate_entry?.entry_price &&
+      episode.candidate_entry.entry_price !== episode.entry_price
+    ) {
+      candleSeries.createPriceLine({
+        price: episode.candidate_entry.entry_price,
+        color: '#10b981',
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: `Cand Upgrade: $${episode.candidate_entry.entry_price}`,
+      });
+    }
+
     // Build markers for the active episode signals + other episodes of the same symbol
     const candleDatesSet = new Set(formattedCandles.map((c) => c.time));
     const findClosestCandleDate = (targetDate) => {
@@ -397,7 +434,10 @@ function EpisodeChartModal({ episode, allSymbolEpisodes, onClose, navigate }) {
         if (!cDate) return;
         const isFirst = idx === 0;
         const isCandidate = sig.status === 'candidate';
-        markersMap.set(`${cDate}-${otherEp.id}`, {
+        const markerKey = `${cDate}-${otherEp.id}`;
+        // Never overwrite an initial Wave # arrow marker if multiple signals fall on the latest candle
+        if (markersMap.has(markerKey) && !isFirst) return;
+        markersMap.set(markerKey, {
           time: cDate,
           position: 'belowBar',
           color: isCurrent
@@ -422,7 +462,7 @@ function EpisodeChartModal({ episode, allSymbolEpisodes, onClose, navigate }) {
         position: 'aboveBar',
         color: '#34d399',
         shape: 'arrowDown',
-        text: `Peak +${episode.mfe}% (${episode.mfe_days}d)`,
+        text: `Peak ${formatPct(episode.mfe)} (${episode.mfe_days}d)`,
       });
     }
 
@@ -457,6 +497,10 @@ function EpisodeChartModal({ episode, allSymbolEpisodes, onClose, navigate }) {
   if (!episode) return null;
 
   const r = episode.initial_reason || {};
+  const isEarlySurf = episode.analysis_type === 'early_surf';
+  const esMetrics = r.metrics || {};
+  const esBreakdown = r.breakdown || {};
+  const esTrade = r.trade_params || {};
 
   return (
     <dialog
@@ -468,10 +512,16 @@ function EpisodeChartModal({ episode, allSymbolEpisodes, onClose, navigate }) {
       <div className="bg-[#0d0d12] flex flex-col max-h-[90vh]">
         {/* Modal Header */}
         <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4 border-b border-white/10 bg-white/[0.02]">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="text-2xl font-black tracking-tight text-white">{episode.symbol}</span>
-            <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-              Wave #{episode.episode_number} / {episode.total_episodes_for_symbol}
+            <span
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                isEarlySurf
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                  : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+              }`}
+            >
+              {isEarlySurf ? 'Early Surf' : 'Qullamaggie'} • Wave #{episode.episode_number} / {episode.total_episodes_for_symbol}
             </span>
             <span
               className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${
@@ -480,16 +530,21 @@ function EpisodeChartModal({ episode, allSymbolEpisodes, onClose, navigate }) {
                   : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
               }`}
             >
-              {episode.peak_status} (Max Score: {episode.max_score})
+              {episode.peak_status} (Entry: {episode.initial_score} • Max: {episode.max_score})
             </span>
-            {r.is_tight && (
+            {!isEarlySurf && r.is_tight && (
               <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-teal-500/15 text-teal-300 border border-teal-500/25">
                 Tight Flag ✅
               </span>
             )}
-            {r.is_dry && (
+            {!isEarlySurf && r.is_dry && (
               <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/25">
                 Vol Dry-Up ✅
+              </span>
+            )}
+            {isEarlySurf && esMetrics.ext_sma50_pct !== undefined && (
+              <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/25">
+                SMA50 Pinch: {esMetrics.ext_sma50_pct}%
               </span>
             )}
             <span className="text-xs text-white/50 hidden sm:inline">
@@ -532,8 +587,9 @@ function EpisodeChartModal({ episode, allSymbolEpisodes, onClose, navigate }) {
             </div>
             <div className="bg-white/[0.03] border border-white/10 rounded-xl p-3">
               <div className="text-[11px] text-white/40 uppercase">3 Days (3D)</div>
-              <div className={`text-sm font-mono mt-0.5 ${getPctColor(episode.horizons?.['3d']?.close_return)}`}>
-                {formatPct(episode.horizons?.['3d']?.close_return)}
+              <div className={`text-sm font-mono mt-0.5 ${getPctColor(episode.horizons?.['3d']?.close_return ?? episode.horizons?.['3d']?.to_date_return)}`}>
+                {formatPct(episode.horizons?.['3d']?.close_return ?? episode.horizons?.['3d']?.to_date_return)}
+                {!episode.horizons?.['3d']?.completed && episode.horizons?.['3d']?.days_available > 0 && ' ⏳'}
               </div>
               <div className="text-[11px] text-white/40">
                 Peak: {formatPct(episode.horizons?.['3d']?.max_gain)}
@@ -541,8 +597,9 @@ function EpisodeChartModal({ episode, allSymbolEpisodes, onClose, navigate }) {
             </div>
             <div className="bg-white/[0.03] border border-white/10 rounded-xl p-3">
               <div className="text-[11px] text-white/40 uppercase">1 Week (1W)</div>
-              <div className={`text-sm font-mono mt-0.5 ${getPctColor(episode.horizons?.['1w']?.close_return)}`}>
-                {formatPct(episode.horizons?.['1w']?.close_return)}
+              <div className={`text-sm font-mono mt-0.5 ${getPctColor(episode.horizons?.['1w']?.close_return ?? episode.horizons?.['1w']?.to_date_return)}`}>
+                {formatPct(episode.horizons?.['1w']?.close_return ?? episode.horizons?.['1w']?.to_date_return)}
+                {!episode.horizons?.['1w']?.completed && episode.horizons?.['1w']?.days_available > 0 && ' ⏳'}
               </div>
               <div className="text-[11px] text-white/40">
                 Peak: {formatPct(episode.horizons?.['1w']?.max_gain)}
@@ -588,6 +645,48 @@ function EpisodeChartModal({ episode, allSymbolEpisodes, onClose, navigate }) {
             </div>
           </div>
 
+          {/* Upgraded Watch -> Candidate Comparison Banner */}
+          {episode.upgraded_to_candidate && episode.candidate_entry && (
+            <div className="bg-indigo-500/10 border border-indigo-500/25 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded bg-indigo-500/25 text-indigo-200 font-bold uppercase text-[10px]">
+                  ⬆️ Watch → Candidate Upgrade
+                </span>
+                <span className="text-white/75">
+                  Started as <b>Watch ({episode.initial_score})</b> on <b>{episode.start_date}</b> @ <b>${episode.entry_price}</b>, then upgraded to{' '}
+                  <b>Candidate ({episode.candidate_entry.score})</b> on <b>{episode.candidate_entry.start_date}</b> @{' '}
+                  <b>${episode.candidate_entry.entry_price}</b>.
+                </span>
+              </div>
+              <div className="flex items-center gap-3 font-mono">
+                <span className="text-white/60">
+                  Pre-Upgrade Move:{' '}
+                  <strong className={getPctColor(episode.candidate_entry.pre_upgrade_return_pct)}>
+                    {formatPct(episode.candidate_entry.pre_upgrade_return_pct)}
+                  </strong>
+                </span>
+                <span className="text-white/60">
+                  Post-Candidate 1W:{' '}
+                  <strong
+                    className={getPctColor(
+                      episode.candidate_entry.horizons?.['1w']?.close_return ??
+                        episode.candidate_entry.horizons?.['1w']?.to_date_return
+                    )}
+                  >
+                    {formatPct(
+                      episode.candidate_entry.horizons?.['1w']?.close_return ??
+                        episode.candidate_entry.horizons?.['1w']?.to_date_return
+                    )}
+                  </strong>
+                </span>
+                <span className="text-white/60">
+                  Post-Candidate MFE:{' '}
+                  <strong className="text-emerald-300">{formatPct(episode.candidate_entry.mfe)}</strong>
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Interactive Candlestick Chart */}
           <div className="bg-[#0b0b10] border border-white/10 rounded-2xl p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -628,45 +727,94 @@ function EpisodeChartModal({ episode, allSymbolEpisodes, onClose, navigate }) {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="bg-white/[0.02] border border-white/10 rounded-xl p-4">
               <h4 className="text-xs font-bold uppercase tracking-wider text-white/60 mb-3">
-                Initial Technical Setup Breakdown ({episode.start_date})
+                Initial {isEarlySurf ? 'Early Surf' : 'Qullamaggie'} Setup Breakdown ({episode.start_date})
               </h4>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
-                <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
-                  <span className="text-white/40 block">Trend Score</span>
-                  <span className="text-white font-bold text-sm">{r.trend_score ?? '—'} / 35</span>
+              {isEarlySurf ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">SMA50 Pinch Score</span>
+                    <span className="text-white font-bold text-sm">
+                      {esBreakdown.sma50_pinch ?? '—'} / 25 ({esMetrics.ext_sma50_pct ?? '—'}%)
+                    </span>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">EMA10 &gt; EMA20 Surf</span>
+                    <span className="text-white font-bold text-sm">
+                      {esBreakdown.ema_surf ?? '—'} / 20 ({esMetrics.ema10_gt_20_days ?? 0}d)
+                    </span>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">Volume &amp; Pockets</span>
+                    <span className="text-white font-bold text-sm">
+                      {esBreakdown.volume_pocket ?? '—'} / 20 (PP:{esMetrics.pocket_pivots_10d ?? 0})
+                    </span>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">RSI Sweetspot</span>
+                    <span className="text-white font-bold text-sm">
+                      {esBreakdown.rsi_sweetspot ?? '—'} / 15 (RSI {esMetrics.rsi ?? '—'})
+                    </span>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">Coiling &amp; ADR20</span>
+                    <span className="text-white font-bold text-sm">
+                      {esBreakdown.coiling ?? '—'} / 10 (ADR {esMetrics.adr20 ?? '—'}%)
+                    </span>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">Suggested Stop / Risk</span>
+                    <span className="text-white font-bold text-sm">
+                      ${esTrade.suggested_stop ?? '—'} ({esTrade.risk_pct ? `-${esTrade.risk_pct}%` : '—'})
+                    </span>
+                  </div>
                 </div>
-                <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
-                  <span className="text-white/40 block">Relative Strength (RS)</span>
-                  <span className="text-white font-bold text-sm">
-                    {r.rs_score ?? '—'} / 30 {r.rs_ratio ? `(${r.rs_ratio.toFixed(2)}x)` : ''}
-                  </span>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">Trend Score</span>
+                    <span className="text-white font-bold text-sm">
+                      {r.trend_score ?? '—'} / {r.pole_return_pct !== undefined ? 30 : 35}
+                    </span>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">Relative Strength (RS)</span>
+                    <span className="text-white font-bold text-sm">
+                      {r.rs_score ?? '—'} / 30 {r.rs_ratio ? `(${r.rs_ratio.toFixed(2)}x)` : ''}
+                    </span>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">Tightness / Base</span>
+                    <span className="text-white font-bold text-sm">
+                      {r.tightness_score ?? '—'} / 25 ({r.is_tight ? 'Tight ✅' : 'Wide'})
+                    </span>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">Volume Dry-Up</span>
+                    <span className="text-white font-bold text-sm">
+                      {r.vol_score ?? '—'} / 15 ({r.is_dry ? 'Dry ✅' : 'Normal'})
+                    </span>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">RVOL / Extension</span>
+                    <span className="text-white font-bold text-sm">
+                      {r.rvol ? `${r.rvol.toFixed(2)}x` : '—'} /{' '}
+                      {r.ext_pct !== undefined ? `${(r.ext_pct * 100).toFixed(1)}%` : '—'}
+                    </span>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
+                    <span className="text-white/40 block">
+                      {r.pole_return_pct !== undefined ? 'Pole / Base DD' : 'Highs Spread'}
+                    </span>
+                    <span className="text-white font-bold text-sm">
+                      {r.pole_return_pct !== undefined
+                        ? `+${Number(r.pole_return_pct).toFixed(1)}% / -${Number(r.drawdown_pct ?? 0).toFixed(1)}%`
+                        : r.highs_spread !== undefined
+                          ? `${(r.highs_spread * 100).toFixed(2)}%`
+                          : '—'}
+                    </span>
+                  </div>
                 </div>
-                <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
-                  <span className="text-white/40 block">Tightness</span>
-                  <span className="text-white font-bold text-sm">
-                    {r.tightness_score ?? '—'} ({r.is_tight ? 'Tight ✅' : 'Wide'})
-                  </span>
-                </div>
-                <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
-                  <span className="text-white/40 block">Volume Dry-Up</span>
-                  <span className="text-white font-bold text-sm">
-                    {r.vol_score ?? '—'} ({r.is_dry ? 'Dry ✅' : 'Normal'})
-                  </span>
-                </div>
-                <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
-                  <span className="text-white/40 block">RVOL / Extension</span>
-                  <span className="text-white font-bold text-sm">
-                    {r.rvol ? `${r.rvol.toFixed(2)}x` : '—'} /{' '}
-                    {r.ext_pct !== undefined ? `${(r.ext_pct * 100).toFixed(1)}%` : '—'}
-                  </span>
-                </div>
-                <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
-                  <span className="text-white/40 block">Highs Spread</span>
-                  <span className="text-white font-bold text-sm">
-                    {r.highs_spread !== undefined ? `${(r.highs_spread * 100).toFixed(2)}%` : '—'}
-                  </span>
-                </div>
-              </div>
+              )}
             </div>
 
             <div className="bg-white/[0.02] border border-white/10 rounded-xl p-4">
@@ -797,11 +945,12 @@ export default function AnalysisPerformancePage() {
   const [error, setError] = useState(null);
 
   // Controls & Filters
-  const [activeStrategyTab, setActiveStrategyTab] = useState('qullamaggie'); // 'qullamaggie' | 'my_portfolio' | 'fundamentals'
+  const [activeStrategyTab, setActiveStrategyTab] = useState('qullamaggie'); // 'qullamaggie' | 'early_surf' | 'my_portfolio' | 'fundamentals'
   const [gapDays, setGapDays] = useState(10);
-  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'candidate' | 'watch' | 'upgraded'
-  const [traitFilter, setTraitFilter] = useState('all'); // 'all' | 'tight' | 'dry' | 'tight_dry' | 'high_rs'
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'candidate' | 'watch' | 'upgraded' | 'direct_candidate'
+  const [traitFilter, setTraitFilter] = useState('all');
   const [returnMode, setReturnMode] = useState('close'); // 'close' | 'peak'
+  const [entryBasis, setEntryBasis] = useState('first_alert'); // 'first_alert' | 'candidate_trigger'
   const [activeHorizon, setActiveHorizon] = useState('1w'); // '3d' | '1w' | '1m' | '3m' | 'overall'
   const [includePartial, setIncludePartial] = useState(true);
   const [onlyMultiWave, setOnlyMultiWave] = useState(false);
@@ -812,6 +961,8 @@ export default function AnalysisPerformancePage() {
   const [sortDir, setSortDir] = useState('desc');
   const [selectedEpisode, setSelectedEpisode] = useState(null);
 
+  const strategyEpisodeType = activeStrategyTab === 'early_surf' ? 'early_surf' : 'qullamaggie';
+
   // Current calendar boundaries & Year/Multi-Month Filter State
   const now = useMemo(() => new Date(), []);
   const currentYear = now.getFullYear();
@@ -820,13 +971,13 @@ export default function AnalysisPerformancePage() {
   const [selectedYear, setSelectedYear] = useState(() => currentYear);
   const [selectedMonths, setSelectedMonths] = useState(() => [currentMonth]);
 
-  // Group episodes counts by year and month (only Qullamaggie episodes)
+  // Group episodes counts by year and month for the active strategy
   const { availableYears, episodesCountByYear, episodesCountByMonth } = useMemo(() => {
     const yearCounts = {};
     const monthCounts = {};
 
     for (const ep of rawData.episodes || []) {
-      if (ep.analysis_type !== 'qullamaggie' || !ep.start_date) continue;
+      if (ep.analysis_type !== strategyEpisodeType || !ep.start_date) continue;
       const y = parseInt(ep.start_date.slice(0, 4), 10);
       const m = parseInt(ep.start_date.slice(5, 7), 10);
 
@@ -849,7 +1000,36 @@ export default function AnalysisPerformancePage() {
       episodesCountByYear: yearCounts,
       episodesCountByMonth: monthCounts,
     };
-  }, [rawData.episodes, currentYear, selectedYear]);
+  }, [rawData.episodes, strategyEpisodeType, currentYear, selectedYear]);
+
+  const handleSelectStrategyTab = (tab) => {
+    setActiveStrategyTab(tab);
+    setTraitFilter('all');
+    setSelectedBucketId(null);
+    if (tab === 'qullamaggie' || tab === 'early_surf') {
+      // Check if current selectedYear/selectedMonths has episodes for this strategy; if not, select active months
+      const epsForTab = (rawData.episodes || []).filter((e) => e.analysis_type === tab && e.start_date);
+      const hasInCurrentSelection = epsForTab.some((e) => {
+        const y = parseInt(e.start_date.slice(0, 4), 10);
+        const m = parseInt(e.start_date.slice(5, 7), 10);
+        return y === selectedYear && selectedMonths.includes(m);
+      });
+      if (!hasInCurrentSelection && epsForTab.length > 0) {
+        const monthsWithData = Array.from(
+          new Set(
+            epsForTab
+              .filter((e) => parseInt(e.start_date.slice(0, 4), 10) === currentYear)
+              .map((e) => parseInt(e.start_date.slice(5, 7), 10))
+              .filter((m) => m <= currentMonth)
+          )
+        ).sort((a, b) => a - b);
+        if (monthsWithData.length > 0) {
+          setSelectedYear(currentYear);
+          setSelectedMonths(monthsWithData);
+        }
+      }
+    }
+  };
 
   const handleToggleMonth = (m) => {
     setSelectedMonths((prev) => {
@@ -888,7 +1068,7 @@ export default function AnalysisPerformancePage() {
     } else {
       const active = [];
       for (const ep of rawData.episodes || []) {
-        if (ep.analysis_type !== 'qullamaggie' || !ep.start_date) continue;
+        if (ep.analysis_type !== strategyEpisodeType || !ep.start_date) continue;
         const ey = parseInt(ep.start_date.slice(0, 4), 10);
         const em = parseInt(ep.start_date.slice(5, 7), 10);
         if (ey === year && !active.includes(em)) {
@@ -925,10 +1105,10 @@ export default function AnalysisPerformancePage() {
 
   const myPortfolio = rawData.my_portfolio_analysis || null;
 
-  // 1. Base filtered episodes (Qullamaggie only + Year & Month date filter)
+  // 1. Base filtered episodes (Strategy + Year & Month date filter + Status/Trait filters)
   const filteredEpisodes = useMemo(() => {
     return (rawData.episodes || []).filter((ep) => {
-      if (ep.analysis_type !== 'qullamaggie') return false;
+      if (ep.analysis_type !== strategyEpisodeType) return false;
 
       // Start date year & month filter
       if (!ep.start_date) return false;
@@ -940,66 +1120,221 @@ export default function AnalysisPerformancePage() {
       if (!selectedMonths.includes(epMonth)) return false;
 
       if (statusFilter === 'candidate' && ep.peak_status !== 'candidate') return false;
+      if (statusFilter === 'direct_candidate' && ep.initial_status !== 'candidate') return false;
       if (statusFilter === 'watch' && ep.peak_status !== 'watch') return false;
       if (statusFilter === 'upgraded' && !ep.upgraded_to_candidate) return false;
-      if (traitFilter === 'tight' && !ep.initial_reason?.is_tight) return false;
-      if (traitFilter === 'dry' && !ep.initial_reason?.is_dry) return false;
-      if (traitFilter === 'tight_dry' && !(ep.initial_reason?.is_tight && ep.initial_reason?.is_dry)) return false;
-      if (traitFilter === 'high_rs' && !(Number(ep.initial_reason?.rs_score || 0) >= 20)) return false;
+
+      if (strategyEpisodeType === 'qullamaggie') {
+        if (traitFilter === 'tight' && !ep.initial_reason?.is_tight) return false;
+        if (traitFilter === 'dry' && !ep.initial_reason?.is_dry) return false;
+        if (traitFilter === 'tight_dry' && !(ep.initial_reason?.is_tight && ep.initial_reason?.is_dry)) return false;
+        if (traitFilter === 'high_rs' && !(Number(ep.initial_reason?.rs_score || 0) >= 20)) return false;
+      } else {
+        // early_surf trait filters
+        if (traitFilter === 'surfing_ema' && !(Number(ep.initial_reason?.ema10_gt_20_days || 0) >= 3)) return false;
+        if (traitFilter === 'sweet_rsi' && !(Number(ep.initial_reason?.rsi_14 || 0) >= 48 && Number(ep.initial_reason?.rsi_14 || 0) <= 58)) return false;
+        if (traitFilter === 'tight_candle' && !(Number(ep.initial_reason?.candle_tightness_pct ?? 99) <= 0.7)) return false;
+        if (traitFilter === 'pinched_sma50' && !(Number(ep.initial_reason?.ext_sma50_pct ?? 99) >= -1.0 && Number(ep.initial_reason?.ext_sma50_pct ?? 99) <= 3.0)) return false;
+      }
+
       if (onlyMultiWave && ep.total_episodes_for_symbol < 2) return false;
       if (onlyMyTraded && !ep.my_trade) return false;
       return true;
     });
-  }, [rawData.episodes, selectedYear, selectedMonths, statusFilter, traitFilter, onlyMultiWave, onlyMyTraded]);
+  }, [rawData.episodes, strategyEpisodeType, selectedYear, selectedMonths, statusFilter, traitFilter, onlyMultiWave, onlyMyTraded]);
+
+  // Raw signal alert count & pending 0d count within filteredEpisodes
+  const filteredSignalAlertCount = useMemo(
+    () => filteredEpisodes.reduce((sum, ep) => sum + (ep.alert_days || 1), 0),
+    [filteredEpisodes]
+  );
+  const pendingZeroDayCount = useMemo(
+    () =>
+      filteredEpisodes.filter((ep) => {
+        const traj = getEpisodeTrajectory(ep, entryBasis);
+        return (traj.trading_days_elapsed ?? 0) === 0;
+      }).length,
+    [filteredEpisodes, entryBasis]
+  );
 
   // 2. Main KPI & distribution stats for the active horizon
   const mainStats = useMemo(
-    () => computeGroupStats(filteredEpisodes, activeHorizon, returnMode, includePartial),
-    [filteredEpisodes, activeHorizon, returnMode, includePartial]
+    () => computeGroupStats(filteredEpisodes, activeHorizon, returnMode, includePartial, entryBasis),
+    [filteredEpisodes, activeHorizon, returnMode, includePartial, entryBasis]
   );
 
   // 3. Multi-horizon comparison matrix (3D, 1W, 1M, 3M, Overall)
   const horizonMatrix = useMemo(() => {
     return HORIZON_CONFIG.map((h) => ({
       ...h,
-      stats: computeGroupStats(filteredEpisodes, h.key, returnMode, includePartial),
+      stats: computeGroupStats(filteredEpisodes, h.key, returnMode, includePartial, entryBasis),
     }));
-  }, [filteredEpisodes, returnMode, includePartial]);
+  }, [filteredEpisodes, returnMode, includePartial, entryBasis]);
 
-  // 4. Factor Attribution ("What Works vs What Doesn't")
+  // 4. Factor Attribution ("What Works vs What Doesn't") — Unbiased by entry day & status
   const factorAnalysis = useMemo(() => {
-    const makeRow = (label, badgeColor, predicate) => {
+    const makeRow = (label, badgeColor, predicate, customBasis = entryBasis) => {
       const subset = filteredEpisodes.filter(predicate);
-      const st = computeGroupStats(subset, activeHorizon, returnMode, includePartial);
+      const st = computeGroupStats(subset, activeHorizon, returnMode, includePartial, customBasis);
       return { label, badgeColor, ...st };
     };
 
+    const byStatus = [
+      makeRow(
+        'Direct Candidate (Day 1)',
+        'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+        (e) => e.initial_status === 'candidate',
+        'first_alert'
+      ),
+      makeRow(
+        'All Initial Watch (Unbiased)',
+        'bg-sky-500/20 text-sky-300 border-sky-500/30',
+        (e) => e.initial_status === 'watch',
+        'first_alert'
+      ),
+      makeRow(
+        'Watch → Candidate (From Upgrade Day)',
+        'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
+        (e) => e.upgraded_to_candidate,
+        'candidate_trigger'
+      ),
+      makeRow(
+        'Watch → Candidate (From Watch Day ⚠️)',
+        'bg-purple-500/20 text-purple-300 border-purple-500/30',
+        (e) => e.upgraded_to_candidate,
+        'first_alert'
+      ),
+      makeRow(
+        'Watch Only (Never Upgraded)',
+        'bg-amber-500/20 text-amber-300 border-amber-500/30',
+        (e) => e.peak_status === 'watch',
+        'first_alert'
+      ),
+    ];
+
+    const byScore = [
+      makeRow(
+        '90 - 100 Entry Score (Elite)',
+        'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+        (e) => e.initial_score >= 90
+      ),
+      makeRow(
+        '80 - 89 Entry Score (Strong)',
+        'bg-teal-500/20 text-teal-300 border-teal-500/30',
+        (e) => e.initial_score >= 80 && e.initial_score < 90
+      ),
+      makeRow(
+        '70 - 79 Entry Score (Sweet Spot)',
+        'bg-sky-500/20 text-sky-300 border-sky-500/30',
+        (e) => e.initial_score >= 70 && e.initial_score < 80
+      ),
+      makeRow(
+        '< 70 Entry Score (Watch Zone)',
+        'bg-slate-500/20 text-slate-300 border-slate-500/30',
+        (e) => e.initial_score < 70
+      ),
+    ];
+
+    if (strategyEpisodeType === 'early_surf') {
+      return {
+        byStatus,
+        byScore,
+        bySetupMechanics: [
+          makeRow(
+            'Tight SMA50 Pinch (-1% to +2.5%)',
+            'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+            (e) => Number(e.initial_reason?.ext_sma50_pct ?? 99) >= -1.0 && Number(e.initial_reason?.ext_sma50_pct ?? 99) <= 2.5
+          ),
+          makeRow(
+            'EMA10 > EMA20 Surf (≥ 3 Days)',
+            'bg-teal-500/20 text-teal-300 border-teal-500/30',
+            (e) => Number(e.initial_reason?.ema10_gt_20_days || 0) >= 3
+          ),
+          makeRow(
+            'Sweet Spot RSI (48 - 58)',
+            'bg-sky-500/20 text-sky-300 border-sky-500/30',
+            (e) => Number(e.initial_reason?.rsi_14 || 0) >= 48 && Number(e.initial_reason?.rsi_14 || 0) <= 58
+          ),
+          makeRow(
+            'Inside Compression (Candle ≤ 0.65x ADR)',
+            'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
+            (e) => Number(e.initial_reason?.candle_tightness_pct ?? 99) <= 0.65
+          ),
+        ],
+        byPersistence: [
+          makeRow(
+            'High Fuel ADR (3.5% - 6.5%)',
+            'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+            (e) => Number(e.initial_reason?.adr20_pct || 0) >= 3.5 && Number(e.initial_reason?.adr20_pct || 0) <= 6.5
+          ),
+          makeRow(
+            'Quiet RVOL Dry-Up (0.45x - 0.90x)',
+            'bg-teal-500/20 text-teal-300 border-teal-500/30',
+            (e) => Number(e.initial_reason?.rvol || 0) >= 0.45 && Number(e.initial_reason?.rvol || 0) <= 0.9
+          ),
+          makeRow(
+            'Multi-Day Alert Streak (2+ Days)',
+            'bg-purple-500/20 text-purple-300 border-purple-500/30',
+            (e) => e.alert_days >= 2
+          ),
+          makeRow(
+            'Single-Day Alert (1 Day)',
+            'bg-slate-500/20 text-slate-300 border-slate-500/30',
+            (e) => e.alert_days === 1
+          ),
+        ],
+      };
+    }
+
     return {
-      byStatus: [
-        makeRow('Candidate', 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', (e) => e.peak_status === 'candidate'),
-        makeRow('Watch → Candidate Upgraded', 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30', (e) => e.upgraded_to_candidate),
-        makeRow('Watch Only', 'bg-amber-500/20 text-amber-300 border-amber-500/30', (e) => e.peak_status === 'watch'),
-      ],
-      byScore: [
-        makeRow('90 - 100 Score (Elite)', 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', (e) => e.max_score >= 90),
-        makeRow('80 - 89 Score (Strong)', 'bg-teal-500/20 text-teal-300 border-teal-500/30', (e) => e.max_score >= 80 && e.max_score < 90),
-        makeRow('70 - 79 Score (Moderate)', 'bg-sky-500/20 text-sky-300 border-sky-500/30', (e) => e.max_score >= 70 && e.max_score < 80),
-        makeRow('< 70 Score (Low)', 'bg-slate-500/20 text-slate-300 border-slate-500/30', (e) => e.max_score < 70),
-      ],
+      byStatus,
+      byScore,
       bySetupMechanics: [
-        makeRow('Tight + Volume Dry-Up Combo', 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', (e) => e.initial_reason?.is_tight && e.initial_reason?.is_dry),
-        makeRow('Tight Flag (is_tight)', 'bg-teal-500/20 text-teal-300 border-teal-500/30', (e) => Boolean(e.initial_reason?.is_tight)),
-        makeRow('Volume Dry-Up (is_dry)', 'bg-sky-500/20 text-sky-300 border-sky-500/30', (e) => Boolean(e.initial_reason?.is_dry)),
-        makeRow('High Relative Strength (RS ≥ 20)', 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30', (e) => Number(e.initial_reason?.rs_score || 0) >= 20),
+        makeRow(
+          'Tight + Volume Dry-Up Combo',
+          'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+          (e) => e.initial_reason?.is_tight && e.initial_reason?.is_dry
+        ),
+        makeRow(
+          'Tight Flag (is_tight)',
+          'bg-teal-500/20 text-teal-300 border-teal-500/30',
+          (e) => Boolean(e.initial_reason?.is_tight)
+        ),
+        makeRow(
+          'Volume Dry-Up (is_dry)',
+          'bg-sky-500/20 text-sky-300 border-sky-500/30',
+          (e) => Boolean(e.initial_reason?.is_dry)
+        ),
+        makeRow(
+          'High Relative Strength (RS ≥ 20)',
+          'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
+          (e) => Number(e.initial_reason?.rs_score || 0) >= 20
+        ),
       ],
       byPersistence: [
-        makeRow('4+ Days Persistent Streak', 'bg-purple-500/20 text-purple-300 border-purple-500/30', (e) => e.alert_days >= 4),
-        makeRow('2 - 3 Days Alert Streak', 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30', (e) => e.alert_days >= 2 && e.alert_days <= 3),
-        makeRow('Single-Day Alert (1 Day)', 'bg-slate-500/20 text-slate-300 border-slate-500/30', (e) => e.alert_days === 1),
-        makeRow('Low Extension (Ext ≤ 3%)', 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', (e) => e.initial_reason?.ext_pct !== undefined && e.initial_reason.ext_pct <= 0.03),
+        makeRow(
+          '4+ Days Persistent Streak',
+          'bg-purple-500/20 text-purple-300 border-purple-500/30',
+          (e) => e.alert_days >= 4
+        ),
+        makeRow(
+          '2 - 3 Days Alert Streak',
+          'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
+          (e) => e.alert_days >= 2 && e.alert_days <= 3
+        ),
+        makeRow(
+          'Single-Day Alert (1 Day)',
+          'bg-slate-500/20 text-slate-300 border-slate-500/30',
+          (e) => e.alert_days === 1
+        ),
+        makeRow(
+          'Low Extension (Ext ≤ 3%)',
+          'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+          (e) => e.initial_reason?.ext_pct !== undefined && e.initial_reason.ext_pct <= 0.03
+        ),
       ],
     };
-  }, [filteredEpisodes, activeHorizon, returnMode, includePartial]);
+  }, [filteredEpisodes, strategyEpisodeType, activeHorizon, returnMode, includePartial, entryBasis]);
 
   // 5. Post-Signal Average Trajectory Curve (Day 1 to Day 25)
   const trajectoryCurve = useMemo(() => {
@@ -1011,9 +1346,11 @@ export default function AnalysisPerformancePage() {
       const watchVals = [];
 
       for (const ep of filteredEpisodes) {
+        const traj = getEpisodeTrajectory(ep, entryBasis);
+        const curve = traj.forward_curve || [];
         if (returnMode === 'peak') {
           // Running peak gain (MFE) up to day d
-          const slice = (ep.forward_curve || []).filter((p) => p.day <= d && p.high_pct !== null && p.high_pct !== undefined);
+          const slice = curve.filter((p) => p.day <= d && p.high_pct !== null && p.high_pct !== undefined);
           if (slice.length > 0) {
             const peak = Math.max(...slice.map((p) => p.high_pct));
             allVals.push(peak);
@@ -1022,7 +1359,7 @@ export default function AnalysisPerformancePage() {
           }
         } else {
           // Cumulative close return on day d
-          const pt = ep.forward_curve?.find((p) => p.day === d);
+          const pt = curve.find((p) => p.day === d);
           if (pt && pt.close_pct !== null && pt.close_pct !== undefined) {
             allVals.push(pt.close_pct);
             if (ep.peak_status === 'candidate') candVals.push(pt.close_pct);
@@ -1043,14 +1380,15 @@ export default function AnalysisPerformancePage() {
       }
     }
     return points;
-  }, [filteredEpisodes, returnMode]);
+  }, [filteredEpisodes, returnMode, entryBasis]);
 
   // 6. Hall of Fame (Best Performers) & Hall of Shame (Worst Performers)
   const { bestPerformers, worstPerformers } = useMemo(() => {
     const withVal = filteredEpisodes
       .map((ep) => ({
         ep,
-        val: getEpisodeHorizonValue(ep, activeHorizon, returnMode, includePartial),
+        traj: getEpisodeTrajectory(ep, entryBasis),
+        val: getEpisodeHorizonValue(ep, activeHorizon, returnMode, includePartial, entryBasis),
       }))
       .filter((x) => x.val !== null && x.val !== undefined && !Number.isNaN(x.val));
 
@@ -1061,7 +1399,7 @@ export default function AnalysisPerformancePage() {
       bestPerformers: sortedDesc.slice(0, 10),
       worstPerformers: sortedAsc.slice(0, 10),
     };
-  }, [filteredEpisodes, activeHorizon, returnMode, includePartial]);
+  }, [filteredEpisodes, activeHorizon, returnMode, includePartial, entryBasis]);
 
   // 7. Table episodes (with bucket filter, search, and sorting)
   const tableEpisodes = useMemo(() => {
@@ -1075,7 +1413,7 @@ export default function AnalysisPerformancePage() {
         if (!matchSym && !matchSec) return false;
       }
       if (activeBucket) {
-        const v = getEpisodeHorizonValue(ep, activeHorizon, returnMode, includePartial);
+        const v = getEpisodeHorizonValue(ep, activeHorizon, returnMode, includePartial, entryBasis);
         if (v === null || v === undefined) return false;
         if (activeBucket.id === 'super_win' && !(v >= 20)) return false;
         else if (activeBucket.id === 'big_loss' && !(v < -10)) return false;
@@ -1091,22 +1429,24 @@ export default function AnalysisPerformancePage() {
 
     list.sort((a, b) => {
       const dir = sortDir === 'asc' ? 1 : -1;
+      const ta = getEpisodeTrajectory(a, entryBasis);
+      const tb = getEpisodeTrajectory(b, entryBasis);
       if (sortBy === 'symbol') return a.symbol.localeCompare(b.symbol) * dir;
       if (sortBy === 'start_date') return a.start_date.localeCompare(b.start_date) * dir;
       if (sortBy === 'alert_days') return (a.alert_days - b.alert_days) * dir;
-      if (sortBy === 'max_score') return (a.max_score - b.max_score) * dir;
-      if (sortBy === 'mfe') return ((a.mfe ?? -999) - (b.mfe ?? -999)) * dir;
-      if (sortBy === 'mae') return ((a.mae ?? -999) - (b.mae ?? -999)) * dir;
+      if (sortBy === 'max_score') return (a.initial_score - b.initial_score) * dir;
+      if (sortBy === 'mfe') return ((ta.mfe ?? -999) - (tb.mfe ?? -999)) * dir;
+      if (sortBy === 'mae') return ((ta.mae ?? -999) - (tb.mae ?? -999)) * dir;
       if (['3d', '1w', '1m', '3m', 'overall'].includes(sortBy)) {
-        const va = getEpisodeHorizonValue(a, sortBy, returnMode, includePartial) ?? -999;
-        const vb = getEpisodeHorizonValue(b, sortBy, returnMode, includePartial) ?? -999;
+        const va = getEpisodeHorizonValue(a, sortBy, returnMode, includePartial, entryBasis) ?? -999;
+        const vb = getEpisodeHorizonValue(b, sortBy, returnMode, includePartial, entryBasis) ?? -999;
         return (va - vb) * dir;
       }
       return 0;
     });
 
     return list;
-  }, [filteredEpisodes, selectedBucketId, searchQuery, sortBy, sortDir, activeHorizon, returnMode, includePartial]);
+  }, [filteredEpisodes, selectedBucketId, searchQuery, sortBy, sortDir, activeHorizon, returnMode, includePartial, entryBasis]);
 
   const handleSort = (col) => {
     if (sortBy === col) {
@@ -1143,7 +1483,7 @@ export default function AnalysisPerformancePage() {
           </div>
 
           {/* Episode Gap Selector (Single-row non-wrapping) */}
-          {activeStrategyTab === 'qullamaggie' && (
+          {(activeStrategyTab === 'qullamaggie' || activeStrategyTab === 'early_surf') && (
             <div className="flex items-center gap-3 flex-nowrap shrink-0 whitespace-nowrap bg-white/[0.03] border border-white/10 rounded-xl px-4 py-2.5 self-start lg:self-end">
               <div className="text-xs font-semibold text-white/60 flex items-center gap-2">
                 <Clock size={15} className="text-indigo-400 shrink-0" />
@@ -1175,7 +1515,7 @@ export default function AnalysisPerformancePage() {
         {/* Top Strategy Tabs */}
         <div className="flex flex-wrap items-center gap-2 bg-black/40 p-1.5 rounded-xl border border-white/10 w-fit">
           <button
-            onClick={() => setActiveStrategyTab('qullamaggie')}
+            onClick={() => handleSelectStrategyTab('qullamaggie')}
             className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer flex items-center gap-2 ${
               activeStrategyTab === 'qullamaggie'
                 ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
@@ -1186,7 +1526,18 @@ export default function AnalysisPerformancePage() {
             <span>Qullamaggie</span>
           </button>
           <button
-            onClick={() => setActiveStrategyTab('my_portfolio')}
+            onClick={() => handleSelectStrategyTab('early_surf')}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              activeStrategyTab === 'early_surf'
+                ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/25'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Activity size={15} />
+            <span>Early Surf</span>
+          </button>
+          <button
+            onClick={() => handleSelectStrategyTab('my_portfolio')}
             className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer flex items-center gap-2 ${
               activeStrategyTab === 'my_portfolio'
                 ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/25'
@@ -1208,7 +1559,7 @@ export default function AnalysisPerformancePage() {
             )}
           </button>
           <button
-            onClick={() => setActiveStrategyTab('fundamentals')}
+            onClick={() => handleSelectStrategyTab('fundamentals')}
             className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer flex items-center gap-2 ${
               activeStrategyTab === 'fundamentals'
                 ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
@@ -1239,7 +1590,7 @@ export default function AnalysisPerformancePage() {
         </div>
       ) : (
         <>
-          {/* Compact Personal Portfolio & Swing Trades Summary Strip inside Qullamaggie Lab */}
+          {/* Compact Personal Portfolio & Swing Trades Summary Strip inside Strategy Lab */}
           {myPortfolio && (
             <div className="bg-emerald-500/[0.05] border border-emerald-500/20 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-4">
@@ -1285,7 +1636,7 @@ export default function AnalysisPerformancePage() {
               </div>
 
               <button
-                onClick={() => setActiveStrategyTab('my_portfolio')}
+                onClick={() => handleSelectStrategyTab('my_portfolio')}
                 className="px-3.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
               >
                 Open Full Trade Analytics &rarr;
@@ -1305,7 +1656,7 @@ export default function AnalysisPerformancePage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-bold text-white">Analysis Start Period</span>
                     <span className="text-[11px] font-semibold text-white/40 uppercase tracking-wider">
-                      (Signal Waves)
+                      ({activeStrategyTab === 'early_surf' ? 'Early Surf Waves' : 'Qullamaggie Waves'})
                     </span>
                     {/* Active Period Summary Badge */}
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
@@ -1483,6 +1834,37 @@ export default function AnalysisPerformancePage() {
                 </div>
               </div>
 
+              {/* Entry Price Basis Toggle (First Alert vs Candidate Upgrade Trigger) */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-white/40">
+                  Entry Price Basis (Look-Ahead Control)
+                </span>
+                <div className="flex gap-1 bg-black/40 p-1 rounded-xl border border-white/5">
+                  <button
+                    onClick={() => setEntryBasis('first_alert')}
+                    title="Measure forward returns from Day 1 of the wave (initial Watch or Candidate alert price)"
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      entryBasis === 'first_alert'
+                        ? 'bg-indigo-600 text-white shadow'
+                        : 'text-white/60 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    Day 1 Alert Entry
+                  </button>
+                  <button
+                    onClick={() => setEntryBasis('candidate_trigger')}
+                    title="For Watch → Candidate upgraded waves, measure returns starting from the Candidate upgrade day price (eliminates pre-upgrade look-ahead gain)"
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      entryBasis === 'candidate_trigger'
+                        ? 'bg-indigo-600 text-white shadow'
+                        : 'text-white/60 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    Candidate Trigger Entry
+                  </button>
+                </div>
+              </div>
+
               {/* Return Mode Toggle (Close vs Peak MFE) */}
               <div className="flex flex-col gap-1.5">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-white/40">
@@ -1548,10 +1930,11 @@ export default function AnalysisPerformancePage() {
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-white/5">
               <div className="flex flex-wrap items-center gap-3">
                 {/* Signal Status */}
-                <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5">
+                <div className="flex flex-wrap items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5">
                   {[
                     { id: 'all', label: 'All (Watch + Candidate)' },
-                    { id: 'candidate', label: '🔥 Candidate' },
+                    { id: 'candidate', label: '🔥 All Candidate' },
+                    { id: 'direct_candidate', label: '⚡ Direct Candidate (Day 1)' },
                     { id: 'watch', label: '👀 Watch Only' },
                     { id: 'upgraded', label: '⬆️ Watch → Candidate' },
                   ].map((s) => (
@@ -1570,14 +1953,23 @@ export default function AnalysisPerformancePage() {
                 </div>
 
                 {/* Technical Setup Trait Filter */}
-                <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5">
-                  {[
-                    { id: 'all', label: 'All Setups' },
-                    { id: 'tight', label: 'Tight Flag' },
-                    { id: 'dry', label: 'Vol Dry-Up' },
-                    { id: 'tight_dry', label: 'Tight + Dry' },
-                    { id: 'high_rs', label: 'High RS (≥20)' },
-                  ].map((t) => (
+                <div className="flex flex-wrap items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5">
+                  {(strategyEpisodeType === 'early_surf'
+                    ? [
+                        { id: 'all', label: 'All Early Surf' },
+                        { id: 'pinched_sma50', label: 'SMA50 Pinch (-1%..+3%)' },
+                        { id: 'surfing_ema', label: 'EMA10>20 (≥3d)' },
+                        { id: 'sweet_rsi', label: 'RSI 48-58' },
+                        { id: 'tight_candle', label: 'Tight Bar (≤0.7x)' },
+                      ]
+                    : [
+                        { id: 'all', label: 'All Setups' },
+                        { id: 'tight', label: 'Tight Flag' },
+                        { id: 'dry', label: 'Vol Dry-Up' },
+                        { id: 'tight_dry', label: 'Tight + Dry' },
+                        { id: 'high_rs', label: 'High RS (≥20)' },
+                      ]
+                  ).map((t) => (
                     <button
                       key={t.id}
                       onClick={() => setTraitFilter(t.id)}
@@ -1598,7 +1990,7 @@ export default function AnalysisPerformancePage() {
                   onClick={() => setOnlyMyTraded((v) => !v)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
                     onlyMyTraded
-                      ? 'bg-emerald-500/25 border-emerald-500/45 text-emerald-200'
+                      ? 'bg-emerald-500/25 border-emerald-500/50 text-emerald-200'
                       : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
                   }`}
                 >
@@ -1638,15 +2030,20 @@ export default function AnalysisPerformancePage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
             <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-4 min-h-[135px] flex flex-col justify-between">
               <div className="flex items-center justify-between text-white/45 text-xs font-semibold uppercase">
-                <span>Signal Waves</span>
+                <span>Evaluated Waves</span>
                 <Layers size={15} className="text-indigo-400" />
               </div>
               <div className="mt-2 flex flex-col justify-end">
-                <div className="h-9 flex items-baseline">
+                <div className="h-9 flex items-baseline gap-2">
                   <span className="text-3xl font-black text-white tracking-tight">{mainStats.evaluatedCount}</span>
+                  {pendingZeroDayCount > 0 && (
+                    <span className="text-xs font-mono text-amber-300/80" title="New signals from latest session awaiting 1+ forward trading days">
+                      (+{pendingZeroDayCount} new 0d)
+                    </span>
+                  )}
                 </div>
                 <div className="text-xs text-white/45 mt-1 truncate">
-                  {filteredEpisodes.length} total waves ({rawData.total_raw_signals} alerts)
+                  {filteredEpisodes.length} waves ({filteredSignalAlertCount} daily alerts)
                 </div>
               </div>
             </div>
@@ -1730,17 +2127,19 @@ export default function AnalysisPerformancePage() {
               <div className="mt-2 flex flex-col justify-end">
                 <div className="h-9 flex items-baseline gap-1.5 overflow-hidden">
                   <span className="text-2xl font-black text-emerald-400 tracking-tight">
-                    +{mainStats.avgMfe.toFixed(1)}%
+                    {formatPct(mainStats.avgMfe, 1)}
                   </span>
                   <span className="text-white/30 text-lg">/</span>
                   <span className="text-2xl font-black text-rose-400 tracking-tight">
-                    {mainStats.avgMae.toFixed(1)}%
+                    {formatPct(mainStats.avgMae, 1)}
                   </span>
                 </div>
                 <div className="text-xs text-white/45 mt-1 truncate">
                   MFE/MAE Asymmetry:{' '}
                   <span className="text-white font-bold">
-                    {mainStats.avgMae < 0 ? (mainStats.avgMfe / Math.abs(mainStats.avgMae)).toFixed(2) : '—'}x
+                    {mainStats.avgMae < 0 && mainStats.avgMfe > 0
+                      ? `${(mainStats.avgMfe / Math.abs(mainStats.avgMae)).toFixed(2)}x`
+                      : '—'}
                   </span>
                 </div>
               </div>
@@ -1928,29 +2327,45 @@ export default function AnalysisPerformancePage() {
                 <span>What Works vs What Doesn&apos;t — Technical Factor Attribution ({activeHorizonLabel})</span>
               </h3>
               <p className="text-xs text-white/45 mt-1">
-                Compare win rates, average returns, and +10% outlier rates across signal statuses, score tiers, technical setup mechanics, and alert persistence.
+                Unbiased entry-day factor attribution across signal statuses, initial entry score tiers, and technical criteria (separating pre-upgrade survivorship bias from true post-upgrade returns).
               </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FactorCard
-                title="1. Signal Status (Candidate vs Watch)"
-                subtitle="Performance comparison between full Candidates, upgraded setups, and Watch-only alerts"
+                title="1. Signal Status & Upgrade Bias Audit"
+                subtitle="Direct Candidates vs Initial Watch vs Watch → Candidate (measured both from Upgrade Day and Day 1)"
                 rows={factorAnalysis.byStatus}
               />
               <FactorCard
-                title="2. Analysis Score Tiers (Setup Quality)"
-                subtitle="Do higher setup scores translate into stronger forward returns?"
+                title="2. Entry-Day Score Tiers (Unbiased Initial Score)"
+                subtitle="Forward returns grouped strictly by the score on Day 1 of the wave (no future peak-score leakage)"
                 rows={factorAnalysis.byScore}
               />
               <FactorCard
-                title="3. Technical Setup Mechanics (Tightness, Volume & RS)"
-                subtitle="Impact of price tightness, volume dry-up, and high relative strength on swing returns"
+                title={
+                  strategyEpisodeType === 'early_surf'
+                    ? '3. Early Surf Mechanics (SMA50 Pinch, EMA Surf & RSI)'
+                    : '3. Technical Setup Mechanics (Tightness, Volume & RS)'
+                }
+                subtitle={
+                  strategyEpisodeType === 'early_surf'
+                    ? 'Impact of SMA50 proximity, EMA10 > EMA20 streak, RSI sweet spot, and tight candles'
+                    : 'Impact of price tightness, volume dry-up, and high relative strength on swing returns'
+                }
                 rows={factorAnalysis.bySetupMechanics}
               />
               <FactorCard
-                title="4. Alert Persistence & Moving Average Extension"
-                subtitle="Multi-day persistent alert streaks vs single-day alerts & low-extension entries"
+                title={
+                  strategyEpisodeType === 'early_surf'
+                    ? '4. ADR Fuel, RVOL Quietness & Alert Persistence'
+                    : '4. Alert Persistence & Moving Average Extension'
+                }
+                subtitle={
+                  strategyEpisodeType === 'early_surf'
+                    ? 'Performance by ADR% fuel capacity, quiet RVOL contraction, and multi-day persistence'
+                    : 'Multi-day persistent alert streaks vs single-day alerts & low-extension entries'
+                }
                 rows={factorAnalysis.byPersistence}
               />
             </div>
@@ -1973,7 +2388,7 @@ export default function AnalysisPerformancePage() {
               </div>
 
               <div className="space-y-2.5 max-h-[620px] overflow-y-auto custom-scrollbar pr-1">
-                {bestPerformers.map(({ ep, val }, idx) => (
+                {bestPerformers.map(({ ep, traj, val }, idx) => (
                   <div
                     key={ep.id}
                     onClick={() => setSelectedEpisode(ep)}
@@ -1998,7 +2413,7 @@ export default function AnalysisPerformancePage() {
                                 : 'bg-amber-500/20 text-amber-300'
                             }`}
                           >
-                            {ep.peak_status} ({ep.max_score})
+                            {ep.peak_status} ({ep.initial_score})
                           </span>
                           {ep.initial_reason?.is_tight && (
                             <span className="text-[10px] text-teal-300/80">Tight</span>
@@ -2009,7 +2424,7 @@ export default function AnalysisPerformancePage() {
                           <MyTradeBadge myTrade={ep.my_trade} />
                         </div>
                         <div className="text-xs text-white/45 mt-0.5">
-                          {ep.start_date} ({ep.alert_days}d alerts) • Entry: ${ep.entry_price}
+                          {traj.entry_date} ({ep.alert_days}d alerts) • Entry: ${traj.entry_price}
                         </div>
                       </div>
                     </div>
@@ -2019,7 +2434,7 @@ export default function AnalysisPerformancePage() {
                         {formatPct(val)}
                       </div>
                       <div className="text-[11px] font-mono text-white/45">
-                        Max Peak: +{ep.mfe ?? 0}% ({ep.mfe_days ?? '—'}d)
+                        Max Peak: {formatPct(traj.mfe)} ({traj.mfe_days ?? '—'}d)
                       </div>
                     </div>
                   </div>
@@ -2042,7 +2457,7 @@ export default function AnalysisPerformancePage() {
               </div>
 
               <div className="space-y-2.5 max-h-[620px] overflow-y-auto custom-scrollbar pr-1">
-                {worstPerformers.map(({ ep, val }, idx) => (
+                {worstPerformers.map(({ ep, traj, val }, idx) => (
                   <div
                     key={ep.id}
                     onClick={() => setSelectedEpisode(ep)}
@@ -2067,7 +2482,7 @@ export default function AnalysisPerformancePage() {
                                 : 'bg-amber-500/20 text-amber-300'
                             }`}
                           >
-                            {ep.peak_status} ({ep.max_score})
+                            {ep.peak_status} ({ep.initial_score})
                           </span>
                           {ep.initial_reason?.is_tight && (
                             <span className="text-[10px] text-teal-300/80">Tight</span>
@@ -2078,7 +2493,7 @@ export default function AnalysisPerformancePage() {
                           <MyTradeBadge myTrade={ep.my_trade} />
                         </div>
                         <div className="text-xs text-white/45 mt-0.5">
-                          {ep.start_date} ({ep.alert_days}d alerts) • Entry: ${ep.entry_price}
+                          {traj.entry_date} ({ep.alert_days}d alerts) • Entry: ${traj.entry_price}
                         </div>
                       </div>
                     </div>
@@ -2088,7 +2503,7 @@ export default function AnalysisPerformancePage() {
                         {formatPct(val)}
                       </div>
                       <div className="text-[11px] font-mono text-white/45">
-                        Max DD: {formatPct(ep.mae)} ({ep.mae_days ?? '—'}d)
+                        Max DD: {formatPct(Math.min(0, traj.mae ?? 0))} ({traj.mae_days ?? '—'}d)
                       </div>
                     </div>
                   </div>
@@ -2148,7 +2563,7 @@ export default function AnalysisPerformancePage() {
                       onClick={() => handleSort('max_score')}
                       className="py-3.5 px-4 cursor-pointer hover:text-white"
                     >
-                      Status & Score
+                      Status &amp; Entry Score
                     </th>
                     <th className="py-3.5 px-4">Setup Traits</th>
                     <th className="py-3.5 px-4 text-right">Entry → Latest</th>
@@ -2193,10 +2608,11 @@ export default function AnalysisPerformancePage() {
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs">
                   {tableEpisodes.map((ep) => {
-                    const v3d = getEpisodeHorizonValue(ep, '3d', returnMode, includePartial);
-                    const v1w = getEpisodeHorizonValue(ep, '1w', returnMode, includePartial);
-                    const v1m = getEpisodeHorizonValue(ep, '1m', returnMode, includePartial);
-                    const v3m = getEpisodeHorizonValue(ep, '3m', returnMode, includePartial);
+                    const traj = getEpisodeTrajectory(ep, entryBasis);
+                    const v3d = getEpisodeHorizonValue(ep, '3d', returnMode, includePartial, entryBasis);
+                    const v1w = getEpisodeHorizonValue(ep, '1w', returnMode, includePartial, entryBasis);
+                    const v1m = getEpisodeHorizonValue(ep, '1m', returnMode, includePartial, entryBasis);
+                    const v3m = getEpisodeHorizonValue(ep, '3m', returnMode, includePartial, entryBasis);
                     const r = ep.initial_reason || {};
 
                     return (
@@ -2224,13 +2640,13 @@ export default function AnalysisPerformancePage() {
 
                         <td className="py-3 px-4">
                           <div className="font-mono text-white/90 font-semibold">
-                            {ep.start_date}
-                            {ep.end_date !== ep.start_date ? ` → ${ep.end_date.slice(5)}` : ''}
+                            {traj.entry_date}
+                            {ep.end_date !== traj.entry_date ? ` → ${ep.end_date.slice(5)}` : ''}
                           </div>
                           <div className="text-[11px] text-white/45 flex items-center gap-1.5 mt-0.5">
                             <span>{ep.alert_days}d alerts</span>
                             <span>•</span>
-                            <span>{ep.trading_days_elapsed}d elapsed</span>
+                            <span>{traj.trading_days_elapsed}d elapsed</span>
                           </div>
                         </td>
 
@@ -2245,11 +2661,16 @@ export default function AnalysisPerformancePage() {
                             >
                               {ep.peak_status}
                             </span>
-                            <span className="font-mono font-bold text-white">{ep.max_score}</span>
+                            <span className="font-mono font-bold text-white" title={`Initial Score: ${ep.initial_score} • Peak Score: ${ep.max_score}`}>
+                              {ep.initial_score}
+                              {ep.max_score > ep.initial_score ? (
+                                <span className="text-[10px] text-white/45 font-normal">→{ep.max_score}</span>
+                              ) : null}
+                            </span>
                             {ep.upgraded_to_candidate && (
                               <span
                                 className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px] font-bold"
-                                title="Started as Watch and upgraded to Candidate"
+                                title={`Started as Watch ($${ep.entry_price}) and upgraded to Candidate on ${ep.candidate_entry?.entry_date || ''} ($${ep.candidate_entry?.entry_price || ''})`}
                               >
                                 ⬆️ Upgraded
                               </span>
@@ -2258,66 +2679,86 @@ export default function AnalysisPerformancePage() {
                         </td>
 
                         <td className="py-3 px-4">
-                          <div className="flex items-center gap-1.5">
-                            {r.is_tight && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-teal-500/15 text-teal-300 border border-teal-500/25">
-                                Tight
-                              </span>
-                            )}
-                            {r.is_dry && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/25">
-                                Dry
-                              </span>
-                            )}
-                            {r.rs_score !== undefined && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/5 text-white/70 border border-white/10">
-                                RS:{r.rs_score}
-                              </span>
-                            )}
-                          </div>
+                          {ep.analysis_type === 'early_surf' ? (
+                            <div className="flex items-center gap-1.5">
+                              {r.ext_sma50_pct !== undefined && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/25">
+                                  50d:{r.ext_sma50_pct > 0 ? `+${r.ext_sma50_pct}` : r.ext_sma50_pct}%
+                                </span>
+                              )}
+                              {r.rsi_14 !== undefined && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-indigo-500/15 text-indigo-300 border border-indigo-500/25">
+                                  RSI:{r.rsi_14}
+                                </span>
+                              )}
+                              {r.ema10_gt_20_days !== undefined && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/5 text-white/70 border border-white/10">
+                                  Surf:{r.ema10_gt_20_days}d
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              {r.is_tight && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-teal-500/15 text-teal-300 border border-teal-500/25">
+                                  Tight
+                                </span>
+                              )}
+                              {r.is_dry && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/25">
+                                  Dry
+                                </span>
+                              )}
+                              {r.rs_score !== undefined && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/5 text-white/70 border border-white/10">
+                                  RS:{r.rs_score}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
 
                         <td className="py-3 px-4 text-right font-mono text-white/80">
-                          ${ep.entry_price ?? '—'} → ${ep.latest_price ?? '—'}
+                          ${traj.entry_price ?? '—'} → ${traj.latest_price ?? '—'}
                         </td>
 
                         <td className={`py-3 px-4 text-right font-mono ${getPctColor(v3d)}`}>
                           {formatPct(v3d)}
-                          {!ep.horizons?.['3d']?.completed && v3d !== null && (
+                          {!traj.horizons?.['3d']?.completed && v3d !== null && (
                             <span className="text-[10px] text-white/35 ml-0.5" title="3 trading days not yet completed">⏳</span>
                           )}
                         </td>
 
                         <td className={`py-3 px-4 text-right font-mono ${getPctColor(v1w)}`}>
                           {formatPct(v1w)}
-                          {!ep.horizons?.['1w']?.completed && v1w !== null && (
+                          {!traj.horizons?.['1w']?.completed && v1w !== null && (
                             <span className="text-[10px] text-white/35 ml-0.5" title="5 trading days not yet completed">⏳</span>
                           )}
                         </td>
 
                         <td className={`py-3 px-4 text-right font-mono ${getPctColor(v1m)}`}>
                           {formatPct(v1m)}
-                          {!ep.horizons?.['1m']?.completed && v1m !== null && (
+                          {!traj.horizons?.['1m']?.completed && v1m !== null && (
                             <span className="text-[10px] text-white/35 ml-0.5" title="21 trading days not yet completed">⏳</span>
                           )}
                         </td>
 
                         <td className={`py-3 px-4 text-right font-mono ${getPctColor(v3m)}`}>
                           {formatPct(v3m)}
-                          {!ep.horizons?.['3m']?.completed && v3m !== null && (
+                          {!traj.horizons?.['3m']?.completed && v3m !== null && (
                             <span className="text-[10px] text-white/35 ml-0.5" title="63 trading days not yet completed">⏳</span>
                           )}
                         </td>
 
                         <td className="py-3 px-4 text-right font-mono text-emerald-300 font-bold">
-                          {formatPct(ep.mfe)}
-                          {ep.mfe_days ? (
-                            <span className="text-[10px] text-white/35 font-normal ml-1">({ep.mfe_days}d)</span>
+                          {formatPct(traj.mfe)}
+                          {traj.mfe_days ? (
+                            <span className="text-[10px] text-white/35 font-normal ml-1">({traj.mfe_days}d)</span>
                           ) : null}
                         </td>
 
                         <td className="py-3 px-4 text-right font-mono text-rose-400">
-                          {formatPct(ep.mae)}
+                          {formatPct(traj.mae !== null && traj.mae !== undefined ? Math.min(0, traj.mae) : null)}
                         </td>
 
                         <td className="py-3 px-4 text-center">
@@ -2337,7 +2778,7 @@ export default function AnalysisPerformancePage() {
 
                   {tableEpisodes.length === 0 && (
                     <tr>
-                      <td colSpan={11} className="py-16 text-center text-white/40">
+                      <td colSpan={12} className="py-16 text-center text-white/40">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <Calendar size={28} className="text-white/20 mb-1" />
                           <p className="text-sm font-semibold text-white/70">
@@ -2525,7 +2966,9 @@ function MyPortfolioAnalyticsView({ myPortfolio, episodes, onSelectEpisode }) {
   const transactions = myPortfolio.all_transactions || [];
 
   const handleInspectSymbol = (symbol, waveStartDate) => {
-    const symEpisodes = episodes.filter((e) => e.symbol === symbol && e.analysis_type === 'qullamaggie');
+    const symEpisodes = episodes.filter(
+      (e) => e.symbol === symbol && (e.analysis_type === 'qullamaggie' || e.analysis_type === 'early_surf')
+    );
     if (symEpisodes.length === 0) return;
     const matched =
       symEpisodes.find((e) => waveStartDate && e.start_date === waveStartDate) || symEpisodes[0];

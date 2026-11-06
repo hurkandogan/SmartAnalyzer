@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 export const config = {
   PORT: parseInt(process.env.PORT || '3500'),
+  DATABASE_URL: process.env.DATABASE_URL,
 
   // IBKR TWS
   IBKR_HOST: process.env.IBKR_HOST || '127.0.0.1',

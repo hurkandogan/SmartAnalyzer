@@ -266,7 +266,7 @@ def calculate_early_surf(symbol: str, df: pd.DataFrame, fund_data: dict):
     score_breakdown['fundamentals'] = round(fund_score_pts, 1)
     total_score += fund_score_pts
 
-    final_score = int(round(total_score))
+    raw_score = int(round(total_score))
 
     # ── 7. Trade Parametreleri (Giriş Referansı ve Stop) ────────
     # Stop noktası: SMA50'nin %1 altı veya son 3 günün en düşüğü (hangisi daha yakın ve mantıklıysa)
@@ -281,17 +281,43 @@ def calculate_early_surf(symbol: str, df: pd.DataFrame, fund_data: dict):
 
     risk_pct = round(((current_price - suggested_stop) / current_price) * 100.0, 2)
 
-    # ── 8. Status Belirleme ──────────────────────────────────────
-    if final_score >= 70:
+    # ── 8. Katı Eleme Kuralları (Hard Structural Gates & Anti-Pinning) ──
+    avg_dollar_vol = vol_ma20 * current_price
+    tail_10_high = float(high.tail(10).max()) if len(high) >= 10 else float(high.max())
+    tail_10_low = float(low.tail(10).min()) if len(low) >= 10 else float(low.min())
+    ten_day_range_pct = float(((tail_10_high - tail_10_low) / tail_10_low) * 100.0) if tail_10_low > 0 else 0.0
+    is_pinned = bool(range_5d_mean < 1.2 or ten_day_range_pct < 2.5)
+
+    is_no_setup = False
+    if avg_dollar_vol < 10_000_000:
+        is_no_setup = True
+    if current_adr20 < 2.2:
+        is_no_setup = True
+    if is_pinned:
+        is_no_setup = True
+    if ext_sma50_pct < -2.5 or ext_sma50_pct > 5.5:
+        is_no_setup = True
+    if ema10_gt_20_days < 1:
+        is_no_setup = True
+    if current_rsi < 45.0 or current_rsi > 72.0:
+        is_no_setup = True
+
+    if is_no_setup:
+        status = 'no_setup'
+    elif raw_score >= 72 and sma50_score >= 17.0 and surf_score >= 12.0:
         status = 'candidate'
-    elif final_score >= 55:
+    elif raw_score >= 58 and sma50_score >= 10.0:
         status = 'watch'
     else:
         status = 'no_setup'
 
+    final_score = 0 if status == 'no_setup' else raw_score
+
     reason_payload = {
         'status': status,
         'score': final_score,
+        'raw_score': raw_score,
+        'pinned_stock': is_pinned,
         'breakdown': score_breakdown,
         'metrics': {
             'ext_sma50_pct': round(ext_sma50_pct, 2),
