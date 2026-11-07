@@ -35,6 +35,7 @@ import {
   addStockNoteAction,
   deleteStockNoteAction,
 } from '@/actions/analysis';
+import MarketStatusTab from './MarketStatusTab';
 
 function formatShortDate(dateStr?: string): string {
   if (!dateStr) return '—';
@@ -87,12 +88,54 @@ function formatUsd(val: number): string {
   }).format(val || 0);
 }
 
+function getConvictionStyle(tier?: string) {
+  if (tier === 'A+') {
+    return {
+      badge: 'bg-amber-500/20 border-amber-400/50 text-amber-300 shadow-xs',
+      pill: 'bg-amber-500/15 border-amber-500/35 text-amber-300',
+      card: 'border-amber-500/45 bg-gradient-to-br from-amber-500/[0.09] via-base-100 to-base-100',
+      icon: '🏆',
+      label: 'A+ CONVICTION',
+    };
+  }
+  if (tier === 'A') {
+    return {
+      badge: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400',
+      pill: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
+      card: 'border-emerald-500/35 bg-gradient-to-br from-emerald-500/[0.06] via-base-100 to-base-100',
+      icon: '🔥',
+      label: 'A CONVICTION',
+    };
+  }
+  if (tier === 'B') {
+    return {
+      badge: 'bg-indigo-500/15 border-indigo-500/35 text-indigo-300',
+      pill: 'bg-indigo-500/10 border-indigo-500/25 text-indigo-300',
+      card: 'border-indigo-500/30 bg-base-100',
+      icon: '⚡',
+      label: 'B TIER',
+    };
+  }
+  return {
+    badge: 'bg-base-200 border-base-300 text-base-content/60',
+    pill: 'bg-base-200 border-base-300 text-base-content/60',
+    card: 'border-base-300 bg-base-100',
+    icon: '•',
+    label: 'C TIER',
+  };
+}
+
 interface AnalysisViewProps {
   initialAssets: any[];
   initialDropped?: any[];
+  initialMarketStatus?: any;
 }
 
-export default function AnalysisView({ initialAssets, initialDropped = [] }: AnalysisViewProps) {
+export default function AnalysisView({
+  initialAssets,
+  initialDropped = [],
+  initialMarketStatus = null,
+}: AnalysisViewProps) {
   const { user } = useAuth();
 
   // Local state of assets so notes update optimistically
@@ -101,20 +144,46 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
     setAssets(initialAssets);
   }, [initialAssets]);
 
-  // Top Tabs: 'active' (Qullamaggie) | 'early_surf' (Early Surf) | 'dropped' | 'trades'
-  const [activeTab, setActiveTab] = useState<'active' | 'early_surf' | 'dropped' | 'trades'>('active');
+  // Top Tabs: 'status' (Market Status) | 'active' (Qullamaggie) | 'early_surf' (Early Surf) | 'dropped' | 'trades'
+  const [activeTab, setActiveTab] = useState<'status' | 'active' | 'early_surf' | 'dropped' | 'trades'>('status');
 
   // Filter & Sort State (Default: newest_wave so new analyses appear at top, older ones at bottom)
   const [searchQuery, setSearchQuery] = useState('');
   const [qullaFilter, setQullaFilter] = useState<
-    'all' | 'candidate' | 'upgraded' | 'watch' | 'active_only' | 'paused_only' | 'score_90' | 'score_80' | 'score_70'
+    | 'all'
+    | 'conviction_a_plus'
+    | 'conviction_a'
+    | 'candidate'
+    | 'upgraded'
+    | 'watch'
+    | 'active_only'
+    | 'paused_only'
+    | 'score_90'
+    | 'score_80'
+    | 'score_70'
   >('all');
   const [earlySurfFilter, setEarlySurfFilter] = useState<
-    'all' | 'candidate' | 'watch' | 'active_only' | 'paused_only' | 'score_90' | 'score_80' | 'score_70'
+    | 'all'
+    | 'conviction_a_plus'
+    | 'conviction_a'
+    | 'candidate'
+    | 'watch'
+    | 'active_only'
+    | 'paused_only'
+    | 'score_90'
+    | 'score_80'
+    | 'score_70'
   >('all');
   const [fundFilter, setFundFilter] = useState<'all' | 'score_70' | 'score_60' | 'score_50' | 'score_40'>('all');
   const [sortBy, setSortBy] = useState<
-    'newest_wave' | 'oldest_wave' | 'qulla_score_desc' | 'fund_score_desc' | 'perf_1d_desc' | 'perf_1w_desc' | 'symbol_asc'
+    | 'newest_wave'
+    | 'conviction_desc'
+    | 'oldest_wave'
+    | 'qulla_score_desc'
+    | 'fund_score_desc'
+    | 'perf_1d_desc'
+    | 'perf_1w_desc'
+    | 'symbol_asc'
   >('newest_wave');
   const [onlyMyOpenTrades, setOnlyMyOpenTrades] = useState(false);
 
@@ -300,8 +369,35 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
     return Boolean(hadWatch && hadCandidate);
   };
 
-  // ── FILTER & SORT ASSETS ──────────────────────────────────────
+  // ── CONVICTION HELPER & FILTER / SORT ASSETS ──────────────────
   const isEarlySurfTab = activeTab === 'early_surf';
+
+  const getSetupConviction = (asset: any, earlySurfMode: boolean) => {
+    const setup = earlySurfMode ? asset?.analysis?.early_surf : asset?.analysis?.qullamaggie;
+    if (!setup) return { score: 0, tier: 'C', breakdown: null, tags: [] };
+    if (setup.conviction && typeof setup.conviction.score === 'number') {
+      return setup.conviction;
+    }
+    const rawScore = Number(setup.conviction_score ?? setup.score ?? 0);
+    const lifecycle = setup.lifecycle_status || 'active';
+    const effScore = lifecycle === 'paused' ? Math.max(0, rawScore - 8) : rawScore;
+    let tier = setup.conviction_tier || 'C';
+    if (!setup.conviction_tier) {
+      if (effScore >= 85 && setup.status === 'candidate' && lifecycle !== 'paused') tier = 'A+';
+      else if (effScore >= 74) tier = 'A';
+      else if (effScore >= 62) tier = 'B';
+    }
+    return {
+      score: effScore,
+      tier,
+      sector: setup.sector || asset?.analysis?.sector || 'Unknown',
+      adr_pct: setup.adr_pct || 0,
+      suggested_stop: setup.suggested_stop || null,
+      risk_pct: setup.risk_pct || null,
+      breakdown: null,
+      tags: [],
+    };
+  };
 
   const filteredAssets = useMemo(() => {
     return assets
@@ -339,9 +435,17 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
               fundReasons = typeof fundamentals.reason === 'string' ? JSON.parse(fundamentals.reason) : fundamentals.reason;
             }
           } catch {}
-          const sector = (fundReasons.sector || '').toLowerCase();
+          const sector = (
+            qullamaggie?.sector ||
+            earlySurf?.sector ||
+            asset.analysis?.sector ||
+            fundReasons.sector ||
+            ''
+          ).toLowerCase();
           if (!sym.includes(query) && !sector.includes(query)) return false;
         }
+
+        const conv = getSetupConviction(asset, isEarlySurfTab);
 
         if (!isEarlySurfTab && qullaFilter !== 'all') {
           if (!qullamaggie) return false;
@@ -349,6 +453,8 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
           const qStatus = qullamaggie.status;
           const lifecycle = qullamaggie.lifecycle_status || 'active';
 
+          if (qullaFilter === 'conviction_a_plus' && conv.tier !== 'A+') return false;
+          if (qullaFilter === 'conviction_a' && conv.tier !== 'A+' && conv.tier !== 'A') return false;
           if (qullaFilter === 'candidate' && qStatus !== 'candidate') return false;
           if (qullaFilter === 'upgraded' && !isAssetUpgraded(qullamaggie)) return false;
           if (qullaFilter === 'watch' && qStatus !== 'watch') return false;
@@ -365,6 +471,8 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
           const esStatus = earlySurf.status;
           const lifecycle = earlySurf.lifecycle_status || 'active';
 
+          if (earlySurfFilter === 'conviction_a_plus' && conv.tier !== 'A+') return false;
+          if (earlySurfFilter === 'conviction_a' && conv.tier !== 'A+' && conv.tier !== 'A') return false;
           if (earlySurfFilter === 'candidate' && esStatus !== 'candidate') return false;
           if (earlySurfFilter === 'watch' && esStatus !== 'watch') return false;
           if (earlySurfFilter === 'active_only' && lifecycle !== 'active') return false;
@@ -390,6 +498,8 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
         const targetB = isEarlySurfTab ? b.analysis?.early_surf || {} : b.analysis?.qullamaggie || {};
         const targetScoreA = Number(targetA.score) || 0;
         const targetScoreB = Number(targetB.score) || 0;
+        const convA = getSetupConviction(a, isEarlySurfTab).score || 0;
+        const convB = getSetupConviction(b, isEarlySurfTab).score || 0;
         const fScoreA = Number(a.analysis?.fundamentals?.score) || 0;
         const fScoreB = Number(b.analysis?.fundamentals?.score) || 0;
 
@@ -404,11 +514,16 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
         const perfA = a.analysis?.performance || targetA.performance || {};
         const perfB = b.analysis?.performance || targetB.performance || {};
 
+        if (sortBy === 'conviction_desc') {
+          if (convB !== convA) return convB - convA;
+          return targetScoreB - targetScoreA;
+        }
         if (sortBy === 'newest_wave') {
           if (waveStartA !== waveStartB) return waveStartB.localeCompare(waveStartA);
           const lifeA = targetA.lifecycle_status === 'paused' ? 0 : 1;
           const lifeB = targetB.lifecycle_status === 'paused' ? 0 : 1;
           if (lifeA !== lifeB) return lifeB - lifeA;
+          if (convB !== convA) return convB - convA;
           return targetScoreB - targetScoreA;
         }
         if (sortBy === 'oldest_wave') {
@@ -423,6 +538,29 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
         return 0;
       });
   }, [assets, isEarlySurfTab, searchQuery, qullaFilter, earlySurfFilter, fundFilter, sortBy, onlyMyOpenTrades, openPositionsBySymbol]);
+
+  // Top 3 Trigger Candidates for the active tab (Active today, highest Conviction Score)
+  const topConvictionPicks = useMemo(() => {
+    return assets
+      .filter((asset) => {
+        const s = isEarlySurfTab ? asset.analysis?.early_surf : asset.analysis?.qullamaggie;
+        if (!s || (s.status !== 'candidate' && s.status !== 'watch') || Number(s.score) <= 0) return false;
+        return (s.lifecycle_status || 'active') === 'active';
+      })
+      .map((asset) => ({
+        asset,
+        setup: isEarlySurfTab ? asset.analysis?.early_surf : asset.analysis?.qullamaggie,
+        conviction: getSetupConviction(asset, isEarlySurfTab),
+      }))
+      .sort((a, b) => {
+        const aCand = a.setup?.status === 'candidate' ? 1 : 0;
+        const bCand = b.setup?.status === 'candidate' ? 1 : 0;
+        if (bCand !== aCand) return bCand - aCand;
+        if (b.conviction.score !== a.conviction.score) return b.conviction.score - a.conviction.score;
+        return (Number(b.setup?.score) || 0) - (Number(a.setup?.score) || 0);
+      })
+      .slice(0, 3);
+  }, [assets, isEarlySurfTab]);
 
   const isFiltered =
     searchQuery.trim() !== '' ||
@@ -448,17 +586,24 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
     let activeToday = 0;
     let paused = 0;
     let totalEligible = 0;
+    let qullaAPlus = 0;
+    let qullaATier = 0;
 
     let esCandidate = 0;
     let esWatch = 0;
     let esActiveToday = 0;
     let esPaused = 0;
     let esTotal = 0;
+    let esAPlus = 0;
+    let esATier = 0;
 
     for (const a of assets) {
       const q = a.analysis?.qullamaggie;
       if (q && (Number(q.score) || 0) > 0) {
         totalEligible++;
+        const qConv = getSetupConviction(a, false);
+        if (qConv.tier === 'A+') qullaAPlus++;
+        if (qConv.tier === 'A+' || qConv.tier === 'A') qullaATier++;
         if (q.status === 'candidate') candidate++;
         if (isAssetUpgraded(q)) upgraded++;
         if (q.status === 'watch') watch++;
@@ -469,6 +614,9 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
       const es = a.analysis?.early_surf;
       if (es && (Number(es.score) || 0) > 0) {
         esTotal++;
+        const esConv = getSetupConviction(a, true);
+        if (esConv.tier === 'A+') esAPlus++;
+        if (esConv.tier === 'A+' || esConv.tier === 'A') esATier++;
         if (es.status === 'candidate') esCandidate++;
         if (es.status === 'watch') esWatch++;
         if (es.lifecycle_status === 'paused') esPaused++;
@@ -482,11 +630,15 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
       activeToday,
       paused,
       totalEligible,
+      qullaAPlus,
+      qullaATier,
       esCandidate,
       esWatch,
       esActiveToday,
       esPaused,
       esTotal,
+      esAPlus,
+      esATier,
     };
   }, [assets]);
 
@@ -770,9 +922,22 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
         </div>
       </div>
 
-      {/* ── 2. VIEW TABS (ACTIVE vs DROPPED 2-WEEK WATCHLIST vs MY TRADES) ── */}
+      {/* ── 2. VIEW TABS (STATUS vs ACTIVE vs EARLY SURF vs DROPPED vs MY TRADES) ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 bg-base-200 p-1 rounded-xl border border-base-300">
+        <div className="flex flex-wrap items-center gap-1.5 bg-base-200 p-1 rounded-xl border border-base-300">
+          <button
+            type="button"
+            onClick={() => setActiveTab('status')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'status'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'opacity-70 hover:opacity-100'
+            }`}
+          >
+            <span className="text-sm leading-none">🚦</span>
+            <span>Status</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('active')}
@@ -828,8 +993,15 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
       </div>
 
       {/* ════════════════════════════════════════════════════════════════
-          TAB 1: ACTIVE & PAUSED ANALYSIS SETUPS
+          TAB 0: MARKET STATUS, BREADTH & OPTIONS COCKPIT
          ════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'status' && (
+        <MarketStatusTab
+          initialStatus={initialMarketStatus}
+          onNavigateTab={(t) => setActiveTab(t)}
+        />
+      )}
+
       {/* ════════════════════════════════════════════════════════════════
           TAB 1 & 2: QULLAMAGGIE SETUPS & EARLY SURF SETUPS
          ════════════════════════════════════════════════════════════════ */}
@@ -864,36 +1036,74 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
               {/* Quick Filter Pills */}
               <div className="flex flex-wrap items-center gap-2">
                 {!isEarlySurfTab && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setQullaFilter((prev) => (prev === 'upgraded' ? 'all' : 'upgraded'))
-                    }
-                    className={`btn btn-xs rounded-lg gap-1 font-bold ${
-                      qullaFilter === 'upgraded'
-                        ? 'bg-secondary text-secondary-content border-secondary shadow-sm'
-                        : 'bg-secondary/10 text-secondary border border-secondary/30 hover:bg-secondary/20'
-                    }`}
-                    title="Show only setups that started as Watch and upgraded to Candidate during the current wave"
-                  >
-                    🚀 Watch &rarr; Candidate ({counts.upgraded})
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setQullaFilter((prev) =>
+                          prev === 'conviction_a_plus' ? 'all' : 'conviction_a_plus'
+                        )
+                      }
+                      className={`btn btn-xs rounded-lg gap-1 font-bold ${
+                        qullaFilter === 'conviction_a_plus'
+                          ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
+                          : 'bg-amber-500/15 text-amber-300 border border-amber-500/35 hover:bg-amber-500/25'
+                      }`}
+                      title="Show only elite A+ Conviction setups (85+ across Sector, ADR, VCP/Vol, Stop R:R & Catalyst)"
+                    >
+                      🏆 A+ Conviction ({counts.qullaAPlus})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setQullaFilter((prev) => (prev === 'upgraded' ? 'all' : 'upgraded'))
+                      }
+                      className={`btn btn-xs rounded-lg gap-1 font-bold ${
+                        qullaFilter === 'upgraded'
+                          ? 'bg-secondary text-secondary-content border-secondary shadow-sm'
+                          : 'bg-secondary/10 text-secondary border border-secondary/30 hover:bg-secondary/20'
+                      }`}
+                      title="Show only setups that started as Watch and upgraded to Candidate during the current wave"
+                    >
+                      🚀 Watch &rarr; Candidate ({counts.upgraded})
+                    </button>
+                  </>
                 )}
 
                 {isEarlySurfTab && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEarlySurfFilter((prev) => (prev === 'candidate' ? 'all' : 'candidate'))
-                    }
-                    className={`btn btn-xs rounded-lg gap-1 font-bold ${
-                      earlySurfFilter === 'candidate'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20'
-                    }`}
-                  >
-                    🌊 Candidate Only ({counts.esCandidate})
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEarlySurfFilter((prev) =>
+                          prev === 'conviction_a_plus' ? 'all' : 'conviction_a_plus'
+                        )
+                      }
+                      className={`btn btn-xs rounded-lg gap-1 font-bold ${
+                        earlySurfFilter === 'conviction_a_plus'
+                          ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
+                          : 'bg-amber-500/15 text-amber-300 border border-amber-500/35 hover:bg-amber-500/25'
+                      }`}
+                      title="Show only elite A+ Conviction Early Surf setups (85+ across Sector, ADR, Pinch/Pocket, Stop R:R & Surf)"
+                    >
+                      🏆 A+ Conviction ({counts.esAPlus})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEarlySurfFilter((prev) => (prev === 'candidate' ? 'all' : 'candidate'))
+                      }
+                      className={`btn btn-xs rounded-lg gap-1 font-bold ${
+                        earlySurfFilter === 'candidate'
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20'
+                      }`}
+                    >
+                      🌊 Candidate Only ({counts.esCandidate})
+                    </button>
+                  </>
                 )}
 
                 <button
@@ -941,6 +1151,8 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
                     className="select select-xs select-bordered rounded-lg bg-base-100 font-medium text-xs"
                   >
                     <option value="all">All Setups ({counts.totalEligible})</option>
+                    <option value="conviction_a_plus">🏆 A+ Conviction Tier ({counts.qullaAPlus})</option>
+                    <option value="conviction_a">🔥 A Tier &amp; Above ({counts.qullaATier})</option>
                     <option value="candidate">🟢 Candidate Only ({counts.candidate})</option>
                     <option value="upgraded">🚀 Watch &rarr; Candidate Upgraded ({counts.upgraded})</option>
                     <option value="watch">🟡 Watch Only ({counts.watch})</option>
@@ -957,6 +1169,8 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
                     className="select select-xs select-bordered rounded-lg bg-base-100 font-medium text-xs"
                   >
                     <option value="all">All Early Surfs ({counts.esTotal})</option>
+                    <option value="conviction_a_plus">🏆 A+ Conviction Tier ({counts.esAPlus})</option>
+                    <option value="conviction_a">🔥 A Tier &amp; Above ({counts.esATier})</option>
                     <option value="candidate">🟢 Candidate Only ({counts.esCandidate})</option>
                     <option value="watch">🟡 Watch Only ({counts.esWatch})</option>
                     <option value="active_only">⚡ Active Today ({counts.esActiveToday})</option>
@@ -997,8 +1211,9 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
                   className="select select-xs select-bordered rounded-lg bg-base-100 font-medium text-xs"
                 >
                   <option value="newest_wave">🆕 Newest Analyses First (Top &rarr; Oldest)</option>
+                  <option value="conviction_desc">🏆 Conviction Rank (A+ &rarr; C)</option>
                   <option value="oldest_wave">⏳ Longest Running Waves First</option>
-                  <option value="qulla_score_desc">Qullamaggie Score (High &rarr; Low)</option>
+                  <option value="qulla_score_desc">Setup Score (High &rarr; Low)</option>
                   <option value="fund_score_desc">Fund Score (High &rarr; Low)</option>
                   <option value="perf_1d_desc">1D Return (High &rarr; Low)</option>
                   <option value="perf_1w_desc">1W Return (High &rarr; Low)</option>
@@ -1008,6 +1223,138 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
             </div>
           </div>
 
+          {/* ── TODAY'S TOP 3 A+ CONVICTION TRIGGER SPOTLIGHT BANNER ── */}
+          {topConvictionPicks.length > 0 && (
+            <div className="bg-base-200/50 rounded-2xl border border-amber-500/30 p-3.5 shadow-sm space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-base leading-none">🏆</span>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-300">
+                      Today&apos;s Top {topConvictionPicks.length} Trigger Candidates — 5-Pillar Conviction Ranker
+                    </h3>
+                    <p className="text-[11px] opacity-65">
+                      Ranked across 1. Sector Leadership (20) • 2. ADR% Volatility (20) • 3. Tightness &amp; Vol Dry-Up (25) • 4. Stop R:R Distance (20) • 5. Catalyst &amp; RS (15)
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSortBy((prev) => (prev === 'conviction_desc' ? 'newest_wave' : 'conviction_desc'))}
+                  className={`btn btn-xs rounded-lg font-bold ${
+                    sortBy === 'conviction_desc'
+                      ? 'bg-amber-500 text-black'
+                      : 'bg-amber-500/15 text-amber-300 border border-amber-500/35 hover:bg-amber-500/25'
+                  }`}
+                >
+                  {sortBy === 'conviction_desc' ? 'Sorted by Conviction ✓' : 'Sort List by Conviction Rank'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                {topConvictionPicks.map(({ asset: pickAsset, setup: pickSetup, conviction: pickConv }, idx) => {
+                  const cStyle = getConvictionStyle(pickConv.tier);
+                  const pickPrice = Number(pickSetup?.price || 0);
+                  const pickStop = Number(pickConv.suggested_stop || pickSetup?.suggested_stop || 0);
+                  const pickRiskPct = Number(pickConv.risk_pct || pickSetup?.risk_pct || 0);
+                  const bd = pickConv.breakdown;
+                  const rankMedal = idx === 0 ? '🥇 #1 PICK' : idx === 1 ? '🥈 #2 PICK' : '🥉 #3 PICK';
+
+                  return (
+                    <div
+                      key={`top-pick-${pickAsset.symbol}`}
+                      className={`rounded-xl border p-3 flex flex-col justify-between gap-2.5 ${cStyle.card}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              {rankMedal}
+                            </span>
+                            <span className="text-lg font-black tracking-tight">{pickAsset.symbol}</span>
+                            <span className="font-mono font-bold text-sm opacity-90">
+                              ${pickPrice > 0 ? pickPrice.toFixed(2) : '—'}
+                            </span>
+                          </div>
+                          <div className="text-[11px] opacity-65 mt-0.5 truncate">
+                            {pickConv.sector || 'Unknown Sector'}
+                            {pickConv.sector_rank ? ` (Sector Rank #${pickConv.sector_rank}/${pickConv.total_sectors})` : ''}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`px-2 py-0.5 rounded-lg text-[11px] font-black border ${cStyle.badge}`}>
+                            {cStyle.icon} {pickConv.tier} • {pickConv.score}/100
+                          </span>
+                          <span className="text-[10px] font-mono opacity-65 uppercase">
+                            {pickSetup?.status}: {pickSetup?.score}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 5-Pillar Mini Score Strip */}
+                      {bd && (
+                        <div className="grid grid-cols-5 gap-1 text-[10px] font-mono bg-base-200/70 rounded-lg p-1.5 border border-base-300">
+                          <div className="text-center">
+                            <div className="opacity-50 text-[9px]">SECTOR</div>
+                            <div className="font-bold text-emerald-400">{bd.sector_pts}/20</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="opacity-50 text-[9px]">ADR%</div>
+                            <div className="font-bold text-cyan-400">{bd.adr_pts}/20</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="opacity-50 text-[9px]">VCP/VOL</div>
+                            <div className="font-bold text-amber-300">{bd.tightness_vol_pts}/25</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="opacity-50 text-[9px]">STOP R:R</div>
+                            <div className="font-bold text-emerald-400">{bd.risk_reward_pts}/20</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="opacity-50 text-[9px]">RS/CAT</div>
+                            <div className="font-bold text-indigo-300">{bd.catalyst_rs_pts}/15</div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Conviction Tags */}
+                      {Array.isArray(pickConv.tags) && pickConv.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {pickConv.tags.map((t: string, i: number) => (
+                            <span
+                              key={i}
+                              className="px-1.5 py-0.5 rounded bg-base-200 border border-base-300 text-[10px] font-semibold"
+                            >
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-base-300/60 text-[11px]">
+                        <div className="font-mono">
+                          Stop: <strong className="text-error">{pickStop > 0 ? `$${pickStop.toFixed(2)}` : '—'}</strong>{' '}
+                          {pickRiskPct > 0 && (
+                            <span className="text-emerald-400 font-bold">(-{pickRiskPct.toFixed(1)}%)</span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenTradeModal(pickAsset)}
+                          className="btn btn-xs bg-amber-500 hover:bg-amber-400 text-black border-none font-bold rounded-lg gap-1"
+                        >
+                          <FiPlus className="w-3 h-3" />
+                          <span>Size &amp; Trade</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* ── COMPACT HIGH-DENSITY STOCK ROWS ── */}
           <div className="flex flex-col gap-3">
             {filteredAssets.map((asset) => {
@@ -1016,6 +1363,9 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
               const earlySurf = asset.analysis?.early_surf;
               const fundamentals = asset.analysis?.fundamentals;
               if (!currentSetup && !fundamentals) return null;
+
+              const conv = getSetupConviction(asset, isEarlySurfTab);
+              const convStyle = getConvictionStyle(conv.tier);
 
               const isCandidate = currentSetup?.status === 'candidate';
               const isUpgraded = !isEarlySurfTab && isAssetUpgraded(qullamaggie);
@@ -1054,6 +1404,13 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
                 }
               } catch {}
 
+              const effectiveSector =
+                conv.sector && conv.sector !== 'Unknown'
+                  ? conv.sector
+                  : currentSetup?.sector ||
+                    asset.analysis?.sector ||
+                    (fReasons.sector && fReasons.sector !== 'N/A' ? fReasons.sector : 'N/A');
+
               const upDownRatio = Number(fReasons.up_down_vol_ratio) || 1.0;
               const isAccelerating = fReasons.is_accelerating;
               const symbolOpenPositions = openPositionsBySymbol.get(asset.symbol) || [];
@@ -1067,9 +1424,11 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
                       ? 'border-primary/50 ring-1 ring-primary/20'
                       : isPaused
                         ? 'border-base-300/80 opacity-90'
-                        : isCandidate
-                          ? 'border-success/35 hover:border-success/60'
-                          : 'border-base-300 hover:border-primary/30'
+                        : conv.tier === 'A+'
+                          ? 'border-amber-500/45 ring-1 ring-amber-500/15 hover:border-amber-400/70'
+                          : isCandidate
+                            ? 'border-success/35 hover:border-success/60'
+                            : 'border-base-300 hover:border-primary/30'
                   }`}
                 >
                   {/* ── ROW 1: TOP HEADER STRIP (SYMBOL, PRICE, 1D/1W/1M, WAVE STATUS & ACTIONS) ── */}
@@ -1144,8 +1503,21 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
                       </div>
                     </div>
 
-                    {/* Right: Setup Score Badges & Quick Action Buttons */}
+                    {/* Right: Conviction Tier Badge, Setup Score Badges & Quick Action Buttons */}
                     <div className="flex flex-wrap items-center gap-2">
+                      {conv.score > 0 && (
+                        <span
+                          className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider border ${convStyle.badge}`}
+                          title={
+                            conv.breakdown
+                              ? `5-Pillar Conviction: Sector ${conv.breakdown.sector_pts}/20 • ADR ${conv.breakdown.adr_pts}/20 • VCP/Vol ${conv.breakdown.tightness_vol_pts}/25 • Stop R:R ${conv.breakdown.risk_reward_pts}/20 • RS/Catalyst ${conv.breakdown.catalyst_rs_pts}/15`
+                              : `Conviction Score: ${conv.score}/100 (${conv.tier})`
+                          }
+                        >
+                          {convStyle.icon} {convStyle.label}: {conv.score}
+                        </span>
+                      )}
+
                       {isEarlySurfTab && earlySurf && (
                         <span
                           className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider border ${
@@ -1201,6 +1573,49 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
                       </button>
                     </div>
                   </div>
+
+                  {/* ── 5-PILLAR CONVICTION BREAKDOWN STRIP ── */}
+                  {conv.breakdown && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-base-200/60 border border-base-300/80 text-[11px]">
+                      <div className="flex flex-wrap items-center gap-2 font-mono">
+                        <span className={`font-black ${conv.tier === 'A+' ? 'text-amber-300' : conv.tier === 'A' ? 'text-emerald-400' : 'opacity-80'}`}>
+                          {convStyle.icon} 5-Pillar Conviction ({conv.score}/100):
+                        </span>
+                        <span>
+                          Sector: <b>{conv.breakdown.sector_pts}</b>/20
+                        </span>
+                        <span className="opacity-35">•</span>
+                        <span>
+                          ADR: <b>{conv.breakdown.adr_pts}</b>/20
+                        </span>
+                        <span className="opacity-35">•</span>
+                        <span>
+                          VCP/Vol: <b>{conv.breakdown.tightness_vol_pts}</b>/25
+                        </span>
+                        <span className="opacity-35">•</span>
+                        <span>
+                          Stop R:R: <b>{conv.breakdown.risk_reward_pts}</b>/20
+                        </span>
+                        <span className="opacity-35">•</span>
+                        <span>
+                          RS/Cat: <b>{conv.breakdown.catalyst_rs_pts}</b>/15
+                        </span>
+                      </div>
+
+                      {Array.isArray(conv.tags) && conv.tags.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1">
+                          {conv.tags.map((tag: string, tIdx: number) => (
+                            <span
+                              key={tIdx}
+                              className="px-1.5 py-0.5 rounded bg-base-100 border border-base-300 text-[10px] font-semibold"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* ── ROW 2: COMPACT VERTICAL/STACKED METRICS LISTS (NO EMPTY SPACE) ── */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 text-xs">
@@ -1329,7 +1744,7 @@ export default function AnalysisView({ initialAssets, initialDropped = [] }: Ana
                       <div className="bg-info/[0.04] rounded-lg border border-info/20 p-2.5 space-y-1.5">
                         <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold uppercase opacity-75 border-b border-info/15 pb-1">
                           <span className="text-info">
-                            Fundamentals ({fReasons.sector || 'N/A'} {fReasons.market_cap_bucket ? `• ${fReasons.market_cap_bucket}` : ''})
+                            Fundamentals ({effectiveSector} {fReasons.market_cap_bucket ? `• ${fReasons.market_cap_bucket}` : ''})
                           </span>
                           {fReasons.breakdown && (
                             <span className="font-mono text-info">

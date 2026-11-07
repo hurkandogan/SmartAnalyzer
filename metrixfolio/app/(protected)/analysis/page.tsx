@@ -1,13 +1,18 @@
 import React from 'react';
-import { getAnalysisCandidatesAction, getDroppedAnalysesAction } from '@/actions/analysis';
+import {
+  getAnalysisCandidatesAction,
+  getDroppedAnalysesAction,
+  getMarketStatusAction,
+} from '@/actions/analysis';
 import AnalysisView from './components/AnalysisView';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AnalysisPage() {
-  const [assets, dropped] = await Promise.all([
+  const [assets, dropped, marketStatus] = await Promise.all([
     getAnalysisCandidatesAction(),
     getDroppedAnalysesAction(),
+    getMarketStatusAction(),
   ]);
 
   return (
@@ -18,12 +23,15 @@ export default async function AnalysisPage() {
             Analysis &amp; Swing Desk
           </h1>
           <p className="opacity-70 max-w-3xl text-xs md:text-sm">
-            Active &amp; paused Qullamaggie swing setups, portfolio risk budget gauge, trade execution tracker, and shared community notes.
+            Live market regime &amp; options cockpit, active Qullamaggie &amp; Early Surf setups, portfolio risk budget gauge, and trade execution tracker.
           </p>
         </div>
 
         {/* Bot Schedule Info */}
         <div className="flex flex-wrap gap-2 text-xs opacity-60 font-mono shrink-0">
+          <div className="bg-base-200 px-3 py-1.5 rounded-lg border border-base-300">
+            🚦 <span className="font-bold">Market Pulse:</span> Every 30m (Mon-Fri)
+          </div>
           <div className="bg-base-200 px-3 py-1.5 rounded-lg border border-base-300">
             🤖 <span className="font-bold">Data Miner:</span> 03:00 (Mon-Fri)
           </div>
@@ -33,7 +41,11 @@ export default async function AnalysisPage() {
         </div>
       </div>
 
-      <AnalysisView initialAssets={assets} initialDropped={dropped} />
+      <AnalysisView
+        initialAssets={assets}
+        initialDropped={dropped}
+        initialMarketStatus={marketStatus}
+      />
     </div>
   );
 }

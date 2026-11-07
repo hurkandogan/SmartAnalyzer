@@ -28,9 +28,16 @@ const JOBS = [
   {
     id: 'analysis-bot',
     name: 'Analysis Bot',
-    desc: 'Run Qullamaggie analysis',
+    desc: 'Run Qullamaggie & Early Surf',
     icon: '🚀',
     color: 'from-fuchsia-500 to-rose-400'
+  },
+  {
+    id: 'market-status',
+    name: 'Market Status Sync',
+    desc: 'QQQ/SPY/RSP/VIX + Breadth → Firebase',
+    icon: '🚦',
+    color: 'from-emerald-500 to-teal-400'
   },
 ];
 

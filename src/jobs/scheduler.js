@@ -6,6 +6,7 @@ import { runMarketWeather } from './marketWeather.js';
 import { runMacroCalendarSync } from './macroCalendarSync.js';
 import { runEarningsCalendarSync } from './earningsCalendarSync.js';
 import { runAnalysisBot } from './analysisBot.js';
+import { runMarketStatusSync } from './marketStatusSync.js';
 import { logger, dbLogger } from '../utils/logger.js';
 
 /**
@@ -13,9 +14,9 @@ import { logger, dbLogger } from '../utils/logger.js';
  * All jobs are also exported as standalone functions for manual triggering via API.
  */
 export function startScheduler() {
-  // ── Portfolio Sync: every 30 minutes, Mon-Fri ──
+  // ── Portfolio & Market Status Sync: every 30 minutes, Mon-Fri ──
   cron.schedule('*/30 * * * 1-5', async () => {
-    logger.info('[CRON] Portfolio Sync triggered');
+    logger.info('[CRON] Portfolio & Market Status Sync triggered');
     try {
       await dbLogger('portfolio-sync', 'info', 'Portfolio Sync triggered');
       
@@ -31,6 +32,13 @@ export function startScheduler() {
       await dbLogger('portfolio-sync', 'success', 'Portfolio Sync completed successfully');
     } catch (error) {
       await dbLogger('portfolio-sync', 'error', `Portfolio Sync failed: ${error.message}`);
+    }
+
+    // Live 30-minute Market Status, Breadth & Options Cockpit Sync (QQQ, SPY, RSP, IWM, VIX -> Firebase)
+    try {
+      await runMarketStatusSync({ syncFirebase: true });
+    } catch (err) {
+      logger.error(`[CRON] Market Status Sync failed: ${err.message}`);
     }
   });
 

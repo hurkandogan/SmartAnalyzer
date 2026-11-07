@@ -117,6 +117,17 @@ export async function getDroppedAnalysesAction() {
   }
 }
 
+export async function getMarketStatusAction() {
+  try {
+    const docSnap = await adminDb.collection('screener').doc('market_status').get();
+    if (!docSnap.exists) return null;
+    return serializeFirestoreData(docSnap.data());
+  } catch (err) {
+    console.error('Failed to fetch market status:', err);
+    return null;
+  }
+}
+
 export async function getUserAnalysisDataAction(uid: string) {
   if (!uid) {
     return {

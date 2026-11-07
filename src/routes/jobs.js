@@ -4,6 +4,7 @@ import { runCurrencyUpdate } from '../jobs/currencyUpdate.js';
 import { runDataMiner } from '../jobs/dataMiner.js';
 import { runMarketWeather } from '../jobs/marketWeather.js';
 import { runAnalysisBot } from '../jobs/analysisBot.js';
+import { runMarketStatusSync } from '../jobs/marketStatusSync.js';
 import { logger } from '../utils/logger.js';
 
 export const jobRoutes = new Hono();
@@ -82,7 +83,14 @@ jobRoutes.get(
   wrapJob('market-weather', runMarketWeather),
 );
 
-
+jobRoutes.post(
+  '/market-status',
+  wrapJob('market-status', () => runMarketStatusSync({ syncFirebase: true })),
+);
+jobRoutes.get(
+  '/market-status',
+  wrapJob('market-status', () => runMarketStatusSync({ syncFirebase: true })),
+);
 
 jobRoutes.get('/status', (c) => {
   return c.json({

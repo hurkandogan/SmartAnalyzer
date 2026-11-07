@@ -39,7 +39,7 @@ function App() {
 
         <Header connected={connection.connected} />
 
-        <main className="relative z-10 pt-32 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto flex flex-col items-center">
+        <main className="relative z-10 pt-28 pb-20 px-4 sm:px-6 lg:px-8 max-w-[1600px] w-full mx-auto flex flex-col items-center">
           <Routes>
             <Route path="/" element={
               <>

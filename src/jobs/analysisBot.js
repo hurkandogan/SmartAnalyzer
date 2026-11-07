@@ -3,6 +3,7 @@ import util from 'util';
 import path from 'path';
 import { logger, dbLogger } from '../utils/logger.js';
 import { getDb } from '../services/firebase.js';
+import { computeConviction, buildSectorLeadershipMap } from '../utils/convictionRanker.js';
 import pkg from 'pg';
 
 const { Pool } = pkg;
@@ -232,6 +233,17 @@ export async function syncAnalysisToFirebase() {
       WHERE date >= CURRENT_DATE - INTERVAL '14 days'
       ORDER BY date DESC
     `);
+
+    const univRes = await client.query(`
+      SELECT symbol, sector
+      FROM screener_universe
+      WHERE is_active = 1
+    `);
+    const universeSectorMap = new Map();
+    for (const r of univRes.rows) {
+      if (r.symbol && r.sector) universeSectorMap.set(r.symbol, r.sector);
+    }
+    const sectorLeadershipMap = buildSectorLeadershipMap();
 
     // Fetch recent candles (last 45 calendar days = ~30 trading days) for 1D, 1W (5D), 1M (21D) performance
     const candleRes = await client.query(`
@@ -489,6 +501,7 @@ export async function syncAnalysisToFirebase() {
       const waveInfo = latestWaveBySym.get(sym);
       const earlySurfWaveInfo = latestEarlySurfWaveBySym.get(sym);
       const perf = performanceMap.get(sym) || { d1: null, w1: null, m1: null, latest_price: null };
+      const univSector = universeSectorMap.get(sym) || null;
 
       // Qullamaggie Lifecycle
       const isTodayQualifyingQulla =
@@ -520,6 +533,7 @@ export async function syncAnalysisToFirebase() {
 
       if (isQullaActiveOrPaused || isEarlySurfActiveOrPaused) {
         data.analysis = {
+          sector: univSector,
           performance: {
             d1: perf.d1,
             w1: perf.w1,
@@ -538,9 +552,29 @@ export async function syncAnalysisToFirebase() {
             perf.latest_price ??
             (latestQulla?.price ? Number(latestQulla.price) : Number(baseQullaRow.price) || 0);
 
+          const qConviction = computeConviction({
+            analysisType: 'qullamaggie',
+            status: baseQullaRow.status,
+            score: baseQullaRow.score,
+            price: effectivePrice,
+            reason: baseQullaRow.reason,
+            fundScore: latestFund?.score || 0,
+            fundReason: latestFund?.reason || {},
+            universeSector: univSector,
+            lifecycleStatus,
+            upgradedToCandidate: waveInfo.upgraded_to_candidate,
+            sectorLeadershipMap,
+          });
+
           data.analysis.qullamaggie = {
             ...baseQullaRow,
             price: effectivePrice,
+            sector: qConviction.sector,
+            conviction: qConviction,
+            conviction_score: qConviction.score,
+            conviction_tier: qConviction.tier,
+            suggested_stop: qConviction.suggested_stop,
+            risk_pct: qConviction.risk_pct,
             lifecycle_status: lifecycleStatus,
             paused_days: lifecycleStatus === 'paused' ? missedBusinessDaysQulla : 0,
             max_pause_days: PAUSE_GRACE_DAYS,
@@ -584,10 +618,28 @@ export async function syncAnalysisToFirebase() {
             } catch {}
           }
 
+          const esConviction = computeConviction({
+            analysisType: 'early_surf',
+            status: baseESRow.status,
+            score: baseESRow.score,
+            price: effectivePrice,
+            reason: parsedReason,
+            fundScore: latestFund?.score || 0,
+            fundReason: latestFund?.reason || {},
+            universeSector: univSector,
+            lifecycleStatus: esLifecycleStatus,
+            upgradedToCandidate: earlySurfWaveInfo.upgraded_to_candidate,
+            sectorLeadershipMap,
+          });
+
           data.analysis.early_surf = {
             ...baseESRow,
             reason: parsedReason,
             price: effectivePrice,
+            sector: esConviction.sector,
+            conviction: esConviction,
+            conviction_score: esConviction.score,
+            conviction_tier: esConviction.tier,
             lifecycle_status: esLifecycleStatus,
             paused_days: esLifecycleStatus === 'paused' ? missedBusinessDaysEarlySurf : 0,
             max_pause_days: PAUSE_GRACE_DAYS,
@@ -602,8 +654,8 @@ export async function syncAnalysisToFirebase() {
             wave_number: earlySurfWaveInfo.wave_number,
             history: earlySurfWaveInfo.history,
             history_dates: earlySurfWaveInfo.history.map((h) => h.date),
-            suggested_stop: parsedReason?.trade_params?.suggested_stop || null,
-            risk_pct: parsedReason?.trade_params?.risk_pct || null,
+            suggested_stop: parsedReason?.trade_params?.suggested_stop || esConviction.suggested_stop || null,
+            risk_pct: parsedReason?.trade_params?.risk_pct || esConviction.risk_pct || null,
             performance: {
               d1: perf.d1,
               w1: perf.w1,
@@ -708,6 +760,14 @@ export async function syncAnalysisToFirebase() {
       latest_run_date: latestGlobalRunDate,
       updated_at: new Date(),
     });
+
+    // Refresh Market Status & Options Cockpit in Firebase (screener/market_status)
+    try {
+      const { runMarketStatusSync } = await import('./marketStatusSync.js');
+      await runMarketStatusSync({ syncFirebase: true });
+    } catch (msErr) {
+      logger.warn(`[AnalysisBot] Market Status sync after analysis bot failed: ${msErr.message}`);
+    }
 
     logger.info(
       `[AnalysisBot] Processed ${allSymbols.size} symbols. Synced ${syncedAnalysisCount} Qullamaggie (${syncedAnalysisCount - pausedAnalysisCount} active, ${pausedAnalysisCount} paused), ${syncedEarlySurfCount} Early Surf, and ${droppedAnalysesList.length} dropped analyses to Firebase.`

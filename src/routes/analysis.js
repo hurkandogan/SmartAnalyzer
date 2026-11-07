@@ -3,6 +3,8 @@ import pkg from 'pg';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
 import { getDb } from '../services/firebase.js';
+import { getCachedMarketStatus, runMarketStatusSync } from '../jobs/marketStatusSync.js';
+import { computeConviction, buildSectorLeadershipMap } from '../utils/convictionRanker.js';
 
 const { Pool } = pkg;
 const analysisRoutes = new Hono();
@@ -13,15 +15,71 @@ const pool = new Pool({
   connectionString: config.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/metrixfolio',
 });
 
+analysisRoutes.get('/market-status', async (c) => {
+  try {
+    const forceRefresh = c.req.query('refresh') === 'true' || c.req.query('refresh') === '1';
+    const cached = getCachedMarketStatus();
+
+    const isStale =
+      !cached?.generated_at ||
+      Date.now() - new Date(cached.generated_at).getTime() > 30 * 60 * 1000;
+
+    if (forceRefresh || !cached) {
+      const fresh = await runMarketStatusSync({ syncFirebase: true });
+      return c.json(fresh);
+    }
+
+    if (isStale) {
+      // Trigger non-blocking refresh in background and return cached immediately
+      runMarketStatusSync({ syncFirebase: true }).catch((err) =>
+        logger.warn(`[AnalysisRoute] Background market-status refresh failed: ${err.message}`)
+      );
+    }
+
+    return c.json(cached);
+  } catch (err) {
+    logger.error(`[AnalysisRoute] Failed to get market-status: ${err.message}`);
+    const fallback = getCachedMarketStatus();
+    if (fallback) return c.json(fallback);
+    return c.json({ error: 'Failed to compute market status' }, 500);
+  }
+});
+
 analysisRoutes.get('/', async (c) => {
   try {
-    const result = await pool.query(`
-      SELECT symbol, analysis_type, score, status, reason, price, created_at 
-      FROM analysis_scores 
-      ORDER BY symbol ASC, created_at DESC
-    `);
-    
-    const formattedRows = result.rows.map(row => {
+    const [result, univRes] = await Promise.all([
+      pool.query(`
+        SELECT DISTINCT ON (symbol, analysis_type)
+          symbol, analysis_type, score, status, reason, price, created_at
+        FROM analysis_scores
+        ORDER BY symbol ASC, analysis_type ASC, COALESCE(as_of_date, created_at::date) DESC, created_at DESC
+      `),
+      pool.query(`SELECT symbol, sector FROM screener_universe`),
+    ]);
+
+    const univMap = new Map();
+    for (const r of univRes.rows) {
+      if (r.symbol && r.sector) univMap.set(r.symbol, r.sector);
+    }
+
+    const fundMap = new Map();
+    for (const row of result.rows) {
+      if (row.analysis_type === 'fundamentals') {
+        let parsed = row.reason;
+        if (typeof parsed === 'string') {
+          try {
+            parsed = JSON.parse(parsed);
+          } catch {
+            parsed = {};
+          }
+        }
+        fundMap.set(row.symbol, { score: Number(row.score || 0), reason: parsed || {} });
+      }
+    }
+
+    const sectorLeadershipMap = buildSectorLeadershipMap();
+
+    const formattedRows = result.rows.map((row) => {
       let parsedReason = row.reason;
       if (typeof row.reason === 'string') {
         try {
@@ -30,6 +88,30 @@ analysisRoutes.get('/', async (c) => {
           logger.warn(`Failed to parse reason for symbol ${row.symbol}: ${e.message}`);
         }
       }
+
+      const univSector = univMap.get(row.symbol) || null;
+      const fundInfo = fundMap.get(row.symbol) || { score: 0, reason: {} };
+
+      let conviction = null;
+      if (
+        (row.analysis_type === 'qullamaggie' || row.analysis_type === 'early_surf') &&
+        (row.status === 'candidate' || row.status === 'watch') &&
+        Number(row.score) > 0
+      ) {
+        conviction = computeConviction({
+          analysisType: row.analysis_type,
+          status: row.status,
+          score: row.score,
+          price: row.price,
+          reason: parsedReason,
+          fundScore: fundInfo.score,
+          fundReason: fundInfo.reason,
+          universeSector: univSector,
+          lifecycleStatus: 'active',
+          sectorLeadershipMap,
+        });
+      }
+
       return {
         symbol: row.symbol,
         analysis_type: row.analysis_type,
@@ -37,7 +119,11 @@ analysisRoutes.get('/', async (c) => {
         status: row.status,
         reason: parsedReason,
         price: row.price,
-        created_at: row.created_at ? row.created_at.toISOString() : null
+        sector: conviction?.sector || univSector || fundInfo.reason?.sector || 'Unknown',
+        conviction,
+        conviction_score: conviction?.score ?? null,
+        conviction_tier: conviction?.tier ?? null,
+        created_at: row.created_at ? row.created_at.toISOString() : null,
       };
     });
 
@@ -100,8 +186,8 @@ analysisRoutes.get('/performance', async (c) => {
     minCandleDateObj.setUTCDate(minCandleDateObj.getUTCDate() - 20);
     const minCandleDate = minCandleDateObj.toISOString().slice(0, 10);
 
-    // 3. Fetch concurrent fundamentals & candles in parallel
-    const [fundRes, candleRes] = await Promise.all([
+    // 3. Fetch concurrent fundamentals, candles & universe sectors in parallel
+    const [fundRes, candleRes, univRes] = await Promise.all([
       pool.query(
         `
         SELECT DISTINCT ON (symbol, COALESCE(as_of_date, (created_at AT TIME ZONE 'UTC')::date))
@@ -127,7 +213,21 @@ analysisRoutes.get('/performance', async (c) => {
       `,
         [symbols, minCandleDate]
       ),
+      pool.query(
+        `
+        SELECT symbol, sector
+        FROM screener_universe
+        WHERE symbol = ANY($1)
+      `,
+        [symbols]
+      ),
     ]);
+
+    const univSectorBySym = new Map();
+    for (const r of univRes.rows) {
+      if (r.symbol && r.sector) univSectorBySym.set(r.symbol, r.sector);
+    }
+    const sectorLeadershipMap = buildSectorLeadershipMap();
 
     // Index fundamentals by symbol (sorted by fund_date asc)
     const fundBySymbol = new Map();
@@ -449,6 +549,21 @@ analysisRoutes.get('/performance', async (c) => {
         };
       }
 
+      const univSector = univSectorBySym.get(ep.symbol) || null;
+      const epConviction = computeConviction({
+        analysisType: ep.analysis_type,
+        status: peakStatus,
+        score: maxScore,
+        price: initialTrajectory.entry_price || peakSig.price || firstSig.price || 0,
+        reason: peakSig.reason || firstSig.reason || {},
+        fundScore: fundScore || 0,
+        fundReason,
+        universeSector: univSector,
+        lifecycleStatus: 'active',
+        upgradedToCandidate,
+        sectorLeadershipMap,
+      });
+
       return {
         id: `${ep.symbol}-${ep.analysis_type}-${ep.episode_number}-${startDate}`,
         symbol: ep.symbol,
@@ -472,7 +587,10 @@ analysisRoutes.get('/performance', async (c) => {
         peak_reason: peakSig.reason,
         fund_status: fundStatus,
         fund_score: fundScore,
-        sector: fundReason.sector || 'Unknown',
+        sector: epConviction.sector || univSector || fundReason.sector || 'Unknown',
+        conviction: epConviction,
+        conviction_score: epConviction.score,
+        conviction_tier: epConviction.tier,
         market_cap_bucket: fundReason.market_cap_bucket || 'Unknown',
         wheel_fit: fundReason.wheel_fit || null,
         has_net_cash: Boolean(fundReason.has_net_cash),

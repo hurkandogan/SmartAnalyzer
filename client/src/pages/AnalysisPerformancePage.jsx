@@ -20,7 +20,9 @@ import {
   RefreshCw,
   Briefcase,
   DollarSign,
+  Radio,
 } from 'lucide-react';
+import MarketStatusCockpit from '../components/MarketStatusCockpit';
 import {
   createChart,
   CandlestickSeries,
@@ -108,6 +110,39 @@ function MyTradeBadge({ myTrade }) {
       title={`Closed Swing Trade • Total Realized P&L: ${formatUsd(pnl, true)} (${formatPct(pct)})`}
     >
       <span>{isPositive ? '💰 Profit:' : '🛑 Loss:'} {formatUsd(pnl, true)} ({formatPct(pct)})</span>
+    </span>
+  );
+}
+
+function ConvictionBadge({ ep }) {
+  const conv = ep?.conviction || ep?.initial_reason?.conviction;
+  const tier = ep?.conviction_tier || conv?.tier;
+  const score = ep?.conviction_score ?? conv?.score;
+  if (!tier || score === undefined || score === null) return null;
+
+  const b = conv?.breakdown || {};
+  const tooltip = `5-Pillar Conviction: ${score}/100 (${tier})\n• Sector Wind: ${b.sector?.score ?? 0}/20 (${b.sector?.label || ''})\n• ADR% Fuel: ${b.adr?.score ?? 0}/20 (${b.adr?.label || ''})\n• Tight + Vol: ${b.tight_vol?.score ?? 0}/25 (${b.tight_vol?.label || ''})\n• Stop & R:R: ${b.risk?.score ?? 0}/20 (${b.risk?.label || ''})\n• Catalyst & RS: ${b.catalyst?.score ?? 0}/15 (${b.catalyst?.label || ''})`;
+
+  const style =
+    tier === 'A+'
+      ? 'bg-amber-500/25 text-amber-200 border-amber-400/50 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+      : tier === 'A'
+        ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40'
+        : tier === 'B'
+          ? 'bg-sky-500/15 text-sky-200 border-sky-500/30'
+          : 'bg-white/5 text-white/45 border-white/10';
+
+  const icon = tier === 'A+' ? '🏆' : tier === 'A' ? '🔥' : tier === 'B' ? '⚡' : '•';
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-black border ${style}`}
+      title={tooltip}
+    >
+      <span>{icon}</span>
+      <span>{tier}</span>
+      <span className="opacity-60">•</span>
+      <span>{score}</span>
     </span>
   );
 }
@@ -532,6 +567,7 @@ function EpisodeChartModal({ episode, allSymbolEpisodes, onClose, navigate }) {
             >
               {episode.peak_status} (Entry: {episode.initial_score} • Max: {episode.max_score})
             </span>
+            <ConvictionBadge ep={episode} />
             {!isEarlySurf && r.is_tight && (
               <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-teal-500/15 text-teal-300 border border-teal-500/25">
                 Tight Flag ✅
@@ -945,9 +981,10 @@ export default function AnalysisPerformancePage() {
   const [error, setError] = useState(null);
 
   // Controls & Filters
-  const [activeStrategyTab, setActiveStrategyTab] = useState('qullamaggie'); // 'qullamaggie' | 'early_surf' | 'my_portfolio' | 'fundamentals'
+  const [activeStrategyTab, setActiveStrategyTab] = useState('status'); // 'status' | 'qullamaggie' | 'early_surf' | 'my_portfolio' | 'fundamentals'
   const [gapDays, setGapDays] = useState(10);
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'candidate' | 'watch' | 'upgraded' | 'direct_candidate'
+  const [convictionFilter, setConvictionFilter] = useState('all'); // 'all' | 'a_plus' | 'a_and_up'
   const [traitFilter, setTraitFilter] = useState('all');
   const [returnMode, setReturnMode] = useState('close'); // 'close' | 'peak'
   const [entryBasis, setEntryBasis] = useState('first_alert'); // 'first_alert' | 'candidate_trigger'
@@ -1105,7 +1142,7 @@ export default function AnalysisPerformancePage() {
 
   const myPortfolio = rawData.my_portfolio_analysis || null;
 
-  // 1. Base filtered episodes (Strategy + Year & Month date filter + Status/Trait filters)
+  // 1. Base filtered episodes (Strategy + Year & Month date filter + Status/Trait/Conviction filters)
   const filteredEpisodes = useMemo(() => {
     return (rawData.episodes || []).filter((ep) => {
       if (ep.analysis_type !== strategyEpisodeType) return false;
@@ -1124,6 +1161,10 @@ export default function AnalysisPerformancePage() {
       if (statusFilter === 'watch' && ep.peak_status !== 'watch') return false;
       if (statusFilter === 'upgraded' && !ep.upgraded_to_candidate) return false;
 
+      const cTier = ep.conviction_tier || ep.conviction?.tier || 'C';
+      if (convictionFilter === 'a_plus' && cTier !== 'A+') return false;
+      if (convictionFilter === 'a_and_up' && cTier !== 'A+' && cTier !== 'A') return false;
+
       if (strategyEpisodeType === 'qullamaggie') {
         if (traitFilter === 'tight' && !ep.initial_reason?.is_tight) return false;
         if (traitFilter === 'dry' && !ep.initial_reason?.is_dry) return false;
@@ -1141,7 +1182,20 @@ export default function AnalysisPerformancePage() {
       if (onlyMyTraded && !ep.my_trade) return false;
       return true;
     });
-  }, [rawData.episodes, strategyEpisodeType, selectedYear, selectedMonths, statusFilter, traitFilter, onlyMultiWave, onlyMyTraded]);
+  }, [rawData.episodes, strategyEpisodeType, selectedYear, selectedMonths, statusFilter, convictionFilter, traitFilter, onlyMultiWave, onlyMyTraded]);
+
+  // Top 3 Trigger Candidates from the latest active session for the current strategy
+  const topConvictionCandidates = useMemo(() => {
+    const allForStrategy = (rawData.episodes || []).filter((e) => e.analysis_type === strategyEpisodeType);
+    if (allForStrategy.length === 0) return [];
+    const latestEnd = allForStrategy.reduce((max, e) => (e.end_date > max ? e.end_date : max), '');
+    const activeWaves = allForStrategy.filter((e) => e.end_date === latestEnd);
+    const pool = activeWaves.length > 0 ? activeWaves : filteredEpisodes;
+    const cands = pool.filter((e) => e.peak_status === 'candidate');
+    return [...(cands.length > 0 ? cands : pool)]
+      .sort((a, b) => Number(b.conviction_score ?? b.conviction?.score ?? 0) - Number(a.conviction_score ?? a.conviction?.score ?? 0))
+      .slice(0, 3);
+  }, [rawData.episodes, filteredEpisodes, strategyEpisodeType]);
 
   // Raw signal alert count & pending 0d count within filteredEpisodes
   const filteredSignalAlertCount = useMemo(
@@ -1235,10 +1289,34 @@ export default function AnalysisPerformancePage() {
       ),
     ];
 
+    const byConviction = [
+      makeRow(
+        '🏆 A+ Prime Conviction (≥ 85 pts)',
+        'bg-amber-500/25 text-amber-200 border-amber-400/50',
+        (e) => (e.conviction_tier || e.conviction?.tier) === 'A+'
+      ),
+      makeRow(
+        '🔥 A Strong Conviction (74 - 84 pts)',
+        'bg-emerald-500/20 text-emerald-300 border-emerald-500/35',
+        (e) => (e.conviction_tier || e.conviction?.tier) === 'A'
+      ),
+      makeRow(
+        '⚡ B Solid Conviction (62 - 73 pts)',
+        'bg-sky-500/20 text-sky-300 border-sky-500/30',
+        (e) => (e.conviction_tier || e.conviction?.tier) === 'B'
+      ),
+      makeRow(
+        '• C Lower Conviction (< 62 pts)',
+        'bg-slate-500/20 text-slate-300 border-slate-500/30',
+        (e) => !['A+', 'A', 'B'].includes(e.conviction_tier || e.conviction?.tier)
+      ),
+    ];
+
     if (strategyEpisodeType === 'early_surf') {
       return {
         byStatus,
         byScore,
+        byConviction,
         bySetupMechanics: [
           makeRow(
             'Tight SMA50 Pinch (-1% to +2.5%)',
@@ -1289,6 +1367,7 @@ export default function AnalysisPerformancePage() {
     return {
       byStatus,
       byScore,
+      byConviction,
       bySetupMechanics: [
         makeRow(
           'Tight + Volume Dry-Up Combo',
@@ -1435,6 +1514,11 @@ export default function AnalysisPerformancePage() {
       if (sortBy === 'start_date') return a.start_date.localeCompare(b.start_date) * dir;
       if (sortBy === 'alert_days') return (a.alert_days - b.alert_days) * dir;
       if (sortBy === 'max_score') return (a.initial_score - b.initial_score) * dir;
+      if (sortBy === 'conviction_score') {
+        const ca = Number(a.conviction_score ?? a.conviction?.score ?? 0);
+        const cb = Number(b.conviction_score ?? b.conviction?.score ?? 0);
+        return (ca - cb) * dir;
+      }
       if (sortBy === 'mfe') return ((ta.mfe ?? -999) - (tb.mfe ?? -999)) * dir;
       if (sortBy === 'mae') return ((ta.mae ?? -999) - (tb.mae ?? -999)) * dir;
       if (['3d', '1w', '1m', '3m', 'overall'].includes(sortBy)) {
@@ -1515,6 +1599,17 @@ export default function AnalysisPerformancePage() {
         {/* Top Strategy Tabs */}
         <div className="flex flex-wrap items-center gap-2 bg-black/40 p-1.5 rounded-xl border border-white/10 w-fit">
           <button
+            onClick={() => handleSelectStrategyTab('status')}
+            className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              activeStrategyTab === 'status'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-600/25'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Radio size={15} />
+            <span>Status</span>
+          </button>
+          <button
             onClick={() => handleSelectStrategyTab('qullamaggie')}
             className={`px-5 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer flex items-center gap-2 ${
               activeStrategyTab === 'qullamaggie'
@@ -1572,7 +1667,9 @@ export default function AnalysisPerformancePage() {
         </div>
       </div>
 
-      {activeStrategyTab === 'my_portfolio' ? (
+      {activeStrategyTab === 'status' ? (
+        <MarketStatusCockpit onNavigateStrategy={handleSelectStrategyTab} />
+      ) : activeStrategyTab === 'my_portfolio' ? (
         <MyPortfolioAnalyticsView
           myPortfolio={myPortfolio}
           episodes={rawData.episodes || []}
@@ -1952,6 +2049,27 @@ export default function AnalysisPerformancePage() {
                   ))}
                 </div>
 
+                {/* 5-Pillar Conviction Filter */}
+                <div className="flex flex-wrap items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5">
+                  {[
+                    { id: 'all', label: 'All Conviction Tiers' },
+                    { id: 'a_plus', label: '🏆 A+ Prime (≥85)' },
+                    { id: 'a_and_up', label: '🔥 A+ & A Tiers (≥74)' },
+                  ].map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => setConvictionFilter(c.id)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                        convictionFilter === c.id
+                          ? 'bg-amber-500/25 text-amber-200 border border-amber-400/50 shadow'
+                          : 'text-white/55 hover:text-white'
+                      }`}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+
                 {/* Technical Setup Trait Filter */}
                 <div className="flex flex-wrap items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/5">
                   {(strategyEpisodeType === 'early_surf'
@@ -2026,6 +2144,84 @@ export default function AnalysisPerformancePage() {
         </div>
       ) : (
         <>
+          {/* Today's Top 3 Trigger Candidates Spotlight (5-Pillar Conviction Ranker) */}
+          {topConvictionCandidates.length > 0 && (
+            <div className="bg-gradient-to-br from-amber-500/[0.08] via-[#121218] to-emerald-500/[0.05] border border-amber-500/25 rounded-2xl p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3.5">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xl">🏆</span>
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-wider text-amber-300">
+                      Today&apos;s Top 3 Trigger Candidates — 5-Pillar Conviction Ranker ({strategyEpisodeType === 'early_surf' ? 'Early Surf' : 'Qullamaggie'})
+                    </h3>
+                    <p className="text-xs text-white/50">
+                      Highest-probability setups scored across Sector Wind (20), ADR% Fuel (20), Tightness &amp; Vol Dry-Up (25), Stop R:R (20), and Catalyst/RS (15)
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
+                {topConvictionCandidates.map((ep, idx) => {
+                  const conv = ep.conviction || {};
+                  const b = conv.breakdown || {};
+                  return (
+                    <div
+                      key={ep.id}
+                      onClick={() => setSelectedEpisode(ep)}
+                      className="bg-black/45 hover:bg-black/60 border border-white/10 hover:border-amber-400/40 rounded-xl p-4 flex flex-col justify-between gap-3 transition-all cursor-pointer"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-mono font-bold text-amber-400">#{idx + 1}</span>
+                            <span className="text-lg font-black text-white">{ep.symbol}</span>
+                            <ConvictionBadge ep={ep} />
+                            <MyTradeBadge myTrade={ep.my_trade} />
+                          </div>
+                          <div className="text-xs text-white/50 mt-0.5">
+                            {ep.sector}
+                            {conv.sector_rank ? ` (Sector Rank #${conv.sector_rank})` : ''} • Algo Score: <b>{ep.max_score}</b>
+                          </div>
+                        </div>
+
+                        <div className="text-right font-mono">
+                          <div className="text-sm font-bold text-white">${ep.latest_price ?? ep.entry_price ?? '—'}</div>
+                          <div className="text-[10px] text-emerald-300">
+                            Stop: ${conv.suggested_stop ?? '—'} ({conv.risk_pct ?? '—'}% risk)
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-5 gap-1.5 text-[10px] font-mono text-center">
+                        <div className="bg-white/5 rounded-lg py-1.5 border border-white/5">
+                          <div className="text-white/40">Sector</div>
+                          <div className="text-white font-bold">{b.sector?.score ?? 0}/20</div>
+                        </div>
+                        <div className="bg-white/5 rounded-lg py-1.5 border border-white/5">
+                          <div className="text-white/40">ADR%</div>
+                          <div className="text-white font-bold">{b.adr?.score ?? 0}/20</div>
+                        </div>
+                        <div className="bg-white/5 rounded-lg py-1.5 border border-white/5">
+                          <div className="text-white/40">Tight+Vol</div>
+                          <div className="text-white font-bold">{b.tight_vol?.score ?? 0}/25</div>
+                        </div>
+                        <div className="bg-white/5 rounded-lg py-1.5 border border-white/5">
+                          <div className="text-white/40">Stop/R:R</div>
+                          <div className="text-white font-bold">{b.risk?.score ?? 0}/20</div>
+                        </div>
+                        <div className="bg-white/5 rounded-lg py-1.5 border border-white/5">
+                          <div className="text-white/40">RS/Cat</div>
+                          <div className="text-white font-bold">{b.catalyst?.score ?? 0}/15</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Executive KPI Strip */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
             <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-4 min-h-[135px] flex flex-col justify-between">
@@ -2327,26 +2523,33 @@ export default function AnalysisPerformancePage() {
                 <span>What Works vs What Doesn&apos;t — Technical Factor Attribution ({activeHorizonLabel})</span>
               </h3>
               <p className="text-xs text-white/45 mt-1">
-                Unbiased entry-day factor attribution across signal statuses, initial entry score tiers, and technical criteria (separating pre-upgrade survivorship bias from true post-upgrade returns).
+                Unbiased entry-day factor attribution across signal statuses, 5-Pillar Conviction tiers, initial entry score tiers, and technical criteria.
               </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="md:col-span-2">
+                <FactorCard
+                  title="1. 5-Pillar Conviction Ranker Tiers (A+ Prime • A Strong • B Solid • C Watch)"
+                  subtitle="Forward returns grouped by composite 5-Pillar Conviction Tier (Sector Wind + ADR% Fuel + Tightness/Vol + Stop R:R + Catalyst/RS)"
+                  rows={factorAnalysis.byConviction}
+                />
+              </div>
               <FactorCard
-                title="1. Signal Status & Upgrade Bias Audit"
+                title="2. Signal Status & Upgrade Bias Audit"
                 subtitle="Direct Candidates vs Initial Watch vs Watch → Candidate (measured both from Upgrade Day and Day 1)"
                 rows={factorAnalysis.byStatus}
               />
               <FactorCard
-                title="2. Entry-Day Score Tiers (Unbiased Initial Score)"
+                title="3. Entry-Day Score Tiers (Unbiased Initial Score)"
                 subtitle="Forward returns grouped strictly by the score on Day 1 of the wave (no future peak-score leakage)"
                 rows={factorAnalysis.byScore}
               />
               <FactorCard
                 title={
                   strategyEpisodeType === 'early_surf'
-                    ? '3. Early Surf Mechanics (SMA50 Pinch, EMA Surf & RSI)'
-                    : '3. Technical Setup Mechanics (Tightness, Volume & RS)'
+                    ? '4. Early Surf Mechanics (SMA50 Pinch, EMA Surf & RSI)'
+                    : '4. Technical Setup Mechanics (Tightness, Volume & RS)'
                 }
                 subtitle={
                   strategyEpisodeType === 'early_surf'
@@ -2358,8 +2561,8 @@ export default function AnalysisPerformancePage() {
               <FactorCard
                 title={
                   strategyEpisodeType === 'early_surf'
-                    ? '4. ADR Fuel, RVOL Quietness & Alert Persistence'
-                    : '4. Alert Persistence & Moving Average Extension'
+                    ? '5. ADR Fuel, RVOL Quietness & Alert Persistence'
+                    : '5. Alert Persistence & Moving Average Extension'
                 }
                 subtitle={
                   strategyEpisodeType === 'early_surf'
@@ -2401,6 +2604,7 @@ export default function AnalysisPerformancePage() {
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-black text-white">{ep.symbol}</span>
+                          <ConvictionBadge ep={ep} />
                           {ep.total_episodes_for_symbol > 1 && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold">
                               Wave #{ep.episode_number}/{ep.total_episodes_for_symbol}
@@ -2470,6 +2674,7 @@ export default function AnalysisPerformancePage() {
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-black text-white">{ep.symbol}</span>
+                          <ConvictionBadge ep={ep} />
                           {ep.total_episodes_for_symbol > 1 && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold">
                               Wave #{ep.episode_number}/{ep.total_episodes_for_symbol}
@@ -2560,10 +2765,10 @@ export default function AnalysisPerformancePage() {
                       Signal Window
                     </th>
                     <th
-                      onClick={() => handleSort('max_score')}
-                      className="py-3.5 px-4 cursor-pointer hover:text-white"
+                      onClick={() => handleSort('conviction_score')}
+                      className="py-3.5 px-4 cursor-pointer hover:text-amber-300"
                     >
-                      Status &amp; Entry Score
+                      Conviction &amp; Score
                     </th>
                     <th className="py-3.5 px-4">Setup Traits</th>
                     <th className="py-3.5 px-4 text-right">Entry → Latest</th>
@@ -2652,6 +2857,7 @@ export default function AnalysisPerformancePage() {
 
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-1.5">
+                            <ConvictionBadge ep={ep} />
                             <span
                               className={`px-2 py-0.5 rounded font-bold uppercase text-[10px] ${
                                 ep.peak_status === 'candidate'
